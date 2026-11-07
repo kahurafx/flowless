@@ -26,6 +26,7 @@ pnpm check-types   # next typegen && tsc --noEmit
 - shadcn/ui uses the `base-nova` style built on `@base-ui/react`, not Radix — component APIs differ from Radix-based shadcn. Add components with `pnpm dlx shadcn@latest add <name>`; they land in `src/components/ui/`.
 - `cn` comes from the `cn` npm package (re-exported from `src/lib/utils.ts`), not `clsx` + `tailwind-merge`.
 - Icons: `lucide-react`.
-- Screens read data only through `src/data/<area>.ts` (one async function per screen). Until a procedure exists these return typed fixtures from `src/mocks/` (two canary tenants; switch with the org switcher). Swap the function body for the tRPC call in the PR that ships the procedure. See `docs/build-plan.md` → "UI track".
+- Screens read data only through `src/data/<area>.ts` (one async function per screen). Until a procedure exists these return typed fixtures from `src/mocks/` (keyed by organization slug; `src/mocks/tenants.ts` holds the mock settings and entitlements per slug). Swap the function body for the tRPC call in the PR that ships the procedure. See `docs/build-plan.md` → "UI track".
 - Request-time reads go inside `<Suspense>`. Anything that reads the clock calls `await connection()` first; `cookies()` alone does not make a subtree request-time under partial prefetching.
 - `/design` previews the tokens. Grids use `DataGrid` (`src/components/data-grid.tsx`, TanStack Table v9); money uses `MoneyText` and never converts to `number`.
+- Auth: Better Auth at `/api/auth/[...all]`, created lazily in `src/server/auth.ts`. `src/data/session.ts` reads the session and memberships and redirects to `/sign-in` or `/select-organization`. Client calls (sign-in, sign-out, switch organization) use `authClient` from `src/lib/auth-client.ts`.

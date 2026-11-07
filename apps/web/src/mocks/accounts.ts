@@ -1,62 +1,62 @@
 import { money, type AccountSummary, type StatementLine } from "@flowless/shared-types";
-import { TENANT_A, TENANT_B } from "./tenants";
+import { KILIMA, MAJI_SAFI } from "./tenants";
 
 /** Account master data. The balance is not here: it is derived from `ledger` (I-2). */
-export type MockAccount = Omit<AccountSummary, "balance"> & { organizationId: string; openingMinor: bigint };
+export type MockAccount = Omit<AccountSummary, "balance"> & { org: string; openingMinor: bigint };
 
 const kes = (amountMinor: bigint) => money(amountMinor, "KES");
 const at = (iso: string) => new Date(iso);
 
 export const accounts: readonly MockAccount[] = [
   {
-    organizationId: TENANT_A, id: "acc-1008", number: "1008-4", customerName: "Grace Njeri Mutua",
+    org: MAJI_SAFI, id: "acc-1008", number: "1008-4", customerName: "Grace Njeri Mutua",
     phone: "+254712345678", category: "Domestic", zone: "Kahawa West", route: "R-07",
     commercialStatus: "ACTIVE", service: { state: "CONNECTED" }, openingMinor: 0n,
   },
   {
     // Child account (C-02, C-07).
-    organizationId: TENANT_A, id: "acc-1008b", number: "1008B-1", customerName: "Grace Njeri Mutua (Shop)",
+    org: MAJI_SAFI, id: "acc-1008b", number: "1008B-1", customerName: "Grace Njeri Mutua (Shop)",
     phone: "+254712345678", category: "Commercial", zone: "Kahawa West", route: "R-07",
     commercialStatus: "ACTIVE", service: { state: "CONNECTED" }, openingMinor: 0n,
   },
   {
     // Placeholder phone at import becomes no phone (C-01).
-    organizationId: TENANT_A, id: "acc-1009", number: "1009-2", customerName: "St. Bakhita Girls' Secondary School Boarding Section",
+    org: MAJI_SAFI, id: "acc-1009", number: "1009-2", customerName: "St. Bakhita Girls' Secondary School Boarding Section",
     phone: null, category: "Institution", zone: "Githurai 45", route: "R-02",
     commercialStatus: "ACTIVE", service: { state: "CONNECTED" }, openingMinor: 1250000n,
   },
   {
-    organizationId: TENANT_A, id: "acc-1010", number: "1010-8", customerName: "Ali Hassan",
+    org: MAJI_SAFI, id: "acc-1010", number: "1010-8", customerName: "Ali Hassan",
     phone: "+254733000111", category: "Kiosk", zone: "Githurai 45", route: "R-02",
     commercialStatus: "ACTIVE", service: { state: "DISCONNECTED", reason: "Arrears over 90 days" }, openingMinor: 0n,
   },
   {
-    organizationId: TENANT_A, id: "acc-1011", number: "1011-5", customerName: "Mwende",
+    org: MAJI_SAFI, id: "acc-1011", number: "1011-5", customerName: "Mwende",
     phone: "+254700222333", category: "Domestic", zone: "Kahawa Sukari", route: "R-11",
     commercialStatus: "PENDING_PAYMENT", service: { state: "DISCONNECTED", reason: "Not yet connected" }, openingMinor: 0n,
   },
   {
-    organizationId: TENANT_A, id: "acc-1012", number: "1012-3", customerName: "Peter Kipchoge Langat",
+    org: MAJI_SAFI, id: "acc-1012", number: "1012-3", customerName: "Peter Kipchoge Langat",
     phone: "+254722444555", category: "Domestic", zone: "Kahawa Sukari", route: "R-11",
     commercialStatus: "DORMANT", service: { state: "DISCONNECTED", reason: "Successor account 1031-6" }, openingMinor: 0n,
   },
   {
-    organizationId: TENANT_A, id: "acc-1031", number: "1031-6", customerName: "Faith Wairimu Langat",
+    org: MAJI_SAFI, id: "acc-1031", number: "1031-6", customerName: "Faith Wairimu Langat",
     phone: "+254722444556", category: "Domestic", zone: "Kahawa Sukari", route: "R-11",
     commercialStatus: "ACTIVE", service: { state: "CONNECTED" }, openingMinor: 0n,
   },
   {
-    organizationId: TENANT_A, id: "acc-1040", number: "1040-9", customerName: "Kahawa Farmers Cooperative Irrigation Scheme",
+    org: MAJI_SAFI, id: "acc-1040", number: "1040-9", customerName: "Kahawa Farmers Cooperative Irrigation Scheme",
     phone: "+254711999888", category: "Farming", zone: "Kahawa West", route: "R-07",
     commercialStatus: "NEW", service: { state: "DISCONNECTED", reason: "Survey pending" }, openingMinor: 0n,
   },
   {
-    organizationId: TENANT_B, id: "acc-b-201", number: "201-7", customerName: "Kilima Primary School",
+    org: KILIMA, id: "acc-b-201", number: "201-7", customerName: "Kilima Primary School",
     phone: "+254755123456", category: "Institution", zone: "Kilima Juu", route: "K-1",
     commercialStatus: "ACTIVE", service: { state: "CONNECTED" }, openingMinor: 0n,
   },
   {
-    organizationId: TENANT_B, id: "acc-b-202", number: "202-4", customerName: "Mama Rehema Kiosk",
+    org: KILIMA, id: "acc-b-202", number: "202-4", customerName: "Mama Rehema Kiosk",
     phone: null, category: "Kiosk", zone: "Kilima Chini", route: "K-2",
     commercialStatus: "ACTIVE", service: { state: "CONNECTED" }, openingMinor: 0n,
   },

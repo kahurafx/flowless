@@ -1,16 +1,7 @@
 import { DropletsIcon } from "lucide-react";
-import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { SignInForm } from "./sign-in-form";
 
 export const metadata = { title: "Sign in" };
-
-/** Mock sign-in. Phase 1 (A1) posts to Better Auth, with MFA for staff (NF-05). */
-async function signIn() {
-  "use server";
-  redirect("/");
-}
 
 export default function SignInPage() {
   return (
@@ -21,22 +12,9 @@ export default function SignInPage() {
             <DropletsIcon className="size-5" />
           </span>
           <h1 className="text-2xl font-semibold">Sign in to Flowless</h1>
-          <p className="text-sm text-muted-foreground">Use your work email. Your organization is chosen after sign-in.</p>
+          <p className="text-sm text-muted-foreground">Use your work email. You choose the organization after signing in.</p>
         </div>
-        <form action={signIn} className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" autoComplete="username" required />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" name="password" type="password" autoComplete="current-password" required />
-          </div>
-          <Button type="submit" size="lg" className="mt-1">
-            Sign in
-          </Button>
-        </form>
-        <p className="text-center text-xs text-muted-foreground">Demo build: any credentials work.</p>
+        <SignInForm />
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckIcon, ChevronsUpDownIcon, DropletsIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import {
   DropdownMenu,
@@ -11,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
-import { switchOrganization } from "./actions";
+import { authClient } from "@/lib/auth-client";
 
 export function OrgSwitcher({
   active,
@@ -21,6 +22,16 @@ export function OrgSwitcher({
   memberships: readonly { id: string; name: string }[];
 }) {
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  // Better Auth checks membership and stores the choice on the session. Records from the
+  // old tenant mean nothing in the new one, so land on the overview.
+  const switchTo = (organizationId: string) =>
+    startTransition(async () => {
+      const { error } = await authClient.organization.setActive({ organizationId });
+      if (error) return;
+      router.push("/");
+      router.refresh();
+    });
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -43,7 +54,7 @@ export function OrgSwitcher({
               {memberships.map((org) => (
                 <DropdownMenuItem
                   key={org.id}
-                  onClick={() => org.id !== active.id && startTransition(() => switchOrganization(org.id))}
+                  onClick={() => org.id !== active.id && switchTo(org.id)}
                 >
                   <span className="truncate">{org.name}</span>
                   {org.id === active.id && <CheckIcon className="ml-auto" />}

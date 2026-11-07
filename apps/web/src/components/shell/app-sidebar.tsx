@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/sidebar";
 import { isActive, navFor } from "./nav";
 import { OrgSwitcher } from "./org-switcher";
+import { UserMenu } from "./user-menu";
 
 export function AppSidebar({
   entitlements,
@@ -27,7 +28,7 @@ export function AppSidebar({
   entitlements: Entitlements;
   organization: { id: string; name: string };
   memberships: readonly { id: string; name: string }[];
-  user: { name: string; role: string };
+  user: { name: string; email: string };
 }) {
   const pathname = usePathname();
   return (
@@ -56,10 +57,7 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <div className="flex flex-col px-2 py-1.5 text-xs group-data-[collapsible=icon]:hidden">
-          <span className="truncate font-medium text-sidebar-foreground">{user.name}</span>
-          <span className="truncate text-muted-foreground">{user.role}</span>
-        </div>
+        <UserMenu user={user} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
