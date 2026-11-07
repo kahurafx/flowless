@@ -3,6 +3,7 @@ import type { ModuleKey } from "@flowless/shared-types";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { loadEntitlements } from "./entitlement-store";
+import { raiseException, resolveByDedupeKey } from "./exception-store";
 
 /**
  * Event bus (K-09). Modules define events in their `events.ts` and publish them with
@@ -140,7 +141,22 @@ export async function dispatchOutbox(
               lastError: errors.join("; "),
               availableAt: new Date(Date.now() + backoffSeconds(row.attempts) * 1000),
             };
-    await withTenant(db, event.organizationId, (tx) => tx.update(outboxEvent).set(outcome).where(eq(outboxEvent.id, row.id)));
+    await withTenant(db, event.organizationId, async (tx) => {
+      await tx.update(outboxEvent).set(outcome).where(eq(outboxEvent.id, row.id));
+      // Zero silent failures (NF-24): a failed event is in the queue until a retry succeeds.
+      if (outcome.status === "failed") {
+        await raiseException(tx, event.organizationId, {
+          type: "EVENT_FAILURE",
+          source: "kernel",
+          title: `Event not delivered: ${row.type}`,
+          detail: `Gave up after ${row.attempts} attempts. ${outcome.lastError}`,
+          subject: { kind: "event", ref: row.id },
+          dedupeKey: `event:${row.id}`,
+        });
+      } else if (outcome.status === "done") {
+        await resolveByDedupeKey(tx, `event:${row.id}`, "Delivered on retry");
+      }
+    });
     result[outcome.status === "done" ? "done" : outcome.status === "failed" ? "failed" : "retrying"] += 1;
   }
   return result;

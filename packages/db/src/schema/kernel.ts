@@ -1,4 +1,4 @@
-import { AREA_LEVELS } from "@flowless/shared-types";
+import { AREA_LEVELS, EXCEPTION_STATUSES } from "@flowless/shared-types";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -11,6 +11,7 @@ import {
   integer,
   jsonb,
   pgPolicy,
+  uniqueIndex,
   pgSchema,
   primaryKey,
   text,
@@ -292,4 +293,89 @@ export const consumerReceipt = kernel.table(
     processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.consumer, t.eventId] }), tenantPolicy(t.organizationId)],
+);
+
+/**
+ * The exception queue (X-02, NF-24): everything that needs a person. Modules raise
+ * exceptions with `raiseException` (packages/api); the kernel raises background
+ * failures. Age is derived from `raised_at` when read, never stored. While open, one row
+ * per `dedupe_key`: raising the same problem again counts an occurrence instead of
+ * adding a row. `owner_user_id` falls back to null when the owner leaves (custom FK in
+ * `0013_kernel_exception_owner.sql`). `area_id`/`route_id` place it for scope (K-03).
+ */
+export const exception = kernel.table(
+  "exception",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    /** EXCEPTION_TYPES in shared-types. */
+    type: text("type").notNull(),
+    /** The module that raised it, or "kernel". */
+    source: text("source").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull().default(""),
+    subjectKind: text("subject_kind").notNull(),
+    subjectRef: text("subject_ref").notNull(),
+    areaId: uuid("area_id"),
+    routeId: uuid("route_id"),
+    ownerUserId: uuid("owner_user_id"),
+    status: text("status", { enum: EXCEPTION_STATUSES }).notNull().default("open"),
+    dedupeKey: text("dedupe_key"),
+    occurrences: integer("occurrences").notNull().default(1),
+    raisedAt: timestamp("raised_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: uuid("resolved_by_user_id"),
+    resolutionNote: text("resolution_note"),
+  },
+  (t) => [
+    check("exception_status_valid", sql`${t.status} in ('open', 'in_progress', 'resolved')`),
+    uniqueIndex("exception_open_dedupe_unique").on(t.organizationId, t.dedupeKey).where(sql`${t.status} <> 'resolved'`),
+    index("exception_queue_idx").on(t.organizationId, t.status, t.raisedAt),
+    index("exception_owner_idx").on(t.organizationId, t.ownerUserId),
+    foreignKey({ name: "exception_area_fk", columns: [t.organizationId, t.areaId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "exception_route_fk", columns: [t.organizationId, t.routeId], foreignColumns: [route.organizationId, route.id] }),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+export const JOB_STATUSES = ["queued", "running", "done", "failed"] as const;
+
+/**
+ * Queued background work (NF-12): billing runs, imports, reconciliation, messaging.
+ * Enqueued with `ctx.enqueue` in the transaction that asks for it, claimed by
+ * `apps/worker` through `kernel.claim_jobs()`, retried with backoff, and raised as a
+ * JOB_FAILURE exception owned by whoever queued it after the last attempt (NF-24).
+ */
+export const job = kernel.table(
+  "job",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    type: text("type").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
+    /** Queued jobs start at `run_at`; running jobs are leased until it. */
+    runAt: timestamp("run_at", { withTimezone: true }).notNull().defaultNow(),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    /** A stable key from the requester: enqueueing the same work twice is a no-op. */
+    idempotencyKey: text("idempotency_key"),
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    result: jsonb("result"),
+  },
+  (t) => [
+    check("job_status_valid", sql`${t.status} in ('queued', 'running', 'done', 'failed')`),
+    uniqueIndex("job_idempotency_unique").on(t.organizationId, t.type, t.idempotencyKey),
+    index("job_due_idx").on(t.runAt).where(sql`${t.status} in ('queued', 'running')`),
+    tenantPolicy(t.organizationId),
+  ],
 );

@@ -85,6 +85,20 @@
       "when": 1794077321932,
       "tag": "0011_kernel_outbox_claim",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794078217213,
+      "tag": "0012_kernel_exceptions_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794078218037,
+      "tag": "0013_kernel_exception_owner",
+      "breakpoints": true
     }
   ]
 }

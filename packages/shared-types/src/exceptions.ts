@@ -1,17 +1,27 @@
 import type { ModuleKey } from "./modules";
 
-/** Exception queues, the main operational UI (X-02), plus job failures (NF-24). */
-export type ExceptionType =
-  | "UNBILLED_ACCOUNT"
-  | "READING_EXCEPTION"
-  | "UNMATCHED_PAYMENT"
-  | "UNDELIVERED_MESSAGE"
-  | "STALE_ACTIVATION"
-  | "STUCK_COMMITMENT"
-  | "NO_BASELINE"
-  | "JOB_FAILURE";
+/**
+ * Exception queues, the main operational UI (X-02), plus background failures (NF-24).
+ * A module adds its types here when it ships; the kernel raises the failure types.
+ */
+export const EXCEPTION_TYPES = [
+  "UNBILLED_ACCOUNT",
+  "READING_EXCEPTION",
+  "UNMATCHED_PAYMENT",
+  "UNDELIVERED_MESSAGE",
+  "STALE_ACTIVATION",
+  "STUCK_COMMITMENT",
+  "NO_BASELINE",
+  "JOB_FAILURE",
+  "EVENT_FAILURE",
+] as const;
+export type ExceptionType = (typeof EXCEPTION_TYPES)[number];
 
-export type ExceptionStatus = "open" | "in_progress" | "resolved";
+export const EXCEPTION_STATUSES = ["open", "in_progress", "resolved"] as const;
+export type ExceptionStatus = (typeof EXCEPTION_STATUSES)[number];
+
+export const EXCEPTION_SUBJECT_KINDS = ["account", "payment", "message", "job", "event"] as const;
+export type ExceptionSubjectKind = (typeof EXCEPTION_SUBJECT_KINDS)[number];
 
 export interface ExceptionItem {
   id: string;
@@ -21,11 +31,17 @@ export interface ExceptionItem {
   title: string;
   detail: string;
   /** What the exception is about, for linking (account number, payment reference, ...). */
-  subject: { kind: "account" | "payment" | "message" | "job"; ref: string };
+  subject: { kind: ExceptionSubjectKind; ref: string };
   /** Every exception has an owner (NF-24); null only while unassigned in a team queue. */
   owner: { id: string; name: string } | null;
   raisedAt: Date;
   status: ExceptionStatus;
+  /** How many times the same problem was raised while this stayed open. */
+  occurrences: number;
+  /** Background failures can be retried from the queue. */
+  retryable: boolean;
+  /** Fixture data shown until the raising module exists (UI track). */
+  demo?: boolean;
 }
 
 export type AgeBucket = "fresh" | "ageing" | "overdue";

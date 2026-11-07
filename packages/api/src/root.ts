@@ -2,6 +2,7 @@ import { ping } from "@flowless/db";
 import { accessRouter } from "./kernel/access";
 import { auditRouter } from "./kernel/audit";
 import { entitlementsRouter } from "./kernel/entitlements";
+import { exceptionsRouter } from "./kernel/exceptions";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
@@ -17,6 +18,7 @@ export const appRouter = router({
   hierarchy: hierarchyRouter,
   entitlements: entitlementsRouter,
   audit: auditRouter,
+  exceptions: exceptionsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import superjson from "superjson";
 import { loadEntitlements } from "./kernel/entitlement-store";
 import type { EventDef } from "./kernel/events";
+import { enqueueJob, type EnqueueOptions, type JobDef } from "./kernel/jobs";
 import { loadScope } from "./kernel/scope";
 
 /**
@@ -43,7 +44,8 @@ export const publicProcedure = t.procedure;
  * as `ctx.scope()` (scope restrictions, K-03), and the licensed modules as
  * `ctx.entitlements()` (K-04). Both load on first use. `ctx.audit(note)` appends to the
  * audit log in the same transaction, so the entry commits only with the change (K-06).
- * `ctx.publish(event, payload)` writes to the outbox the same way (K-09). The tenant is the caller's membership, and it
+ * `ctx.publish(event, payload)` writes to the outbox the same way (K-09), and
+ * `ctx.enqueue(job, payload)` queues background work owned by the caller (NF-12, NF-24). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -93,6 +95,8 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
             payload: event.schema.parse(payload),
             id: options.id,
           }),
+        enqueue: <T>(def: JobDef<T>, payload: T, options: Omit<EnqueueOptions, "createdByUserId"> = {}) =>
+          enqueueJob(tx, organizationId, def, payload, { ...options, createdByUserId: session.user.id }),
       },
     });
     if (!result.ok) throw result.error;

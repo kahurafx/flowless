@@ -4,3 +4,5 @@ export { clientErrorMessage, type AuditNote, type Context, type Session } from "
 export { setEntitlements } from "./kernel/entitlement-store";
 export { consumers } from "./kernel/consumers";
 export { dispatchOutbox, drainOutbox, replayEvents, type Consumer, type DispatchResult } from "./kernel/events";
+export { jobs } from "./kernel/job-registry";
+export { defineJob, runJobs, type JobDef, type JobRunResult } from "./kernel/jobs";

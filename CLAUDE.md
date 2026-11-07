@@ -46,7 +46,7 @@ Env lives in the root `.env`. `apps/web` loads it with `process.loadEnvFile` in 
   - `db` — Drizzle schema per module, migrations, runtime roles, RLS policies, `withTenant`.
   - `auth` — Better Auth (organization + twoFactor plugins); owns the `auth` Postgres schema, generated into `packages/db/src/schema/auth.ts` by `pnpm --filter @flowless/auth auth:generate`.
   - `seed` — `pnpm db:seed`: dev data, identities from `@flowless/auth/dev-seed`, everything else through the API as the owner.
-  - `network` (planned, Phase 2) — pure graph traces shared by API, web and mobile. `billing-engine` (planned, Phase 4) — pure billing library, no I/O. `apps/worker` — outbox dispatcher (A6); queued jobs come with A7.
+  - `network` (planned, Phase 2) — pure graph traces shared by API, web and mobile. `billing-engine` (planned, Phase 4) — pure billing library, no I/O. `apps/worker` — outbox dispatcher and job runner.
 - Target layout and module boundary rules: `docs/build-plan.md` → "Code layout". Follow it when adding code; update it in the same change if the layout has to move.
   - `typescript-config` — `base.json` (strict, `noUncheckedIndexedAccess`, Bundler resolution, `noEmit`); packages extend it. The apps use their own framework tsconfigs instead.
   - `eslint-config` — flat config exported as `@flowless/eslint-config/base`; packages re-export it from `eslint.config.js`. Web uses `eslint-config-next` instead.
