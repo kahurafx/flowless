@@ -1,4 +1,6 @@
+import { auditLog } from "@flowless/db";
 import { startTestDatabase, type TestDatabase } from "@flowless/db/testing";
+import { and, asc, eq } from "drizzle-orm";
 import { PERMISSION_STATEMENTS, ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
 import { defaultStatements } from "better-auth/plugins/organization/access";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -195,3 +197,53 @@ async function memberId(userId: string) {
   const rows = await t.admin.execute<{ id: string }>(`select id from auth.member where user_id = '${userId}'`);
   return rows[0]?.id;
 }
+
+// K-06: identity events land in the tenant's audit log.
+describe("audit", () => {
+  const entries = (organizationId: string, action: string) =>
+    t.admin
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.organizationId, organizationId), eq(auditLog.action, action)))
+      .orderBy(asc(auditLog.chainIndex));
+
+  it("records sign-ins and refused sign-ins, with the source and address", async () => {
+    const { org, owner } = await onboard("papa");
+    await auth.api.signInEmail({
+      body: { email: "owner@papa.test", password },
+      headers: new Headers({ [ORGANIZATION_CODE_HEADER]: "papa", "x-flowless-client": "web", "x-forwarded-for": "197.248.1.5, 10.0.0.1" }),
+    });
+    await expect(signInEmail("papa", "owner@papa.test", "wrong password!")).rejects.toBeTruthy();
+
+    const [signedIn] = await entries(org.id, "auth.sign_in");
+    expect(signedIn).toMatchObject({ actorUserId: owner.id, source: "web", ipAddress: "197.248.1.5", after: { method: "sign-in/email" } });
+    const [refused] = await entries(org.id, "auth.sign_in_failed");
+    expect(refused).toMatchObject({ actorUserId: null, actorLabel: "owner@papa.test", reason: "Wrong password", source: "api" });
+  });
+
+  it("records an attempt under another organization's code in that organization", async () => {
+    await onboard("quebec");
+    const { org: romeo } = await onboard("romeo");
+    await expect(signInEmail("romeo", "owner@quebec.test")).rejects.toBeTruthy();
+    const [refused] = await entries(romeo.id, "auth.sign_in_failed");
+    expect(refused).toMatchObject({ actorLabel: "owner@quebec.test", reason: "Not an administrator of this organization" });
+  });
+
+  it("records member changes with who made them and the role before and after", async () => {
+    const { org, owner } = await onboard("sierra");
+    const staff = await addStaff("sierra", org.id, "kamau", "cashier");
+    const added = (await entries(org.id, "member.add")).find((e) => e.subjectId === staff.id);
+    expect((await entries(org.id, "organization.create"))[0]).toMatchObject({ after: { code: "sierra", owner: "owner@sierra.test" } });
+    expect(added).toMatchObject({ source: "system", actorUserId: null, actorLabel: "Flowless", subjectId: staff.id, after: { role: "cashier" } });
+
+    const ownerCookie = cookieFrom((await signInEmail("sierra", "owner@sierra.test")).headers);
+    await auth.api.updateMemberRole({ headers: ownerCookie, body: { memberId: (await memberId(staff.id))!, role: "accountant" } });
+    const [changed] = await entries(org.id, "member.change_role");
+    expect(changed).toMatchObject({
+      actorUserId: owner.id,
+      subjectId: staff.id,
+      before: { role: "cashier" },
+      after: { role: "accountant" },
+    });
+  });
+});
