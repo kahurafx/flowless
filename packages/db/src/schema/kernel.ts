@@ -1,6 +1,22 @@
 import { AREA_LEVELS } from "@flowless/shared-types";
-import { type AnyPgColumn, char, foreignKey, index, pgSchema, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
-import { tenantPolicy } from "../tenant";
+import { sql } from "drizzle-orm";
+import {
+  type AnyPgColumn,
+  bigint,
+  char,
+  customType,
+  foreignKey,
+  index,
+  jsonb,
+  pgPolicy,
+  pgSchema,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
+import { authRole, tenantPolicy } from "../tenant";
 import { member, organization } from "./auth";
 
 /** Kernel module tables (requirements §4.1). */
@@ -174,4 +190,49 @@ export const organizationModule = kernel.table(
     licensedAt: timestamp("licensed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.organizationId, t.module] }), tenantPolicy(t.organizationId)],
+);
+
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
+/**
+ * The audit log (K-06, NF-07): who did what, when, to which record, before and after,
+ * and from where. Append-only: the app role may only insert and read (grants in
+ * `0009_kernel_audit_append_only.sql`), and the auth role may only insert, so Better Auth
+ * events land here too. Tamper-evident: a trigger chains each organization's rows with
+ * SHA-256 (`chain_index`, `prev_hash`, `hash`); `kernel.verify_audit_chain()` re-checks it.
+ */
+export const auditLog = kernel.table(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Null for system actions (jobs, onboarding) and failed sign-ins. */
+    actorUserId: uuid("actor_user_id"),
+    /** Name or identifier at the time, so the entry reads correctly after the user changes. */
+    actorLabel: text("actor_label"),
+    /** web, mobile, api, import or system (AUDIT_SOURCES). */
+    source: text("source").notNull(),
+    /** "<area>.<verb>", e.g. "access.grant", "auth.sign_in_failed". */
+    action: text("action").notNull(),
+    subjectType: text("subject_type"),
+    subjectId: text("subject_id"),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    reason: text("reason"),
+    ipAddress: text("ip_address"),
+    // Filled by the kernel.audit_chain trigger; never set by callers.
+    chainIndex: bigint("chain_index", { mode: "bigint" }).notNull().default(sql`0`),
+    prevHash: bytea("prev_hash"),
+    hash: bytea("hash"),
+  },
+  (t) => [
+    unique("audit_log_chain_unique").on(t.organizationId, t.chainIndex),
+    index("audit_log_recent_idx").on(t.organizationId, t.occurredAt.desc()),
+    index("audit_log_subject_idx").on(t.organizationId, t.subjectType, t.subjectId),
+    tenantPolicy(t.organizationId),
+    pgPolicy("auth_insert", { for: "insert", to: authRole, withCheck: sql`true` }),
+  ],
 );

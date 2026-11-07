@@ -57,6 +57,20 @@
       "when": 1794075672762,
       "tag": "0007_kernel_entitlements",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794076252084,
+      "tag": "0008_kernel_audit_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794076252808,
+      "tag": "0009_kernel_audit_append_only",
+      "breakpoints": true
     }
   ]
 }

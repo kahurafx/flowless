@@ -69,6 +69,7 @@ These rules turn the CLAUDE.md rules into code. Each one is enforced by a check,
 
 | Rule | Enforced by |
 | --- | --- |
+| The auth role's only access outside `auth` is `INSERT` on `kernel.audit_log` (policy `auth_insert`), so identity events are audited (K-06); it can read nothing there. | grants in `0009_kernel_audit_append_only.sql`; audit tests |
 | The `auth` schema is the one exception to tenant RLS: Better Auth must work before any tenant is known (sign-in, invitations). It is isolated by role instead: `flowless_auth` reaches only `auth`, `flowless_app` never does, and only `packages/auth` imports `@flowless/db/auth-schema`. Modules learn about organizations through events, never by reading `auth.*`. | per-schema grants in migrations; role-separation tests; ESLint import ban outside `packages/auth` |
 | Every request runs inside `withTenant`. That sets `app.organization_id` for the transaction, and RLS does the rest (K-01, NF-01). No procedure or job gets the raw connection. | `tenantProcedure`, the app DB role without `BYPASSRLS`, isolation canary test (NF-02) |
 | Every module procedure checks the module's entitlement on the server (K-04, NF-03). | `moduleProcedure(module)` is the only builder module routers may use |
@@ -115,7 +116,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Default roles with permission arrays plus per-member extra permissions (K-03, done in A2). Scope restrictions (K-03, done in A3): a member limited to areas and routes covers everything below them; no restriction rows means the whole organization; modules filter with `ctx.scope()` and `scopeCovers`. Support access (K-12) as a kernel table.
 - `tenantProcedure` and `moduleProcedure` builders as the entitlement guard for routes and reports (K-04, done in A4): licences are rows in `kernel.organization_module`, set only server-side by Flowless (`setEntitlements`, which rejects modules whose hard dependencies in `MODULE_REQUIRES` are missing); an unlicensed module answers NOT_FOUND before permissions are checked.
 - Generic approval engine.
-- Audit log.
+- Audit log (K-06, NF-07, done in A5): `kernel.audit_log`, insert-only for the app role and the auth role, hash-chained per organization by a trigger and checked by `kernel.verify_audit_chain()`. Procedures write `ctx.audit(...)` in the same transaction as the change; Better Auth hooks record sign-ins (including refused ones), member, invitation and account changes. Each entry has actor, source (web, mobile, api, import, system), before and after.
 - Outbox, with a dispatcher in `apps/worker`.
 - Idempotent event consumer helper, with a `replay` flag.
 - Configuration store.

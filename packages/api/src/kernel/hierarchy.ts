@@ -92,6 +92,7 @@ export const hierarchyRouter = router({
           .values({ ...input, organizationId: ctx.organizationId })
           .returning(areaColumns),
       );
+      await ctx.audit({ action: "hierarchy.create_area", subjectType: "area", subjectId: created!.id, after: created });
       return created!;
     }),
 
@@ -105,6 +106,7 @@ export const hierarchyRouter = router({
       const [updated] = await write("area", () =>
         ctx.tx.update(area).set(changes).where(eq(area.id, id)).returning(areaColumns),
       );
+      await ctx.audit({ action: "hierarchy.update_area", subjectType: "area", subjectId: id, before: current, after: updated });
       return updated!;
     }),
 
@@ -127,6 +129,7 @@ export const hierarchyRouter = router({
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Archive or move the areas and routes under it first" });
       }
       await ctx.tx.update(area).set({ archivedAt: new Date() }).where(and(eq(area.id, input.id), isNull(area.archivedAt)));
+      await ctx.audit({ action: "hierarchy.archive_area", subjectType: "area", subjectId: input.id });
     }),
 
   restoreArea: permittedProcedure("settings:manage")
@@ -137,6 +140,7 @@ export const hierarchyRouter = router({
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Restore its parent first" });
       }
       await ctx.tx.update(area).set({ archivedAt: null }).where(eq(area.id, input.id));
+      await ctx.audit({ action: "hierarchy.restore_area", subjectType: "area", subjectId: input.id });
     }),
 
   routes: tenantProcedure.input(listInput).query(
@@ -158,6 +162,7 @@ export const hierarchyRouter = router({
           .values({ ...input, organizationId: ctx.organizationId })
           .returning(routeColumns),
       );
+      await ctx.audit({ action: "hierarchy.create_route", subjectType: "route", subjectId: created!.id, after: created });
       return created!;
     }),
 
@@ -178,6 +183,7 @@ export const hierarchyRouter = router({
       const [updated] = await write("route", () =>
         ctx.tx.update(route).set(changes).where(eq(route.id, id)).returning(routeColumns),
       );
+      await ctx.audit({ action: "hierarchy.update_route", subjectType: "route", subjectId: id, before: current, after: updated });
       return updated!;
     }),
 
@@ -192,6 +198,7 @@ export const hierarchyRouter = router({
         .limit(1);
       if (child) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Archive or move the routes under it first" });
       await ctx.tx.update(route).set({ archivedAt: new Date() }).where(and(eq(route.id, input.id), isNull(route.archivedAt)));
+      await ctx.audit({ action: "hierarchy.archive_route", subjectType: "route", subjectId: input.id });
     }),
 
   restoreRoute: permittedProcedure("settings:manage")
@@ -202,5 +209,6 @@ export const hierarchyRouter = router({
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Restore its route group first" });
       }
       await ctx.tx.update(route).set({ archivedAt: null }).where(eq(route.id, input.id));
+      await ctx.audit({ action: "hierarchy.restore_route", subjectType: "route", subjectId: input.id });
     }),
 });

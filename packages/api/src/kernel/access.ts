@@ -52,10 +52,14 @@ export const accessRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "You can only grant permissions you hold" });
       }
       try {
-        await ctx.tx
+        const added = await ctx.tx
           .insert(memberPermission)
           .values({ ...input, organizationId: ctx.organizationId, grantedBy: ctx.session.user.id })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ permission: memberPermission.permission });
+        if (added.length) {
+          await ctx.audit({ action: "access.grant", subjectType: "member", subjectId: input.userId, after: { permission: input.permission } });
+        }
       } catch (error) {
         if (isForeignKeyViolation(error)) throw new TRPCError({ code: "NOT_FOUND", message: "Member not found" });
         throw error;
@@ -66,9 +70,13 @@ export const accessRouter = router({
   revoke: permittedProcedure("access:manage")
     .input(grantInput)
     .mutation(async ({ ctx, input }) => {
-      await ctx.tx
+      const removed = await ctx.tx
         .delete(memberPermission)
-        .where(and(eq(memberPermission.userId, input.userId), eq(memberPermission.permission, input.permission)));
+        .where(and(eq(memberPermission.userId, input.userId), eq(memberPermission.permission, input.permission)))
+        .returning({ permission: memberPermission.permission });
+      if (removed.length) {
+        await ctx.audit({ action: "access.revoke", subjectType: "member", subjectId: input.userId, before: { permission: input.permission } });
+      }
     }),
 
   /** Each member's scope restrictions as granted (not expanded). Members not listed are unrestricted. */
@@ -101,12 +109,24 @@ export const accessRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "You can only give scope inside your own" });
         }
       }
-      await ctx.tx.delete(memberAreaScope).where(eq(memberAreaScope.userId, input.userId));
-      await ctx.tx.delete(memberRouteScope).where(eq(memberRouteScope.userId, input.userId));
+      const beforeAreas = await ctx.tx.delete(memberAreaScope).where(eq(memberAreaScope.userId, input.userId)).returning();
+      const beforeRoutes = await ctx.tx.delete(memberRouteScope).where(eq(memberRouteScope.userId, input.userId)).returning();
       try {
         const base = { organizationId: ctx.organizationId, userId: input.userId };
         if (areaIds.length) await ctx.tx.insert(memberAreaScope).values(areaIds.map((areaId) => ({ ...base, areaId })));
         if (routeIds.length) await ctx.tx.insert(memberRouteScope).values(routeIds.map((routeId) => ({ ...base, routeId })));
+        const same = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+        const unchanged =
+          same(beforeAreas.map((r) => r.areaId), areaIds) && same(beforeRoutes.map((r) => r.routeId), routeIds);
+        if (!unchanged) {
+          await ctx.audit({
+            action: "access.set_scope",
+            subjectType: "member",
+            subjectId: input.userId,
+            before: { areaIds: beforeAreas.map((r) => r.areaId), routeIds: beforeRoutes.map((r) => r.routeId) },
+            after: { areaIds, routeIds },
+          });
+        }
       } catch (error) {
         if (isForeignKeyViolation(error)) throw new TRPCError({ code: "NOT_FOUND", message: "Member, area or route not found" });
         throw error;

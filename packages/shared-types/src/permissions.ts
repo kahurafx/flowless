@@ -19,6 +19,7 @@ export const PERMISSION_STATEMENTS = {
   communications: ["read", "send"],
   exceptions: ["read", "resolve"],
   reports: ["read", "export"],
+  audit: ["read"],
 } as const;
 
 type Statements = typeof PERMISSION_STATEMENTS;

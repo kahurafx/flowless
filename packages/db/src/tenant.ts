@@ -5,6 +5,9 @@ import type { Database, Transaction } from "./client";
 /** Group role every runtime connection belongs to. Created by `bootstrapRoles`. */
 export const appRole = pgRole("flowless_app").existing();
 
+/** Group role of the Better Auth connection. Reaches only `auth`, plus insert-only audit. */
+export const authRole = pgRole("flowless_auth").existing();
+
 /**
  * The organization of the current transaction, or NULL when none is set.
  * NULL matches no row, so a query outside `withTenant` sees nothing (fails closed).

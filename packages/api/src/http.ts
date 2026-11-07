@@ -1,4 +1,4 @@
-import type { Database } from "@flowless/db";
+import type { AuditSource, Database } from "@flowless/db";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./root";
 import type { Session } from "./trpc";
@@ -18,6 +18,16 @@ export function createTrpcHandler(options: {
       endpoint: options.endpoint,
       req,
       router: appRouter,
-      createContext: async () => ({ db: options.getDb(), session: await options.getSession(req.headers) }),
+      createContext: async () => ({
+        db: options.getDb(),
+        session: await options.getSession(req.headers),
+        source: sourceOf(req.headers),
+      }),
     });
+}
+
+/** Clients name themselves in `x-flowless-client`; anything else is a direct API call. */
+function sourceOf(headers: Headers): AuditSource {
+  const client = headers.get("x-flowless-client");
+  return client === "web" || client === "mobile" ? client : "api";
 }

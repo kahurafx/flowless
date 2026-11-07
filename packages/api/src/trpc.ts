@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Caller } from "@flowless/auth";
-import { memberPermission, withTenant, type Database } from "@flowless/db";
+import { memberPermission, recordAudit, withTenant, type AuditEntry, type AuditSource, type Database } from "@flowless/db";
 import { effectivePermissions, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
@@ -21,7 +21,12 @@ export interface Session {
 export interface Context {
   db: Database;
   session: Session | null;
+  /** Where the request came from, for the audit log (K-06). Defaults to "api". */
+  source?: AuditSource;
 }
+
+/** What a procedure says about a change; the kernel adds tenant, actor and source. */
+export type AuditNote = Omit<AuditEntry, "organizationId" | "source" | "actorUserId" | "actorLabel">;
 
 // superjson carries bigint (money in minor units, B-18) and Date across the wire.
 const t = initTRPC.context<Context>().create({ transformer: superjson });
@@ -35,7 +40,8 @@ export const publicProcedure = t.procedure;
  * transaction as `ctx.tx` (K-01), what the caller may do as `ctx.permissions`
  * (role defaults plus extra grants, K-03) and which part of the organization they cover
  * as `ctx.scope()` (scope restrictions, K-03), and the licensed modules as
- * `ctx.entitlements()` (K-04). Both load on first use. The tenant is the caller's membership, and it
+ * `ctx.entitlements()` (K-04). Both load on first use. `ctx.audit(note)` appends to the
+ * audit log in the same transaction, so the entry commits only with the change (K-06). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -69,6 +75,14 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
         tx,
         scope: () => (scope ??= loadScope(tx, session.user.id)),
         entitlements: () => (entitlements ??= loadEntitlements(tx)),
+        audit: (note: AuditNote) =>
+          recordAudit(tx, {
+            ...note,
+            organizationId,
+            source: ctx.source ?? "api",
+            actorUserId: session.user.id,
+            actorLabel: session.user.name,
+          }),
       },
     });
     if (!result.ok) throw result.error;
