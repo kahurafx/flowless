@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./dev-seed": "./src/dev-seed.ts"
   },
   "scripts": {
     "lint": "eslint .",
     "check-types": "tsc --noEmit",
     "auth:generate": "auth generate --config auth.cli.ts --output ../db/src/schema/auth.ts --yes",
-    "test": "vitest run",
-    "db:seed": "tsx --env-file-if-exists=../../.env scripts/seed-dev.ts"
+    "test": "vitest run"
   },
   "devDependencies": {
     "@flowless/eslint-config": "workspace:*",

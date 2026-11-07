@@ -10,7 +10,7 @@
     "test": "turbo run test",
     "db:generate": "pnpm --filter @flowless/db db:generate",
     "db:migrate": "pnpm --filter @flowless/db db:migrate",
-    "db:seed": "pnpm --filter @flowless/auth db:seed"
+    "db:seed": "pnpm --filter @flowless/seed db:seed"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.2.1",

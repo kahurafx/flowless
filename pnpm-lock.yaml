@@ -231,6 +231,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@flowless/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(kysely@0.29.8)(postgres@4.1.0)
@@ -277,6 +280,43 @@ importers:
       typescript-eslint:
         specifier: ^8
         version: 8.72.1(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
+
+  packages/seed:
+    dependencies:
+      '@flowless/api':
+        specifier: workspace:*
+        version: link:../api
+      '@flowless/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@flowless/db':
+        specifier: workspace:*
+        version: link:../db
+      '@flowless/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(kysely@0.29.8)(postgres@4.1.0)
+    devDependencies:
+      '@flowless/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@flowless/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: ^5
+        version: 5.9.3
 
   packages/shared-types:
     devDependencies:
@@ -9760,7 +9800,7 @@ snapshots:
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
-      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-react-hooks: 7.1.1(eslint@9.39.5(jiti@2.7.0))
@@ -9793,7 +9833,7 @@ snapshots:
       tinyglobby: 0.2.17
       unrs-resolver: 1.13.0
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -9807,7 +9847,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)):
+  eslint-plugin-import@2.32.0(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.2.0

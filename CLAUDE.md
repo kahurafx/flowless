@@ -28,7 +28,7 @@ Local services and database:
 pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres :54320, Redis :63790), migrate, seed
 pnpm db:generate    # drizzle-kit generate after changing packages/db/src/schema
 pnpm db:migrate     # bootstrap roles + apply migrations (uses DATABASE_ADMIN_URL)
-pnpm db:seed        # dev organizations and users: code MAJISAFI, wanjiru@majisafi.test (owner) or usernames baraka (clerk) / achieng (cashier), password flowless-dev-password
+pnpm db:seed        # packages/seed: dev organizations, users, settings, areas, routes and scopes. Code MAJISAFI, wanjiru@majisafi.test (owner) or usernames baraka (clerk) / achieng (cashier, limited to Kahawa West), password flowless-dev-password
 pnpm test           # turbo run test — Vitest; integration tests start their own Postgres via Testcontainers (Docker required)
 ```
 
@@ -43,6 +43,7 @@ Env lives in the root `.env`. `apps/web` loads it with `process.loadEnvFile` in 
   - `api` — tRPC: the only place procedures live (`kernel/` plus one folder per module under `modules/`).
   - `db` — Drizzle schema per module, migrations, runtime roles, RLS policies, `withTenant`.
   - `auth` — Better Auth (organization + twoFactor plugins); owns the `auth` Postgres schema, generated into `packages/db/src/schema/auth.ts` by `pnpm --filter @flowless/auth auth:generate`.
+  - `seed` — `pnpm db:seed`: dev data, identities from `@flowless/auth/dev-seed`, everything else through the API as the owner.
   - `network` (planned, Phase 2) — pure graph traces shared by API, web and mobile. `billing-engine` (planned, Phase 4) — pure billing library, no I/O. `apps/worker` (planned, Phase 1) — outbox dispatcher and queued jobs.
 - Target layout and module boundary rules: `docs/build-plan.md` → "Code layout". Follow it when adding code; update it in the same change if the layout has to move.
   - `typescript-config` — `base.json` (strict, `noUncheckedIndexedAccess`, Bundler resolution, `noEmit`); packages extend it. The apps use their own framework tsconfigs instead.

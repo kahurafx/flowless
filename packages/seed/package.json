@@ -1,0 +1,26 @@
+{
+  "name": "@flowless/seed",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "db:seed": "tsx --env-file-if-exists=../../.env src/seed-dev.ts"
+  },
+  "dependencies": {
+    "@flowless/api": "workspace:*",
+    "@flowless/auth": "workspace:*",
+    "@flowless/db": "workspace:*",
+    "@flowless/shared-types": "workspace:*",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@flowless/eslint-config": "workspace:*",
+    "@flowless/typescript-config": "workspace:*",
+    "@types/node": "^24.19.2",
+    "eslint": "^9",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}
