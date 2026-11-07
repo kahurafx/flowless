@@ -1,0 +1,44 @@
+/** Plain-language names for audit actions (K-06). Unknown actions show their key. */
+export const auditActionLabel: Record<string, string> = {
+  "auth.sign_in": "Signed in",
+  "auth.sign_in_failed": "Sign-in refused",
+  "auth.two_factor_enable": "Turned on two-step sign-in",
+  "auth.two_factor_disable": "Turned off two-step sign-in",
+  "auth.password_change": "Changed password",
+  "organization.create": "Organization created",
+  "member.add": "Member added",
+  "member.remove": "Member removed",
+  "member.change_role": "Role changed",
+  "invitation.create": "Invitation sent",
+  "invitation.cancel": "Invitation cancelled",
+  "access.grant": "Permission granted",
+  "access.revoke": "Permission revoked",
+  "access.set_scope": "Coverage changed",
+  "hierarchy.create_area": "Area added",
+  "hierarchy.update_area": "Area changed",
+  "hierarchy.archive_area": "Area archived",
+  "hierarchy.restore_area": "Area restored",
+  "hierarchy.create_route": "Route added",
+  "hierarchy.update_route": "Route changed",
+  "hierarchy.archive_route": "Route archived",
+  "hierarchy.restore_route": "Route restored",
+  "entitlements.set": "Modules licensed",
+};
+
+/** Filters on the audit page, by action prefix. */
+export const AUDIT_FILTERS = [
+  { key: "all", label: "Everything", prefix: undefined },
+  { key: "sign-in", label: "Sign-in", prefix: "auth." },
+  { key: "members", label: "Members", prefix: "member." },
+  { key: "access", label: "Permissions and coverage", prefix: "access." },
+  { key: "hierarchy", label: "Areas and routes", prefix: "hierarchy." },
+  { key: "licences", label: "Licences", prefix: "entitlements." },
+] as const;
+
+export const auditSourceLabel: Record<string, string> = {
+  web: "Web",
+  mobile: "Mobile",
+  api: "API",
+  import: "Import",
+  system: "Flowless",
+};

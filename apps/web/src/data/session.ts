@@ -17,7 +17,7 @@ export const getApi = cache(async () => {
   const caller = await getCaller(requestHeaders);
   const organizationId = caller?.session.activeOrganizationId;
   if (!caller || !organizationId || caller.member?.organizationId !== organizationId) redirect("/sign-in");
-  return { caller, headers: requestHeaders, api: createCaller({ db: getDb(), session: caller }) };
+  return { caller, headers: requestHeaders, api: createCaller({ db: getDb(), session: caller, source: "web" }) };
 });
 
 /**

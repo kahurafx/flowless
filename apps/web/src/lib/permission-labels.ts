@@ -15,6 +15,7 @@ export const resourceLabel: Record<PermissionResource, string> = {
   communications: "Communications",
   exceptions: "Exception queues",
   reports: "Reports",
+  audit: "Audit log",
 };
 
 export const permissionLabel: Record<Permission, string> = {
@@ -51,6 +52,7 @@ export const permissionLabel: Record<Permission, string> = {
   "exceptions:resolve": "Resolve exceptions",
   "reports:read": "View reports",
   "reports:export": "Export reports",
+  "audit:read": "View the audit log",
 };
 
 export const roleLabel: Record<RoleKey, string> = {

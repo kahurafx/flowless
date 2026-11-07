@@ -1,5 +1,5 @@
 import type { Entitlements, ModuleKey, Permission } from "@flowless/shared-types";
-import { HomeIcon, InboxIcon, MapIcon, SettingsIcon, ShieldCheckIcon, UsersIcon, type LucideIcon } from "lucide-react";
+import { HistoryIcon, HomeIcon, InboxIcon, MapIcon, SettingsIcon, ShieldCheckIcon, UsersIcon, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -19,6 +19,7 @@ const NAV: readonly NavItem[] = [
   { href: "/settings/organization", label: "Organization", icon: SettingsIcon },
   { href: "/settings/areas", label: "Areas and routes", icon: MapIcon },
   { href: "/settings/team", label: "Team and permissions", icon: ShieldCheckIcon, permission: "access:manage" },
+  { href: "/settings/audit", label: "Audit log", icon: HistoryIcon, permission: "audit:read" },
 ];
 
 /**
