@@ -3,7 +3,6 @@ import type { ModuleKey, Permission } from "@flowless/shared-types";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
-import { staffFor } from "@/mocks/tenants";
 import { getAuth, getCaller } from "@/server/auth";
 import { getDb } from "@/server/db";
 
@@ -23,8 +22,7 @@ export const getApi = cache(async () => {
 /**
  * The signed-in user, their organization, and what they may do (K-01, K-03). A user
  * belongs to exactly one organization, set as the session's active organization at
- * sign-in. Identity, membership, permissions, settings and licensed modules are real;
- * only the staff list for mock exceptions still comes from `src/mocks/tenants.ts`.
+ * sign-in. Identity, membership, permissions, settings and licensed modules are real.
  */
 export const getSession = cache(async () => {
   const { caller, headers: requestHeaders, api } = await getApi();
@@ -48,7 +46,6 @@ export const getSession = cache(async () => {
       code: organization.slug,
       settings: { currency: settings.currency, timeZone: settings.timeZone, locale: settings.locale },
       entitlements,
-      staff: staffFor(organization.slug),
     },
   };
 });

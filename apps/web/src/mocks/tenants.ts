@@ -1,7 +1,6 @@
 /**
- * Mock people for the exception queue, keyed by organization code (the Better Auth slug;
- * `pnpm db:seed` creates organizations with these codes). Settings and licensed modules are
- * real (kernel); this goes away when exceptions come from the kernel (A7).
+ * Mock people and organization codes for the demo module exceptions and accounts (the codes
+ * are the Better Auth slugs `pnpm db:seed` creates). Goes away as modules ship real data.
  */
 export interface Person {
   id: string;
@@ -19,13 +18,3 @@ export const people = {
 
 export const MAJI_SAFI = "majisafi";
 export const KILIMA = "kilima";
-
-const staff: Record<string, readonly Person[]> = {
-  [MAJI_SAFI]: [people.wanjiru, people.baraka, people.achieng],
-  [KILIMA]: [people.otieno, people.chebet],
-};
-
-/** Exception owners for an organization's mock queue. */
-export function staffFor(code: string): readonly Person[] {
-  return staff[code] ?? [];
-}

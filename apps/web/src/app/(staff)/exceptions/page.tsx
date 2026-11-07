@@ -25,7 +25,7 @@ export default function ExceptionsPage({ searchParams }: PageProps<"/exceptions"
 const FILTER_PARAMS = { type: "type", age: "ageBucket", owner: "owner" } as const;
 
 async function Queue({ searchParams }: { searchParams: PageProps<"/exceptions">["searchParams"] }) {
-  const [params, { rows }, { organization }] = await Promise.all([searchParams, listExceptions(), getSession()]);
+  const [params, { rows, members, canAct }, { organization }] = await Promise.all([searchParams, listExceptions(), getSession()]);
   const initialFilters = Object.entries(FILTER_PARAMS).flatMap(([param, id]) => {
     const value = params[param];
     return typeof value === "string" ? [{ id, value }] : [];
@@ -37,7 +37,9 @@ async function Queue({ searchParams }: { searchParams: PageProps<"/exceptions">[
       rows={rows}
       locale={organization.settings.locale}
       timeZone={organization.settings.timeZone}
-      staff={organization.staff.map((p) => p.name)}
+      owners={[...new Set(rows.flatMap((r) => (r.owner ? [r.owner.name] : [])))].sort()}
+      members={members}
+      canAct={canAct}
       initialFilters={initialFilters}
     />
   );

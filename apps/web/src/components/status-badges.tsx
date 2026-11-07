@@ -48,4 +48,5 @@ export const exceptionTypeLabel: Record<ExceptionType, string> = {
   STUCK_COMMITMENT: "Commitment",
   NO_BASELINE: "No baseline",
   JOB_FAILURE: "Job failure",
+  EVENT_FAILURE: "Event delivery",
 };
