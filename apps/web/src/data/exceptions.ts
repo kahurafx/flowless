@@ -1,7 +1,7 @@
 import { exceptionAge, type AgeBucket, type ExceptionItem, type ExceptionType } from "@flowless/shared-types";
 import { connection } from "next/server";
 import { exceptions } from "@/mocks/exceptions";
-import { getSession } from "./session";
+import { requirePermission } from "./session";
 
 // UI track seam: becomes `caller.kernel.exceptions.list()` in Phase 1 (A7).
 
@@ -16,7 +16,7 @@ const DAY_MS = 86_400_000;
 export async function listExceptions(): Promise<{ asOf: Date; rows: ExceptionRow[] }> {
   // Age depends on "now": render it per request, never in a prerender or runtime prefetch
   // (cookies alone do not make a subtree request-time under partial prefetching).
-  const [{ organization }] = await Promise.all([getSession(), connection()]);
+  const [{ organization }] = await Promise.all([requirePermission("exceptions:read"), connection()]);
   const asOf = new Date();
   const rows = exceptions
     .filter((e) => e.org === organization.code && e.status !== "resolved")

@@ -1,11 +1,7 @@
 import { createTrpcHandler } from "@flowless/api";
-import { getAuth } from "@/server/auth";
+import { getCaller } from "@/server/auth";
 import { getDb } from "@/server/db";
 
-const handler = createTrpcHandler({
-  endpoint: "/api/trpc",
-  getDb,
-  getSession: (headers) => getAuth().api.getSession({ headers }),
-});
+const handler = createTrpcHandler({ endpoint: "/api/trpc", getDb, getSession: getCaller });
 
 export { handler as GET, handler as POST };

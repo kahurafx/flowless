@@ -1,6 +1,6 @@
 "use client";
 
-import type { Entitlements } from "@flowless/shared-types";
+import type { Entitlements, Permission } from "@flowless/shared-types";
 import { SearchIcon, UserIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -19,9 +19,11 @@ import { navFor } from "./nav";
 /** ⌘K / Ctrl+K: jump anywhere, find an account by number or name (NF-40). */
 export function CommandPalette({
   entitlements,
+  permissions,
   accounts,
 }: {
   entitlements: Entitlements;
+  permissions: readonly Permission[];
   accounts: readonly { number: string; customerName: string }[];
 }) {
   const [open, setOpen] = useState(false);
@@ -59,7 +61,7 @@ export function CommandPalette({
         <CommandList>
           <CommandEmpty>Nothing matches.</CommandEmpty>
           <CommandGroup heading="Go to">
-            {navFor(entitlements).map((item) => (
+            {navFor(entitlements, permissions).map((item) => (
               <CommandItem key={item.href} onSelect={() => go(item.href)}>
                 <item.icon />
                 {item.label}

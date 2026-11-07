@@ -6,7 +6,7 @@ import {
   type StatementRow,
 } from "@flowless/shared-types";
 import { accounts, ledger, type MockAccount } from "@/mocks/accounts";
-import { getSession } from "./session";
+import { requirePermission } from "./session";
 
 // UI track seam: becomes `caller.accounts.list()` / `caller.accounts.get()` in Phase 2.
 
@@ -19,7 +19,7 @@ function summarize(account: MockAccount, currency: string): AccountSummary {
 }
 
 export async function listAccounts(): Promise<AccountSummary[]> {
-  const { organization } = await getSession();
+  const { organization } = await requirePermission("accounts:read");
   return accounts
     .filter((a) => a.org === organization.code)
     .map((a) => summarize(a, organization.settings.currency));
@@ -28,7 +28,7 @@ export async function listAccounts(): Promise<AccountSummary[]> {
 export async function getAccount(
   number: string,
 ): Promise<{ account: AccountSummary; statement: StatementRow[]; opening: bigint } | null> {
-  const { organization } = await getSession();
+  const { organization } = await requirePermission("accounts:read");
   const found = accounts.find((a) => a.org === organization.code && a.number === number);
   if (!found) return null;
   const { currency } = organization.settings;

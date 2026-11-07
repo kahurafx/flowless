@@ -35,6 +35,14 @@ async function Greeting() {
 }
 
 async function Counts() {
+  const { access } = await getSession();
+  if (!access.permissions.includes("exceptions:read")) {
+    return (
+      <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
+        Your work appears here as Flowless adds it. Ask an administrator if you need access to more.
+      </p>
+    );
+  }
   const counts = await exceptionCounts();
   const types = Object.entries(counts.byType) as [ExceptionType, number][];
   return (

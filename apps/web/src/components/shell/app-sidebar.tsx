@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { Entitlements } from "@flowless/shared-types";
+import type { Entitlements, Permission } from "@flowless/shared-types";
 import {
   Sidebar,
   SidebarContent,
@@ -21,10 +21,12 @@ import { UserMenu } from "./user-menu";
 
 export function AppSidebar({
   entitlements,
+  permissions,
   organization,
   user,
 }: {
   entitlements: Entitlements;
+  permissions: readonly Permission[];
   organization: { name: string; code: string };
   user: { name: string; email: string };
 }) {
@@ -38,7 +40,7 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navFor(entitlements).map((item) => (
+              {navFor(entitlements, permissions).map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     isActive={isActive(pathname, item.href)}

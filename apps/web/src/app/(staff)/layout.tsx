@@ -22,12 +22,14 @@ export default function StaffLayout({ children }: LayoutProps<"/">) {
 }
 
 async function Shell({ children }: { children: React.ReactNode }) {
-  const { organization, user } = await getSession();
-  const accounts = organization.entitlements.includes("accounts") ? await listAccounts() : [];
+  const { organization, user, access } = await getSession();
+  const accounts =
+    organization.entitlements.includes("accounts") && access.permissions.includes("accounts:read") ? await listAccounts() : [];
   return (
     <SidebarProvider>
       <AppSidebar
         entitlements={organization.entitlements}
+        permissions={access.permissions}
         organization={organization}
         user={user}
       />
@@ -37,6 +39,7 @@ async function Shell({ children }: { children: React.ReactNode }) {
           <SidebarTrigger />
           <CommandPalette
             entitlements={organization.entitlements}
+            permissions={access.permissions}
             accounts={accounts.map(({ number, customerName }) => ({ number, customerName }))}
           />
           <div className="ml-auto">
