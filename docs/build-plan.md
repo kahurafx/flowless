@@ -312,6 +312,15 @@ Activation gates that depend on later modules work by office checklist until tho
 - GL consumes events idempotently.
 - The sub-ledger total equals the GL AR control account.
 
+## UI track (runs alongside the phases)
+
+The staff web UI is built ahead of the backend so it can be used for testing. It never starts a backend phase early: it only consumes contracts.
+
+- **Contracts first.** Screen data types live in `shared-types` (`Money`, `ExceptionItem`, `AccountSummary`, `StatementLine`, ...), the same shapes the procedures will return.
+- **One seam per screen.** `apps/web/src/data/<area>.ts` exposes one async function per screen. Until the procedure exists it returns typed fixtures from `apps/web/src/mocks/`; the PR that ships the procedure swaps the body for the tRPC call. Fixtures follow the domain rules: money in minor units, derived values (running balance, previous reading) computed, never stored.
+- **Design system.** Tokens and fonts in `apps/web/src/app/globals.css` and `layout.tsx` (ui-ux-pro-max palette, Inter + Geist Mono). Components follow the apple-design skill (instant press feedback, interruptible springs on gesture-driven surfaces, reduced motion, transparency and contrast preferences).
+- **Claims:** NF-40 and NF-42 for the web shell and screens, NF-33 for money/date formatting. Each is completed by the phase that ships the matching backend.
+
 ## Unassigned
 
-NF-05, NF-06, NF-10, NF-21, NF-33, NF-50 to NF-53 and NF-62 are cross-cutting. Each is picked up by the first phase that needs it; for example, NF-05 lands with `packages/auth` in Phase 1. Record the owning phase here when a phase claims one.
+NF-05, NF-06, NF-10, NF-21, NF-33 (formatting started in the UI track), NF-50 to NF-53 and NF-62 are cross-cutting. Each is picked up by the first phase that needs it; for example, NF-05 lands with `packages/auth` in Phase 1. Record the owning phase here when a phase claims one.

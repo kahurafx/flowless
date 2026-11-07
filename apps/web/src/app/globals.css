@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-inter);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Domain status colours (C-03 statuses, X-02 exception age, NF-24). Text-safe on card. */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-highlight: var(--highlight);
+  --color-highlight-foreground: var(--highlight-foreground);
+  --color-age-fresh: var(--success);
+  --color-age-ageing: var(--warning);
+  --color-age-overdue: var(--destructive);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Motion (apple-design): critically damped feel for UI; springs for gesture-driven surfaces. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/*
+ * Palette: ui-ux-pro-max "Data-Dense Dashboard" (water blue + amber), light-first, with
+ * a slate-950 dark theme. Every text/background pair is >= 4.5:1 and input borders >= 3:1
+ * in both themes (NF-42). Brand amber (--highlight) is a fill colour; --warning is its
+ * text-safe shade.
+ */
+:root {
+  --background: oklch(0.984 0.003 247.9); /* #F8FAFC */
+  --foreground: oklch(0.208 0.04 265.8); /* #0F172A */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.208 0.04 265.8);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.208 0.04 265.8);
+  --primary: oklch(0.424 0.181 265.6); /* #1E40AF */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.948 0.012 259.8); /* #E9EEF6 */
+  --secondary-foreground: oklch(0.379 0.138 265.5); /* #1E3A8A */
+  --muted: oklch(0.96 0.008 253.9); /* #EEF2F7 */
+  --muted-foreground: oklch(0.446 0.037 257.3); /* #475569 */
+  --accent: oklch(0.945 0.019 263); /* #E6EDFA, hover/selected surface */
+  --accent-foreground: oklch(0.379 0.138 265.5);
+  --destructive: oklch(0.577 0.215 27.3); /* #DC2626 */
+  --border: oklch(0.913 0.018 258.4); /* #DBE3EF */
+  --input: oklch(0.656 0.037 257.9); /* #8392A8 */
+  --ring: oklch(0.424 0.181 265.6);
+  --success: oklch(0.527 0.137 150.1); /* #15803D */
+  --warning: oklch(0.555 0.146 49); /* #B45309 */
+  --info: oklch(0.546 0.215 262.9); /* #2563EB */
+  --highlight: oklch(0.666 0.157 58.3); /* #D97706 */
+  --highlight-foreground: oklch(0.208 0.04 265.8);
+  --chart-1: oklch(0.424 0.181 265.6); /* #1E40AF */
+  --chart-2: oklch(0.623 0.188 259.8); /* #3B82F6 */
+  --chart-3: oklch(0.666 0.157 58.3); /* #D97706 */
+  --chart-4: oklch(0.511 0.086 186.4); /* #0F766E */
+  --chart-5: oklch(0.541 0.247 293); /* #7C3AED */
+  --radius: 0.625rem;
+  --sidebar: oklch(0.968 0.007 247.9); /* #F1F5F9: heavier material than content */
+  --sidebar-foreground: oklch(0.208 0.04 265.8);
+  --sidebar-primary: oklch(0.424 0.181 265.6);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.945 0.019 263);
+  --sidebar-accent-foreground: oklch(0.379 0.138 265.5);
+  --sidebar-border: oklch(0.913 0.018 258.4);
+  --sidebar-ring: oklch(0.424 0.181 265.6);
+  color-scheme: light;
+}
+
+.dark {
+  --background: oklch(0.129 0.041 264.7); /* #020617 */
+  --foreground: oklch(0.984 0.003 247.9);
+  --card: oklch(0.188 0.035 272.6); /* #0E1223 */
+  --card-foreground: oklch(0.984 0.003 247.9);
+  --popover: oklch(0.223 0.044 269.2); /* #131A30: raised above card */
+  --popover-foreground: oklch(0.984 0.003 247.9);
+  --primary: oklch(0.714 0.143 254.6); /* #60A5FA */
+  --primary-foreground: oklch(0.129 0.041 264.7);
+  --secondary: oklch(0.256 0.043 268.1);
+  --secondary-foreground: oklch(0.932 0.032 255.6);
+  --muted: oklch(0.24 0.033 273.5);
+  --muted-foreground: oklch(0.711 0.035 256.8); /* #94A3B8 */
+  --accent: oklch(0.277 0.053 266.2);
+  --accent-foreground: oklch(0.932 0.032 255.6);
+  --destructive: oklch(0.711 0.166 22.2); /* #F87171 */
+  --border: oklch(0.285 0.042 262.8);
+  --input: oklch(0.525 0.046 260); /* #5B6B85 */
+  --ring: oklch(0.809 0.096 251.8);
+  --success: oklch(0.8 0.182 151.7);
+  --warning: oklch(0.837 0.164 84.4);
+  --info: oklch(0.714 0.143 254.6);
+  --highlight: oklch(0.769 0.165 70.1); /* #F59E0B */
+  --highlight-foreground: oklch(0.129 0.041 264.7);
+  --chart-1: oklch(0.714 0.143 254.6);
+  --chart-2: oklch(0.809 0.096 251.8);
+  --chart-3: oklch(0.769 0.165 70.1);
+  --chart-4: oklch(0.785 0.133 181.9); /* #2DD4BF */
+  --chart-5: oklch(0.709 0.159 293.5);
+  --sidebar: oklch(0.159 0.035 268.4); /* #070C1C */
+  --sidebar-foreground: oklch(0.984 0.003 247.9);
+  --sidebar-primary: oklch(0.714 0.143 254.6);
+  --sidebar-primary-foreground: oklch(0.129 0.041 264.7);
+  --sidebar-accent: oklch(0.277 0.053 266.2);
+  --sidebar-accent-foreground: oklch(0.932 0.032 255.6);
+  --sidebar-border: oklch(0.285 0.042 262.8);
+  --sidebar-ring: oklch(0.809 0.096 251.8);
+  color-scheme: dark;
+}
+
+/* prefers-contrast: more → solid, defined edges (apple-design §14). */
+@media (prefers-contrast: more) {
+  :root {
+    --border: oklch(0.656 0.037 257.9);
+    --muted-foreground: oklch(0.372 0.039 257.3);
+  }
+  .dark {
+    --border: oklch(0.525 0.046 260);
+    --muted-foreground: oklch(0.869 0.02 252.9);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    font-optical-sizing: auto;
+    /* Ease theme switches instead of an abrupt brightness jump (apple-design §14). */
+    transition: background-color 200ms var(--ease-out);
+  }
+  body {
+    @apply bg-background text-foreground;
+    line-height: 1.5;
+  }
+  /* Size-specific tracking: tighter as type grows, neutral for body (apple-design §15). */
+  h1 {
+    letter-spacing: -0.022em;
+    line-height: 1.15;
+  }
+  h2,
+  h3 {
+    letter-spacing: -0.014em;
+    line-height: 1.25;
+  }
+}
+
+/* Money, readings and counts line up in columns (B-18, NF-40). */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Small caps-style labels over data: slightly positive tracking for legibility. */
+@utility label-caps {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Translucent floating chrome (apple-design §12); solid when transparency is reduced. */
+@utility material-bar {
+  background-color: color-mix(in oklch, var(--background) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--background);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  html {
+    transition: none;
+  }
+  [data-slot="sheet-content"],
+  [data-slot="dialog-content"] {
+    translate: none !important;
+    scale: none !important;
+  }
+}
