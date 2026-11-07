@@ -1,24 +1,49 @@
 "use client";
 
+import {
+  isEmailIdentifier,
+  normalizeOrganizationCode,
+  ORGANIZATION_CODE_HEADER,
+  qualifiedUsername,
+} from "@flowless/shared-types";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 
+const CODE_STORAGE_KEY = "flowless-organization-code";
+const INVALID = "Organization code, username or password is incorrect.";
+
+/** Last organization code used on this device: a convenience, never trusted. */
+function useRememberedCode(): string {
+  return useSyncExternalStore(
+    () => () => {},
+    () => {
+      try {
+        return localStorage.getItem(CODE_STORAGE_KEY) ?? "";
+      } catch {
+        return "";
+      }
+    },
+    () => "",
+  );
+}
+
 /**
- * Email and password, then a TOTP code when the user has two-factor on (NF-05).
- * Errors show inline, next to the form, in plain language.
+ * Organization code, then email (owners and admins) or username (other staff), then
+ * password; a TOTP step follows when two-factor is on (NF-05). A user belongs to one
+ * organization, so there is nothing to choose after signing in.
  */
 export function SignInForm() {
   const router = useRouter();
+  const rememberedCode = useRememberedCode();
   const [step, setStep] = useState<"password" | "totp">("password");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const finish = () => {
-    // The staff layout sends users without an active organization to the picker.
     router.push("/");
     router.refresh();
   };
@@ -26,13 +51,27 @@ export function SignInForm() {
   const onPassword = (form: FormData) =>
     startTransition(async () => {
       setError(null);
-      const { data, error } = await authClient.signIn.email({
-        email: String(form.get("email")),
-        password: String(form.get("password")),
-      });
-      if (error) {
-        setError(error.status === 429 ? "Too many attempts. Wait a minute and try again." : "Email or password is incorrect.");
+      const code = normalizeOrganizationCode(String(form.get("code")));
+      if (!code) {
+        setError("Enter your organization code: letters and digits only, for example MAJISAFI.");
         return;
+      }
+      const identifier = String(form.get("identifier")).trim();
+      const password = String(form.get("password"));
+      const fetchOptions = { headers: { [ORGANIZATION_CODE_HEADER]: code } };
+
+      const { data, error } = isEmailIdentifier(identifier)
+        ? await authClient.signIn.email({ email: identifier, password, fetchOptions })
+        : await authClient.signIn.username({ username: qualifiedUsername(code, identifier), password, fetchOptions });
+
+      if (error) {
+        setError(error.status === 429 ? "Too many attempts. Wait a minute and try again." : INVALID);
+        return;
+      }
+      try {
+        localStorage.setItem(CODE_STORAGE_KEY, code.toUpperCase());
+      } catch {
+        // Storage blocked: the code just is not remembered.
       }
       if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) setStep("totp");
       else finish();
@@ -41,7 +80,7 @@ export function SignInForm() {
   const onTotp = (form: FormData) =>
     startTransition(async () => {
       setError(null);
-      const { error } = await authClient.twoFactor.verifyTotp({ code: String(form.get("code")) });
+      const { error } = await authClient.twoFactor.verifyTotp({ code: String(form.get("totp")) });
       if (error) setError("That code did not work. Check your authenticator app and try again.");
       else finish();
     });
@@ -55,8 +94,33 @@ export function SignInForm() {
       {step === "password" ? (
         <>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" autoComplete="username" required autoFocus />
+            <Label htmlFor="code">Organization code</Label>
+            <Input
+              // Remount when the remembered code loads, so it fills the field without a controlled input.
+              key={rememberedCode}
+              id="code"
+              name="code"
+              defaultValue={rememberedCode}
+              autoComplete="organization"
+              autoCapitalize="characters"
+              spellCheck={false}
+              required
+              autoFocus={!rememberedCode}
+              className="font-mono uppercase"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="identifier">Username or email</Label>
+            <Input
+              id="identifier"
+              name="identifier"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              autoFocus={!!rememberedCode}
+            />
+            <p className="text-xs text-muted-foreground">Administrators use their email. Other staff use their username.</p>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="password">Password</Label>
@@ -65,10 +129,10 @@ export function SignInForm() {
         </>
       ) : (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="code">Authenticator code</Label>
+          <Label htmlFor="totp">Authenticator code</Label>
           <Input
-            id="code"
-            name="code"
+            id="totp"
+            name="totp"
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]{6}"

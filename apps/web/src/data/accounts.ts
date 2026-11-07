@@ -21,7 +21,7 @@ function summarize(account: MockAccount, currency: string): AccountSummary {
 export async function listAccounts(): Promise<AccountSummary[]> {
   const { organization } = await getSession();
   return accounts
-    .filter((a) => a.org === organization.slug)
+    .filter((a) => a.org === organization.code)
     .map((a) => summarize(a, organization.settings.currency));
 }
 
@@ -29,7 +29,7 @@ export async function getAccount(
   number: string,
 ): Promise<{ account: AccountSummary; statement: StatementRow[]; opening: bigint } | null> {
   const { organization } = await getSession();
-  const found = accounts.find((a) => a.org === organization.slug && a.number === number);
+  const found = accounts.find((a) => a.org === organization.code && a.number === number);
   if (!found) return null;
   const { currency } = organization.settings;
   return {

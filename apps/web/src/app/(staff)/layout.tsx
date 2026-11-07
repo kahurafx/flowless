@@ -22,14 +22,13 @@ export default function StaffLayout({ children }: LayoutProps<"/">) {
 }
 
 async function Shell({ children }: { children: React.ReactNode }) {
-  const { organization, memberships, user } = await getSession();
+  const { organization, user } = await getSession();
   const accounts = organization.entitlements.includes("accounts") ? await listAccounts() : [];
   return (
     <SidebarProvider>
       <AppSidebar
         entitlements={organization.entitlements}
         organization={organization}
-        memberships={memberships}
         user={user}
       />
       <SidebarInset className="min-w-0">

@@ -41,6 +41,8 @@ async function Settings() {
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           <dt className="text-muted-foreground">Name</dt>
           <dd className="font-medium">{organization.name}</dd>
+          <dt className="text-muted-foreground">Organization code</dt>
+          <dd className="font-mono">{organization.code.toUpperCase()}</dd>
           <dt className="text-muted-foreground">Currency</dt>
           <dd className="font-mono">{currency}</dd>
           <dt className="text-muted-foreground">Time zone</dt>

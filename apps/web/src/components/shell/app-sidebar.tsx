@@ -16,25 +16,23 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { isActive, navFor } from "./nav";
-import { OrgSwitcher } from "./org-switcher";
+import { OrganizationBadge } from "./organization-badge";
 import { UserMenu } from "./user-menu";
 
 export function AppSidebar({
   entitlements,
   organization,
-  memberships,
   user,
 }: {
   entitlements: Entitlements;
-  organization: { id: string; name: string };
-  memberships: readonly { id: string; name: string }[];
+  organization: { name: string; code: string };
   user: { name: string; email: string };
 }) {
   const pathname = usePathname();
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <OrgSwitcher active={organization} memberships={memberships} />
+        <OrganizationBadge organization={organization} />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

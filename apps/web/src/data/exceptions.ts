@@ -19,7 +19,7 @@ export async function listExceptions(): Promise<{ asOf: Date; rows: ExceptionRow
   const [{ organization }] = await Promise.all([getSession(), connection()]);
   const asOf = new Date();
   const rows = exceptions
-    .filter((e) => e.org === organization.slug && e.status !== "resolved")
+    .filter((e) => e.org === organization.code && e.status !== "resolved")
     .map(({ org: _org, raisedDaysAgo, ...e }) => {
       const raisedAt = new Date(asOf.getTime() - raisedDaysAgo * DAY_MS - 3_600_000);
       const age = exceptionAge(raisedAt, asOf);

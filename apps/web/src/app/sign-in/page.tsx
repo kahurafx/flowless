@@ -12,7 +12,7 @@ export default function SignInPage() {
             <DropletsIcon className="size-5" />
           </span>
           <h1 className="text-2xl font-semibold">Sign in to Flowless</h1>
-          <p className="text-sm text-muted-foreground">Use your work email. You choose the organization after signing in.</p>
+          <p className="text-sm text-muted-foreground">Your administrator gives you your organization code.</p>
         </div>
         <SignInForm />
       </div>

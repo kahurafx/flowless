@@ -1,8 +1,8 @@
 import type { Entitlements } from "@flowless/shared-types";
 
 /**
- * Mock organization profiles, keyed by Better Auth organization slug (`pnpm db:seed`
- * creates organizations with these slugs). Settings and entitlements move to the kernel
+ * Mock organization profiles, keyed by organization code (the Better Auth slug;
+ * `pnpm db:seed` creates organizations with these codes). Settings and entitlements move to the kernel
  * configuration store (A8) and entitlements table (A4); then this file goes away.
  */
 export interface OrganizationProfile {
@@ -25,7 +25,7 @@ export const people = {
   chebet: { id: "user-chebet", name: "Chebet" },
 } as const;
 
-export const MAJI_SAFI = "maji-safi";
+export const MAJI_SAFI = "majisafi";
 export const KILIMA = "kilima";
 
 const profiles: Record<string, OrganizationProfile> = {
