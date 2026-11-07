@@ -1,15 +1,16 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import type { AuthSession } from "@flowless/auth";
 import { withTenant, type Database } from "@flowless/db";
 import superjson from "superjson";
 
 /**
- * Who is calling. From Phase 1 (K-03) this comes from Better Auth via `packages/auth`:
- * `organizationId` is the session's `activeOrganizationId`, whose membership Better Auth
- * has already checked. A session without an active organization gets no tenant access.
+ * Who is calling: the parts of the Better Auth session the API relies on. Derived from
+ * `AuthSession` so there is one model of the caller; a full Better Auth session fits it.
+ * `activeOrganizationId` is a membership Better Auth has already checked.
  */
 export interface Session {
-  userId: string;
-  organizationId: string;
+  user: Pick<AuthSession["user"], "id" | "name" | "email">;
+  session: Pick<AuthSession["session"], "id" | "activeOrganizationId">;
 }
 
 export interface Context {
@@ -32,9 +33,11 @@ export const publicProcedure = t.procedure;
 export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
   const { session } = ctx;
   if (!session) throw new TRPCError({ code: "UNAUTHORIZED" });
+  const organizationId = session.session.activeOrganizationId;
+  if (!organizationId) throw new TRPCError({ code: "FORBIDDEN", message: "No active organization" });
 
-  return withTenant(ctx.db, session.organizationId, async (tx) => {
-    const result = await next({ ctx: { session, tx } });
+  return withTenant(ctx.db, organizationId, async (tx) => {
+    const result = await next({ ctx: { session, organizationId, tx } });
     if (!result.ok) throw result.error;
     return result;
   });

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Reference /trpc skill.
 
-The tRPC layer: every procedure in Flowless lives here. Phase 0 scaffold: `trpc.ts` (superjson, `tenantProcedure`), `root.ts` (`health`, `organization.settings`), `http.ts` (`createTrpcHandler`). Target layout and boundary rules are in `docs/build-plan.md` → "Code layout". Shared package conventions are in the root `CLAUDE.md`.
+The tRPC layer: every procedure in Flowless lives here. Phase 0 scaffold: `trpc.ts` (superjson, `tenantProcedure`), `root.ts` (`health`, `organization.settings`), `http.ts` (`createTrpcHandler({ endpoint, getDb, getSession })`). `Session` is the narrow slice of Better Auth's `AuthSession` the API uses; `tenantProcedure` takes `session.activeOrganizationId` (UNAUTHORIZED without a session, FORBIDDEN without an active organization) and exposes `ctx.organizationId` and `ctx.tx`. Target layout and boundary rules are in `docs/build-plan.md` → "Code layout". Shared package conventions are in the root `CLAUDE.md`.
 
 - Layout: `src/trpc.ts` (context and base procedures), `src/root.ts` (`appRouter`, `export type AppRouter`), `src/kernel/*`, `src/modules/<module>/{router,service,events,index}.ts`.
 - Module routers build procedures only from `moduleProcedure(module)`. That runs `withTenant` (RLS) and the entitlement check. Never use the raw DB client.

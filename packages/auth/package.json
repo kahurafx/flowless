@@ -9,18 +9,25 @@
   "scripts": {
     "lint": "eslint .",
     "check-types": "tsc --noEmit",
-    "auth:generate": "auth generate --config auth.cli.ts --output ../db/src/schema/auth.ts --yes"
+    "auth:generate": "auth generate --config auth.cli.ts --output ../db/src/schema/auth.ts --yes",
+    "test": "vitest run",
+    "db:seed": "tsx --env-file-if-exists=../../.env scripts/seed-dev.ts"
   },
   "devDependencies": {
     "@flowless/eslint-config": "workspace:*",
     "@flowless/typescript-config": "workspace:*",
     "auth": "1.7.18",
     "eslint": "^9",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@testcontainers/postgresql": "^12.2.1",
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "vitest": "^5.1.0"
   },
   "dependencies": {
     "@flowless/db": "workspace:*",
     "better-auth": "1.7.18",
-    "drizzle-orm": "^0.45.4"
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^4.1.0"
   }
 }

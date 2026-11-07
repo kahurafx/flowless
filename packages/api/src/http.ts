@@ -1,18 +1,23 @@
 import type { Database } from "@flowless/db";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./root";
+import type { Session } from "./trpc";
 
 /**
  * A Fetch API handler for the app router, so apps never import @trpc/server.
- * `getDb` is called per request, letting the app create its pool lazily.
+ * `getDb` is called per request, letting the app create its pool lazily; `getSession`
+ * resolves the Better Auth session from the request headers (K-03).
  */
-export function createTrpcHandler(options: { getDb: () => Database; endpoint: string }) {
+export function createTrpcHandler(options: {
+  endpoint: string;
+  getDb: () => Database;
+  getSession: (headers: Headers) => Promise<Session | null>;
+}) {
   return (req: Request) =>
     fetchRequestHandler({
       endpoint: options.endpoint,
       req,
       router: appRouter,
-      // Phase 1 (K-03): resolve the session from the request via packages/auth.
-      createContext: () => ({ db: options.getDb(), session: null }),
+      createContext: async () => ({ db: options.getDb(), session: await options.getSession(req.headers) }),
     });
 }

@@ -3,9 +3,12 @@ import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/test
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCaller } from "./root";
-import { createCallerFactory, router, tenantProcedure } from "./trpc";
+import { createCallerFactory, router, tenantProcedure, type Session } from "./trpc";
 
-const sessionFor = (organizationId: string) => ({ userId: "test-user", organizationId });
+const sessionFor = (activeOrganizationId: string | null): Session => ({
+  user: { id: "test-user", name: "Test User", email: "test@example.test" },
+  session: { id: "test-session", activeOrganizationId },
+});
 
 describe("api", () => {
   let t: TestDatabase;
@@ -22,6 +25,11 @@ describe("api", () => {
   it("tenant procedures reject callers without a session", async () => {
     const caller = createCaller({ db: t.app, session: null });
     await expect(caller.organization.settings()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("tenant procedures reject a session without an active organization", async () => {
+    const caller = createCaller({ db: t.app, session: sessionFor(null) });
+    await expect(caller.organization.settings()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("organization.settings returns only the caller's tenant (K-01)", async () => {

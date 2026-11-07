@@ -29,7 +29,7 @@ export const exampleRouter = router({
   byId: tenantProcedure
     .input(z.object({ id: z.uuid() }))
     .query(async ({ ctx, input }) => {
-      // ctx.tx: transaction already scoped to ctx.session.organizationId (RLS).
+      // ctx.tx: transaction scoped to ctx.organizationId, the session's active organization (RLS).
       // Never use ctx.db for tenant data; it sees nothing (RLS fails closed).
     }),
 });
@@ -60,8 +60,13 @@ Use the in-process caller against a real database. Never mock the database or RL
 ```ts
 import { startTestDatabase, tenants } from "@flowless/db/testing";
 import { createCaller } from "./root";
+import type { Session } from "./trpc";
 
-const caller = createCaller({ db: t.app, session: { userId: "u", organizationId: tenants.a.id } });
+const session: Session = {
+  user: { id: "u", name: "Test", email: "u@example.test" },
+  session: { id: "s", activeOrganizationId: tenants.a.id },
+};
+const caller = createCaller({ db: t.app, session });
 ```
 
 To test a middleware alone, build a small router in the test file and use `createCallerFactory(router)(ctx)`.

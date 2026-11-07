@@ -2,14 +2,15 @@
   "name": "flowless",
   "private": true,
   "scripts": {
-    "bootstrap": "[ -f .env ] || cp .env.example .env; docker compose up -d --wait && pnpm db:migrate",
+    "bootstrap": "[ -f .env ] || cp .env.example .env; docker compose up -d --wait && pnpm db:migrate && pnpm db:seed",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "db:generate": "pnpm --filter @flowless/db db:generate",
-    "db:migrate": "pnpm --filter @flowless/db db:migrate"
+    "db:migrate": "pnpm --filter @flowless/db db:migrate",
+    "db:seed": "pnpm --filter @flowless/auth db:seed"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.2.1",

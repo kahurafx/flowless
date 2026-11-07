@@ -25,9 +25,10 @@ Mobile (`apps/mobile`) is not started by `pnpm dev`; run `pnpm --filter mobile s
 Local services and database:
 
 ```bash
-pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres :54320, Redis :63790), migrate
+pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres :54320, Redis :63790), migrate, seed
 pnpm db:generate    # drizzle-kit generate after changing packages/db/src/schema
 pnpm db:migrate     # bootstrap roles + apply migrations (uses DATABASE_ADMIN_URL)
+pnpm db:seed        # dev sign-in users and organizations (wanjiru@majisafi.test / flowless-dev-password)
 pnpm test           # turbo run test — Vitest; integration tests start their own Postgres via Testcontainers (Docker required)
 ```
 

@@ -1,4 +1,4 @@
 {
   "extends": "@flowless/typescript-config/base.json",
-  "include": ["src", "*.ts"]
+  "include": ["src", "scripts", "*.ts"]
 }
