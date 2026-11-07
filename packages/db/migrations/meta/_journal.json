@@ -15,6 +15,20 @@
       "when": 1794048648367,
       "tag": "0001_schema_access",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794069430448,
+      "tag": "0002_auth_username",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794069431127,
+      "tag": "0003_auth_single_membership",
+      "breakpoints": true
     }
   ]
 }

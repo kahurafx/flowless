@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizePhone } from "./accounts";
+import { isEmailIdentifier, normalizeOrganizationCode, qualifiedUsername } from "./sign-in";
 import { exceptionAge } from "./exceptions";
 import { money } from "./money";
 import { buildStatement, type StatementLine } from "./statement";
@@ -55,5 +56,19 @@ describe("normalizePhone", () => {
     ["+254712345678", "+254712345678"],
   ])("%s → %s", (raw, expected) => {
     expect(normalizePhone(raw)).toBe(expected);
+  });
+});
+
+describe("sign-in identifiers", () => {
+  it("normalizes organization codes and rejects anything that is not one", () => {
+    expect(normalizeOrganizationCode("  MajiSafi ")).toBe("majisafi");
+    expect(normalizeOrganizationCode("maji-safi")).toBeNull();
+    expect(normalizeOrganizationCode("")).toBeNull();
+  });
+
+  it("qualifies local usernames with the organization code", () => {
+    expect(qualifiedUsername("kilima", " Baraka ")).toBe("kilima.baraka");
+    expect(isEmailIdentifier("wanjiru@majisafi.test")).toBe(true);
+    expect(isEmailIdentifier("baraka")).toBe(false);
   });
 });

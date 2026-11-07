@@ -13,6 +13,7 @@ Priority: **M** = must (MVP), **S** = should, **C** = could.
 - Tenants are Organizations. Each has its own paybill, till and bank accounts. Flowless integrates with them and never holds customer money (no float, no settlement).
 - Modules are optional, not isolated. Modules communicate through events and capability checks, never through each other's tables.
 - Account number is the only auto-match key for payments.
+- A user belongs to exactly one organization; there is no switching between organizations. Sign-in takes the organization code, then email (owners and admins) or a username unique within the organization (other staff), then password. Flowless support access to other tenants is K-12, not a second membership.
 - Billing basis is the calendar month by default; period length and trigger are configurable per organization.
 - General ledger is a later module. The core keeps a double-entry customer sub-ledger and the seam described in [section 5](#5-finance-and-gl-seam-kept-now-module-later).
 - Out of scope for now: GL, tax and e-invoicing, WASREB reporting and tariff approval, smart metering (reading model stays source-agnostic), HR and payroll.

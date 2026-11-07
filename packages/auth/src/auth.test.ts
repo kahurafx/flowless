@@ -1,7 +1,8 @@
-import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/testing";
+import { startTestDatabase, type TestDatabase } from "@flowless/db/testing";
+import { ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { connectAuth } from "./connect";
 import type { Auth } from "./auth";
+import { connectAuth } from "./connect";
 
 let t: TestDatabase;
 let auth: Auth;
@@ -18,45 +19,142 @@ afterAll(async () => {
 });
 
 const password = "correct horse battery";
+const codeHeader = (code: string) => new Headers({ [ORGANIZATION_CODE_HEADER]: code });
 
-/** Signs in and returns the cookie header for follow-up calls. */
-async function signIn(email: string): Promise<Headers> {
-  const { headers } = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
-  const cookie = headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-  return new Headers({ cookie });
+/** Onboards an organization the way Flowless does: server-side, for a given owner. */
+async function onboard(code: string) {
+  const { user: owner } = await auth.api.signUpEmail({
+    body: { email: `owner@${code}.test`, password, name: `Owner ${code}` },
+  });
+  const org = await auth.api.createOrganization({ body: { name: `Water ${code}`, slug: code, userId: owner.id } });
+  return { owner, org: org! };
 }
 
-// K-01, K-03, NF-05: identity and membership live in the auth schema, via the auth role.
-describe("better auth", () => {
-  it("signs up, creates an organization and makes it the session's active tenant", async () => {
-    const { user } = await auth.api.signUpEmail({ body: { email: "amina@example.test", password, name: "Amina" } });
-    const org = await auth.api.createOrganization({ body: { name: "Amina Water", slug: "amina-water", userId: user.id } });
+/** Adds a staff member who signs in with a username local to the organization. */
+async function addStaff(code: string, organizationId: string, local: string, role = "member") {
+  const { user } = await auth.api.signUpEmail({
+    body: { email: `${local}@${code}.staff.invalid`, password, name: local, username: qualifiedUsername(code, local) },
+  });
+  await auth.api.addMember({ body: { userId: user.id, organizationId, role: role as "member" } });
+  return user;
+}
 
-    const headers = await signIn("amina@example.test");
-    await auth.api.setActiveOrganization({ headers, body: { organizationId: org!.id } });
+const signInEmail = (code: string, email: string, pw = password) =>
+  auth.api.signInEmail({ body: { email, password: pw }, headers: codeHeader(code), returnHeaders: true });
 
-    const session = await auth.api.getSession({ headers });
-    expect(session?.user.email).toBe("amina@example.test");
-    expect(session?.session.activeOrganizationId).toBe(org!.id);
+const signInUsername = (code: string, local: string, pw = password) =>
+  auth.api.signInUsername({
+    body: { username: qualifiedUsername(code, local), password: pw },
+    headers: codeHeader(code),
+    returnHeaders: true,
   });
 
-  it("issues uuid organization ids, which tenant RLS policies require", async () => {
-    const { user } = await auth.api.signUpEmail({ body: { email: "baraka@example.test", password, name: "Baraka" } });
-    const org = await auth.api.createOrganization({ body: { name: "Baraka Water", slug: "baraka-water", userId: user.id } });
-    expect(org!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+/** Cookie header from a sign-in response, for follow-up calls. */
+const cookieFrom = (headers: Headers) =>
+  new Headers({ cookie: headers.getSetCookie().map((c) => c.split(";")[0]).join("; ") });
+
+// Requirements §1: one organization per user, sign-in by organization code. K-03, NF-05.
+describe("sign-in by organization code", () => {
+  it("an owner signs in with email and lands in their organization", async () => {
+    const { org } = await onboard("alpha");
+    const { headers } = await signInEmail("alpha", "owner@alpha.test");
+    const session = await auth.api.getSession({ headers: cookieFrom(headers) });
+    expect(session?.session.activeOrganizationId).toBe(org.id);
   });
 
-  it("refuses to activate an organization the user is not a member of", async () => {
-    await auth.api.signUpEmail({ body: { email: "outsider@example.test", password, name: "Outsider" } });
-    const headers = await signIn("outsider@example.test");
+  it("staff sign in with a username local to their organization", async () => {
+    const { org } = await onboard("bravo");
+    await addStaff("bravo", org.id, "baraka");
+    const { headers } = await signInUsername("bravo", "Baraka");
+    const session = await auth.api.getSession({ headers: cookieFrom(headers) });
+    expect(session?.session.activeOrganizationId).toBe(org.id);
+  });
+
+  it("two organizations can each have the same local username", async () => {
+    const charlie = await onboard("charlie");
+    const delta = await onboard("delta");
+    await addStaff("charlie", charlie.org.id, "chebet");
+    await addStaff("delta", delta.org.id, "chebet");
+    await expect(signInUsername("delta", "chebet")).resolves.toBeTruthy();
+  });
+
+  it("requires an organization code", async () => {
     await expect(
-      auth.api.setActiveOrganization({ headers, body: { organizationId: tenants.a.id } }),
-    ).rejects.toMatchObject({ status: "FORBIDDEN" });
+      auth.api.signInEmail({ body: { email: "owner@alpha.test", password } }),
+    ).rejects.toMatchObject({ status: "BAD_REQUEST" });
+  });
+
+  it("rejects credentials under another organization's code, without saying why", async () => {
+    await onboard("echo");
+    const { org: foxtrot } = await onboard("foxtrot");
+    await addStaff("foxtrot", foxtrot.id, "otieno");
+
+    await expect(signInEmail("foxtrot", "owner@echo.test")).rejects.toMatchObject({
+      status: "UNAUTHORIZED",
+      body: { message: "Organization code, username or password is incorrect" },
+    });
+    await expect(signInUsername("echo", "otieno")).rejects.toMatchObject({ status: "UNAUTHORIZED" });
+  });
+
+  it("only owners and admins sign in with email", async () => {
+    const { org } = await onboard("golf");
+    await addStaff("golf", org.id, "clerk");
+    await addStaff("golf", org.id, "boss", "admin");
+    await expect(signInEmail("golf", "clerk@golf.staff.invalid")).rejects.toMatchObject({ status: "UNAUTHORIZED" });
+    await expect(signInEmail("golf", "boss@golf.staff.invalid")).resolves.toBeTruthy();
   });
 
   it("rejects a wrong password", async () => {
+    await expect(signInEmail("alpha", "owner@alpha.test", "wrong password!")).rejects.toMatchObject({
+      status: "UNAUTHORIZED",
+    });
+  });
+});
+
+describe("one organization per user", () => {
+  it("refuses a second membership", async () => {
+    const hotel = await onboard("hotel");
+    const india = await onboard("india");
     await expect(
-      auth.api.signInEmail({ body: { email: "amina@example.test", password: "wrong password!" } }),
-    ).rejects.toMatchObject({ status: "UNAUTHORIZED" });
+      auth.api.addMember({ body: { userId: hotel.owner.id, organizationId: india.org.id, role: "member" } }),
+    ).rejects.toMatchObject({ body: { message: "A user belongs to exactly one organization" } });
+  });
+
+  it("is also enforced by the database", async () => {
+    const juliet = await onboard("juliet");
+    const kilo = await onboard("kilo");
+    await expect(
+      t.admin.execute(
+        `insert into auth.member (id, organization_id, user_id, role, created_at)
+         values (gen_random_uuid(), '${kilo.org.id}', '${juliet.owner.id}', 'member', now())`,
+      ),
+    ).rejects.toMatchObject({ cause: { message: expect.stringMatching(/member_user_id_unique/) } });
+  });
+
+  it("does not let signed-in users create organizations", async () => {
+    await onboard("lima");
+    const { headers } = await signInEmail("lima", "owner@lima.test");
+    await expect(
+      auth.api.createOrganization({ headers: cookieFrom(headers), body: { name: "Side project", slug: "sideproject" } }),
+    ).rejects.toMatchObject({ status: "FORBIDDEN" });
+  });
+
+  it("has no endpoint to switch the active organization", async () => {
+    await onboard("mike");
+    const { headers } = await signInEmail("mike", "owner@mike.test");
+    const response = await auth.handler(
+      new Request("http://localhost:3000/api/auth/organization/set-active", {
+        method: "POST",
+        headers: { cookie: cookieFrom(headers).get("cookie")!, origin: "http://localhost:3000", "content-type": "application/json" },
+        body: JSON.stringify({ organizationId: null }),
+      }),
+    );
+    expect(response.status).toBe(404);
+
+    // Control: the same handler and cookie reach an endpoint that does exist.
+    const control = await auth.handler(
+      new Request("http://localhost:3000/api/auth/get-session", { headers: { cookie: cookieFrom(headers).get("cookie")! } }),
+    );
+    expect(control.status).toBe(200);
   });
 });

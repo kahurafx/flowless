@@ -1,8 +1,4 @@
 {
   "extends": "@flowless/typescript-config/base.json",
-  "compilerOptions": {
-    // ES2023.Intl types NumberFormat.format(string) for exact money formatting (money.ts).
-    "lib": ["ES2022", "ES2023.Intl"]
-  },
   "include": ["src"]
 }

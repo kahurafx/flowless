@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@flowless/db": "workspace:*",
+    "@flowless/shared-types": "workspace:*",
     "better-auth": "1.7.18",
     "drizzle-orm": "^0.45.4",
     "postgres": "^4.1.0"

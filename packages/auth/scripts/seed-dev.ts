@@ -1,7 +1,8 @@
-// Dev-only: creates sign-in users and organizations for local testing. Idempotent.
-// Organization slugs match the web app's mock profiles (apps/web/src/mocks/tenants.ts).
+// Dev-only: creates organizations and sign-in users for local testing. Idempotent.
+// Organization codes match the web app's mock profiles (apps/web/src/mocks/tenants.ts).
 import * as authSchema from "@flowless/db/auth-schema";
-import { and, eq } from "drizzle-orm";
+import { qualifiedUsername } from "@flowless/shared-types";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { createAuth } from "../src/auth";
@@ -12,63 +13,59 @@ if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed dev
 
 const PASSWORD = "flowless-dev-password";
 
+/** Each user belongs to exactly one organization. */
 const organizations = [
-  { slug: "maji-safi", name: "Maji Safi Water & Sanitation Company" },
-  { slug: "kilima", name: "Kilima Community Water Project" },
-] as const;
-
-const users = [
-  // Belongs to both, so the organization switcher has something to switch.
-  { email: "wanjiru@majisafi.test", name: "Wanjiru Kamau", owns: "maji-safi", memberOf: ["kilima"] },
-  { email: "otieno@kilima.test", name: "Otieno Odhiambo", owns: "kilima", memberOf: [] },
+  {
+    code: "majisafi",
+    name: "Maji Safi Water & Sanitation Company",
+    owner: { email: "wanjiru@majisafi.test", name: "Wanjiru Kamau" },
+    staff: [{ username: "baraka", name: "Baraka Mwangi" }],
+  },
+  {
+    code: "kilima",
+    name: "Kilima Community Water Project",
+    owner: { email: "otieno@kilima.test", name: "Otieno Odhiambo" },
+    staff: [{ username: "chebet", name: "Chebet" }],
+  },
 ] as const;
 
 const client = postgres(url, { max: 1 });
 const db = drizzle(client, { schema: authSchema });
 const auth = createAuth(db);
 
-async function userId(email: string, name: string): Promise<string> {
-  const [existing] = await db.select({ id: authSchema.user.id }).from(authSchema.user).where(eq(authSchema.user.email, email));
-  if (existing) return existing.id;
-  const { user } = await auth.api.signUpEmail({ body: { email, name, password: PASSWORD } });
-  return user.id;
-}
-
-async function organizationId(slug: string, name: string, ownerId: string): Promise<string> {
-  const [existing] = await db
-    .select({ id: authSchema.organization.id })
-    .from(authSchema.organization)
-    .where(eq(authSchema.organization.slug, slug));
-  if (existing) return existing.id;
-  const created = await auth.api.createOrganization({ body: { name, slug, userId: ownerId } });
-  if (!created) throw new Error(`Could not create ${slug}`);
-  return created.id;
+async function findUser(email: string): Promise<string | undefined> {
+  const [row] = await db.select({ id: authSchema.user.id }).from(authSchema.user).where(eq(authSchema.user.email, email));
+  return row?.id;
 }
 
 try {
-  const ids = new Map<string, string>();
-  for (const u of users) ids.set(u.email, await userId(u.email, u.name));
-
-  const orgIds = new Map<string, string>();
   for (const org of organizations) {
-    const owner = users.find((u) => u.owns === org.slug)!;
-    orgIds.set(org.slug, await organizationId(org.slug, org.name, ids.get(owner.email)!));
-  }
+    const ownerId =
+      (await findUser(org.owner.email)) ??
+      (await auth.api.signUpEmail({ body: { ...org.owner, password: PASSWORD } })).user.id;
 
-  for (const u of users) {
-    for (const slug of u.memberOf) {
-      const organizationId = orgIds.get(slug)!;
-      const memberUserId = ids.get(u.email)!;
-      const [already] = await db
-        .select({ id: authSchema.member.id })
-        .from(authSchema.member)
-        .where(and(eq(authSchema.member.userId, memberUserId), eq(authSchema.member.organizationId, organizationId)));
-      if (!already) await auth.api.addMember({ body: { userId: memberUserId, organizationId, role: "member" } });
+    const [existing] = await db
+      .select({ id: authSchema.organization.id })
+      .from(authSchema.organization)
+      .where(eq(authSchema.organization.slug, org.code));
+    const organizationId =
+      existing?.id ?? (await auth.api.createOrganization({ body: { name: org.name, slug: org.code, userId: ownerId } }))!.id;
+
+    for (const person of org.staff) {
+      // Staff without email get a reserved .invalid address; they sign in by username.
+      const email = `${person.username}@${org.code}.staff.invalid`;
+      if (await findUser(email)) continue;
+      const { user } = await auth.api.signUpEmail({
+        body: { email, name: person.name, password: PASSWORD, username: qualifiedUsername(org.code, person.username) },
+      });
+      await auth.api.addMember({ body: { userId: user.id, organizationId, role: "member" } });
     }
   }
 
-  console.log("Dev users (password: %s):", PASSWORD);
-  for (const u of users) console.log(`  ${u.email}`);
+  console.log("Dev sign-in (password: %s):", PASSWORD);
+  for (const org of organizations) {
+    console.log(`  ${org.code}: ${org.owner.email} (owner), ${org.staff.map((s) => s.username).join(", ")} (staff)`);
+  }
 } finally {
   await client.end();
 }

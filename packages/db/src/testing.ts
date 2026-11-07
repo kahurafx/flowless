@@ -16,8 +16,8 @@ declare module "vitest" {
 
 /** Fixed canary tenants (NF-02). Tests assert tenant B's ids never appear under tenant A. */
 export const tenants = {
-  a: { id: "00000000-0000-4000-8000-00000000000a", name: "Canary Water A", slug: "canary-a" },
-  b: { id: "00000000-0000-4000-8000-00000000000b", name: "Canary Water B", slug: "canary-b" },
+  a: { id: "00000000-0000-4000-8000-00000000000a", name: "Canary Water A", slug: "canarya" },
+  b: { id: "00000000-0000-4000-8000-00000000000b", name: "Canary Water B", slug: "canaryb" },
 } as const;
 
 /** Migrated and seeded once per test run; every test file gets a fresh copy of it. */

@@ -51,7 +51,8 @@ Better Auth is the identity layer, and its `organization` table is the tenant ta
 | Concern | Owner |
 | --- | --- |
 | Users, sessions, passwords, MFA, sign-in rate limits (NF-05) | Better Auth core and `twoFactor` |
-| Organizations, members, invitations, member roles, the session's active organization (K-01, K-03) | Better Auth `organization` plugin |
+| Organizations, members, invitations, member roles, the session's active organization (K-01, K-03) | Better Auth `organization` plugin. One membership per user (unique index on `auth.member.user_id`); the active organization is set from it when the session is created and cannot be switched. |
+| Sign-in by organization code: email for owners and admins, `<code>.<username>` for other staff (requirements §1) | `packages/auth` sign-in hook and Better Auth `username` plugin |
 | Role permissions, such as "can approve a rebate" (K-03) | Better Auth access control (`createAccessControl`) with Flowless permission statements |
 | Per-scope restrictions by scheme, zone or route (K-03) | Kernel tables. Better Auth roles do not restrict data. |
 | Module licensing (K-04), hierarchy (K-02), audit (K-06), support access (K-12) | Kernel. Better Auth hooks feed audit records and publish organization lifecycle events. |
@@ -66,7 +67,7 @@ These rules turn the CLAUDE.md rules into code. Each one is enforced by a check,
 
 | Rule | Enforced by |
 | --- | --- |
-| The `auth` schema is the one exception to tenant RLS: Better Auth must work before any tenant is known (sign-in, invitations, switching organizations). It is isolated by role instead: `flowless_auth` reaches only `auth`, `flowless_app` never does, and only `packages/auth` imports `@flowless/db/auth-schema`. Modules learn about organizations through events, never by reading `auth.*`. | per-schema grants in migrations; role-separation tests; ESLint import ban outside `packages/auth` |
+| The `auth` schema is the one exception to tenant RLS: Better Auth must work before any tenant is known (sign-in, invitations). It is isolated by role instead: `flowless_auth` reaches only `auth`, `flowless_app` never does, and only `packages/auth` imports `@flowless/db/auth-schema`. Modules learn about organizations through events, never by reading `auth.*`. | per-schema grants in migrations; role-separation tests; ESLint import ban outside `packages/auth` |
 | Every request runs inside `withTenant`. That sets `app.organization_id` for the transaction, and RLS does the rest (K-01, NF-01). No procedure or job gets the raw connection. | `tenantProcedure`, the app DB role without `BYPASSRLS`, isolation canary test (NF-02) |
 | Every module procedure checks the module's entitlement on the server (K-04, NF-03). | `moduleProcedure(module)` is the only builder module routers may use |
 | A module imports only its own `@flowless/db` schema file. To reach another module it uses that module's `index.ts` or an event (NF-30). | ESLint `no-restricted-imports` per module folder; per-module Postgres schemas with grants |
