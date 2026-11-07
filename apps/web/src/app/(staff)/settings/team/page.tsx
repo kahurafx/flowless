@@ -21,6 +21,5 @@ export default function TeamPage() {
 }
 
 async function Team() {
-  const { members, myPermissions } = await listTeam();
-  return <TeamManager members={members} myPermissions={myPermissions} />;
+  return <TeamManager {...await listTeam()} />;
 }

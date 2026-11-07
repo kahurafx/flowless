@@ -21,3 +21,17 @@ export async function setPermission(userId: string, permission: Permission, gran
   refresh();
   return { error: null };
 }
+
+/** Replaces a member's scope restrictions (K-03). Empty lists mean the whole organization. */
+export async function setScope(userId: string, areaIds: string[], routeIds: string[]) {
+  const { api } = await getApi();
+  try {
+    await api.access.setScope({ userId, areaIds, routeIds });
+  } catch (error) {
+    const message = clientErrorMessage(error);
+    if (message) return { error: message };
+    throw error;
+  }
+  refresh();
+  return { error: null };
+}
