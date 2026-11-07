@@ -2,10 +2,10 @@ import { memberPermission, organizationSettings } from "@flowless/db";
 import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/testing";
 import { DEFAULT_ROLES } from "@flowless/shared-types";
 import { eq, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCaller } from "./root";
-import { createCallerFactory, permittedProcedure, router, tenantProcedure, type Session } from "./trpc";
+import { addMember as addMemberTo, callerFor as callerAs, sessionOf, type Member } from "./test-support";
+import { createCallerFactory, permittedProcedure, router, tenantProcedure } from "./trpc";
 
 let t: TestDatabase;
 beforeAll(async () => {
@@ -13,29 +13,8 @@ beforeAll(async () => {
 });
 afterAll(() => t?.stop());
 
-interface Member {
-  userId: string;
-  organizationId: string;
-  role: string;
-}
-
-/** A user with one membership, written straight to the auth schema as Better Auth would. */
-async function addMember(organizationId: string, role: string): Promise<Member> {
-  const userId = randomUUID();
-  await t.admin.execute(sql`insert into auth.user (id, name, email) values (${userId}, ${role}, ${`${userId}@example.test`})`);
-  await t.admin.execute(
-    sql`insert into auth.member (organization_id, user_id, role, created_at) values (${organizationId}, ${userId}, ${role}, now())`,
-  );
-  return { userId, organizationId, role };
-}
-
-const sessionOf = (m: Member, activeOrganizationId: string | null = m.organizationId): Session => ({
-  user: { id: m.userId, name: m.role, email: `${m.userId}@example.test` },
-  session: { id: `session-${m.userId}`, activeOrganizationId },
-  member: { organizationId: m.organizationId, role: m.role },
-});
-
-const callerFor = (m: Member) => createCaller({ db: t.app, session: sessionOf(m) });
+const addMember = (organizationId: string, role: string) => addMemberTo(t, organizationId, role);
+const callerFor = (m: Member) => callerAs(t, m);
 
 describe("tenant procedures", () => {
   it("health answers without a session", async () => {
@@ -100,7 +79,7 @@ describe("roles and permissions", () => {
   it("a member holds their role's default permissions", async () => {
     const clerk = await addMember(tenants.a.id, "clerk");
     const me = await callerFor(clerk).access.me();
-    expect(me).toEqual({ role: "clerk", permissions: [...DEFAULT_ROLES.clerk].sort() });
+    expect(me).toEqual({ role: "clerk", permissions: [...DEFAULT_ROLES.clerk].sort(), scope: { kind: "all" } });
   });
 
   it("an administrator can grant a permission beyond the member's role", async () => {

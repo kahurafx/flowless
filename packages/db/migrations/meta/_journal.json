@@ -43,6 +43,13 @@
       "when": 1794071716796,
       "tag": "0005_kernel_member_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794074767329,
+      "tag": "0006_kernel_hierarchy",
+      "breakpoints": true
     }
   ]
 }

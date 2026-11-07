@@ -1,9 +1,10 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Caller } from "@flowless/auth";
 import { memberPermission, withTenant, type Database } from "@flowless/db";
-import { effectivePermissions, type Permission } from "@flowless/shared-types";
+import { effectivePermissions, type Permission, type Scope } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
+import { loadScope } from "./kernel/scope";
 
 /**
  * Who is calling: the parts of the Better Auth caller the API relies on. Derived from
@@ -30,8 +31,9 @@ export const publicProcedure = t.procedure;
 
 /**
  * Runs the whole procedure inside `withTenant`, exposing the tenant-scoped
- * transaction as `ctx.tx` (K-01) and what the caller may do as `ctx.permissions`
- * (role defaults plus extra grants, K-03). The tenant is the caller's membership, and it
+ * transaction as `ctx.tx` (K-01), what the caller may do as `ctx.permissions`
+ * (role defaults plus extra grants, K-03) and which part of the organization they cover
+ * as `ctx.scope()` (scope restrictions, K-03; loaded on first use). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -54,7 +56,10 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
       member.role,
       grants.map((g) => g.permission),
     );
-    const result = await next({ ctx: { session, organizationId, role: member.role, permissions, tx } });
+    let scope: Promise<Scope> | undefined;
+    const result = await next({
+      ctx: { session, organizationId, role: member.role, permissions, tx, scope: () => (scope ??= loadScope(tx, session.user.id)) },
+    });
     if (!result.ok) throw result.error;
     return result;
   });

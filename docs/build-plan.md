@@ -112,7 +112,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 
 - Better Auth wired up: secret and base URL from env, handler at `/api/auth/[...all]` in web, `@better-auth/expo` for mobile, access-control statements, audit hooks (K-06), organization lifecycle events.
 - `createContext` resolves the Better Auth session; `tenantProcedure` uses its `activeOrganizationId` and rejects sessions without one.
-- Default roles with permission arrays plus per-member extra permissions (K-03, done in A2). Scope restrictions (K-03) land with the hierarchy tables (A3) so they can reference schemes, zones and routes. Support access (K-12) as a kernel table.
+- Default roles with permission arrays plus per-member extra permissions (K-03, done in A2). Scope restrictions (K-03, done in A3): a member limited to areas and routes covers everything below them; no restriction rows means the whole organization; modules filter with `ctx.scope()` and `scopeCovers`. Support access (K-12) as a kernel table.
 - `tenantProcedure` and `moduleProcedure` builders as the entitlement guard for routes and reports.
 - Generic approval engine.
 - Audit log.
@@ -122,7 +122,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Exception queue (X-02 framework) fed by the job runner (NF-24).
 - File service (K-08), ported from Majimap's attachments: S3-compatible, presigned uploads, tenant-prefixed keys, per-subject limits.
 - Notification service interface.
-- Hierarchy (K-02): scheme, zone, sub-zone and DMA as kernel tables, plus a separate route hierarchy (a route is an ordered list of service points). GIS adds map data to the kernel's DMA ids in Phase 2.
+- Hierarchy (K-02, done in A3): `kernel.area` (scheme, zone, sub-zone, DMA; a parent sits at any higher level, so unused levels are skipped) and `kernel.route` (route groups and routes), archived rather than deleted. Accounts places service points on routes in Phase 3; GIS adds map data to the kernel's DMA ids in Phase 2.
 - Work registry: the ports through which modules contribute work-order kinds, asset and evidence resolvers, branch guards and completion effects without importing each other (adopted from Majimap's `kernel/ports.ts` and `registry.ts`).
 - PostGIS in the dev database and in the test container (`postgis/postgis` image).
 - ESLint module-boundary rules.

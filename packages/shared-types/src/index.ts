@@ -6,3 +6,4 @@ export * from "./statement";
 export * from "./exceptions";
 export * from "./sign-in";
 export * from "./permissions";
+export * from "./hierarchy";
