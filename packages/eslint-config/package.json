@@ -1,0 +1,14 @@
+{
+  "name": "@flowless/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./base": "./base.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "eslint": "^9",
+    "typescript-eslint": "^8"
+  }
+}

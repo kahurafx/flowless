@@ -1,0 +1,26 @@
+{
+  "name": "@flowless/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "auth:generate": "auth generate --config auth.cli.ts --output ../db/src/schema/auth.ts --yes"
+  },
+  "devDependencies": {
+    "@flowless/eslint-config": "workspace:*",
+    "@flowless/typescript-config": "workspace:*",
+    "auth": "1.7.18",
+    "eslint": "^9",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@flowless/db": "workspace:*",
+    "better-auth": "1.7.18",
+    "drizzle-orm": "^0.45.4"
+  }
+}

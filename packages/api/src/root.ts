@@ -1,0 +1,17 @@
+import { ping } from "@flowless/db";
+import { organizationsRouter } from "./kernel/organizations";
+import { createCallerFactory, publicProcedure, router } from "./trpc";
+
+/** One key per kernel area or module (docs/build-plan.md, Code layout). */
+export const appRouter = router({
+  health: publicProcedure.query(async ({ ctx }) => {
+    await ping(ctx.db);
+    return { status: "ok" as const };
+  }),
+  organization: organizationsRouter,
+});
+
+export type AppRouter = typeof appRouter;
+
+/** In-process caller for server code and tests. */
+export const createCaller = createCallerFactory(appRouter);

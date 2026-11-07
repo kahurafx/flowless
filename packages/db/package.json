@@ -1,0 +1,33 @@
+{
+  "name": "@flowless/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth-schema": "./src/schema/auth.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file-if-exists=../../.env scripts/migrate.ts"
+  },
+  "devDependencies": {
+    "@flowless/eslint-config": "workspace:*",
+    "@flowless/typescript-config": "workspace:*",
+    "@testcontainers/postgresql": "^12.2.1",
+    "@types/node": "^24.19.2",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^9",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^4.1.0"
+  }
+}

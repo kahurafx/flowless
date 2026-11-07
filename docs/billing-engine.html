@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flowless billing engine: reference and tests</title>
+<style>
+:root{color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f6f7f4;--sf:#fff;--fg:#15222b;--mut:#5d6b73;--bd:#d6dcd8;--ok:#0a7a45;--bad:#b3261e;--acc:#0b5e7a}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181d;--sf:#172229;--fg:#e4ecef;--mut:#92a3ab;--bd:#2a3a43;--ok:#47c08a;--bad:#f2766d;--acc:#6cc0dc}}
+:root[data-theme="dark"]{--bg:#10181d;--sf:#172229;--fg:#e4ecef;--mut:#92a3ab;--bd:#2a3a43;--ok:#47c08a;--bad:#f2766d;--acc:#6cc0dc}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.1rem;margin:28px 0 8px}
+p{margin:0 0 8px;max-width:72ch}.mut{color:var(--mut);font-size:.9rem}
+.box{background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:12px;overflow-x:auto}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{font-weight:600;color:var(--mut);font-size:.85rem}
+.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
+.v{opacity:.5;text-decoration:line-through}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:10px}
+label{display:flex;flex-direction:column;font-size:.8rem;color:var(--mut);gap:2px}
+input,select{font:inherit;padding:6px 8px;border:1px solid var(--bd);border-radius:5px;background:var(--bg);color:var(--fg);min-width:0;width:130px}
+input[type=checkbox]{width:auto}
+button{font:inherit;padding:7px 12px;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:5px;cursor:pointer}
+button.g{background:transparent;color:var(--acc)}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+#msg{min-height:1.4em;margin:6px 0}
+.ln{display:flex;justify-content:space-between;gap:12px}
+</style></head>
+<body><main>
+<h1>Flowless billing engine: reference and tests</h1>
+<p class="mut">A pure, no-I/O reference implementation of the estimate and true-up rules. Money is in integer cents. The domestic rate for 301–1000 units is not known: 240.00 is a placeholder (see TARIFFS in the code).</p>
+
+<h2>Test suite</h2>
+<div class="row"><button id="rerun">Run tests again</button><span id="sum"></span></div>
+<div class="box"><table><thead><tr><th>Test</th><th>Result</th></tr></thead><tbody id="tests"></tbody></table></div>
+
+<h2>Simulator</h2>
+<p class="mut">Leave the dial empty to request an estimate. Tariffs change in 2026-10 (0–6 band 95.00), so use 2026-01 to 2026-09 for the older tariff.</p>
+<div class="box">
+<div class="row">
+<label>Billing period<input id="per" type="month" value="2026-01"></label>
+<label>Dial reading<input id="dial" type="number" placeholder="empty = estimate"></label>
+<label>Estimate units<input id="units" type="number" placeholder="optional"></label>
+<label>Tier scaling<select id="scal"><option value="by_period">by_period</option><option value="none">none (legacy)</option></select></label>
+<label><span>Rollover</span><input id="roll" type="checkbox"></label>
+</div>
+<div class="row">
+<button id="bBill">Bill reading</button>
+<button id="bCorr" class="g">Correct period</button>
+<button id="bVoid" class="g">Void last invoice</button>
+<button id="bDis" class="g">Disconnect (final dial)</button>
+<label>Payment<input id="pay" type="number" placeholder="amount"></label>
+<button id="bPay" class="g">Post payment</button>
+<button id="bReset" class="g">Reset</button>
+</div>
+<div id="msg" aria-live="polite"></div>
+<table><thead><tr><th>Period</th><th>Document</th><th>Lines</th><th class="n">Total</th><th class="n">Balance</th></tr></thead><tbody id="st"></tbody></table>
+<div id="ex"></div>
+</div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const fmt=c=>(c/100).toLocaleString("en-KE",{minimumFractionDigits:2,maximumFractionDigits:2});
+const sum=(xs,f)=>xs.reduce((s,x)=>s+f(x),0);
+const P=s=>{const[a,b]=s.split("-").map(Number);return a*12+b-1};
+const PS=i=>Math.floor(i/12)+"-"+String(i%12+1).padStart(2,"0");
+
+// ---------- ENGINE (pure; money in cents; periods are YYYY-MM) ----------
+const B1=[[6,8250],[20,9600],[50,11000],[100,13100],[300,17250],[1000,24000],[Infinity,24000]];
+const B2=B1.map((b,i)=>i?b:[6,9500]);
+const TARIFFS=[{from:0,standing:15000,bands:B1},{from:P("2026-10"),standing:15000,bands:B2}];
+const tariffAt=i=>[...TARIFFS].reverse().find(t=>t.from<=i);
+function cm(u,t){let prev=0,s=0;for(const[up,r]of t.bands){const k=Math.min(u,up)-prev;if(k>0)s+=k*r;prev=up;if(u<=up)break}return s}
+function span(u,from,to,pol){const n=to-from;if(pol.scaling==="none")return Math.round(cm(u,tariffAt(to)));let s=0;for(let i=from+1;i<=to;i++)s+=cm(u/n,tariffAt(i));return Math.round(s)}
+let SEQ=0;
+const L=(code,desc,amt,from,to,q)=>({code,desc,amt,from,to,q});
+const CONS=["USAGE","USAGE_EST","TRUEUP","CORR"];
+const live=a=>a.docs.filter(d=>!d.voided&&d.type!=="reversal"&&d.type!=="payment");
+const billed=(a,lo,hi)=>live(a).filter(d=>P(d.period)>lo&&P(d.period)<=hi).flatMap(d=>d.lines).filter(l=>CONS.includes(l.code));
+const balance=a=>sum(a.docs,d=>d.total);
+function newAcct(o={}){return{status:"ACTIVE",digits:4,readings:[],docs:[],ex:[],keys:new Set(),pol:{scaling:"by_period",avgN:3,fallback:null,ceiling:300,...o}}}
+const ex=(a,code,msg,period)=>{a.ex.push({code,msg,period});return{exception:code,msg}};
+const lastActual=(a,p)=>a.readings.filter(r=>r.kind==="actual"&&!r.voided&&P(r.period)<p).sort((x,y)=>P(y.period)-P(x.period))[0];
+function estUnits(a,p){
+  const h=a.readings.filter(r=>r.kind==="actual"&&!r.voided&&r.units!=null&&!r.excl&&P(r.period)<p)
+    .sort((x,y)=>P(y.period)-P(x.period)).slice(0,a.pol.avgN).map(r=>r.units/r.months);
+  if(!h.length)return a.pol.fallback;
+  h.sort((x,y)=>x-y);const m=h.length>>1;
+  return Math.round(h.length%2?h[m]:(h[m-1]+h[m])/2);
+}
+function bill(a,period,o={}){
+  const p=P(period),t=tariffAt(p),pol=a.pol,est=o.dial==null;
+  if(a.status!=="ACTIVE"&&!o.final)return ex(a,"STATUS_BLOCKED","Account is "+a.status+"; no bill issued",period);
+  if(live(a).some(d=>d.period===period&&d.type!=="correction"))return ex(a,"DUPLICATE_PERIOD","This period is already billed",period);
+  const last=lastActual(a,p);
+  if(!last){
+    if(est)return ex(a,"NO_BASELINE","No trusted actual reading; held for a verified reading",period);
+    a.readings.push({id:++SEQ,period,kind:"actual",dial:o.dial});
+    return{baseline:true};
+  }
+  const lp=P(last.period),n=p-lp,lines=[];let u;
+  if(est){
+    u=o.units??estUnits(a,p);
+    if(u==null)return ex(a,"NO_HISTORY","No usage history to estimate from; held",period);
+    lines.push(L("USAGE_EST","Estimated usage, "+u+" units",Math.round(cm(u,t)),period,period,u));
+  }else{
+    u=o.dial-last.dial;
+    if(u<0){if(o.rollover)u+=10**a.digits;else return ex(a,"NEGATIVE_OR_ROLLOVER","Reading is below the last actual ("+last.dial+"); confirm rollover or fix the reading",period)}
+    const prev=billed(a,lp,p-1);
+    if(pol.scaling==="none"){
+      const eu=sum(prev.filter(l=>l.code==="USAGE_EST"),l=>l.q),r=Math.max(0,u-eu);
+      lines.push(L("USAGE","Usage, "+r+" units (legacy: remainder as one month)",Math.round(cm(r,t)),PS(lp+1),period,r));
+    }else{
+      lines.push(L("USAGE","Usage, "+u+" units over "+n+" month(s)",span(u,lp,p,pol),PS(lp+1),period,u));
+      const b=sum(prev,l=>l.amt);
+      if(b)lines.push(L("TRUEUP","Less estimates already billed",-b,PS(lp+1),PS(p-1),0));
+    }
+  }
+  for(let i=lp+1;i<=p;i++)if(i===p||!live(a).some(d=>P(d.period)===i))
+    lines.push(L("STANDING","Standing charge and meter rent",tariffAt(i).standing,PS(i),PS(i),0));
+  if(o.final&&o.fee)lines.push(L("TURN_OFF","Turn-off fee",o.fee,period,period,0));
+  if(!est&&u>0&&!lines.some(l=>l.code==="USAGE"&&l.amt>0))return ex(a,"ZERO_CHARGE","Consumption but no usage charge; held",period);
+  if(!est&&u/n>pol.ceiling)return ex(a,"OUTLIER_HOLD",Math.round(u/n)+" units a month exceeds the ceiling; held for approval",period);
+  if(t.standing>0&&!lines.some(l=>l.code==="STANDING"))return ex(a,"NO_STANDING","Standing charge missing; held",period);
+  const total=sum(lines,l=>l.amt),rid=++SEQ;
+  a.readings.push(est?{id:rid,period,kind:"estimate",units:u}:{id:rid,period,kind:"actual",dial:o.dial,units:u,months:n});
+  const d={id:++SEQ,period,type:total<0?"credit_note":"invoice",lines,total,rid,final:!!o.final};
+  a.docs.push(d);return{doc:d};
+}
+function voidDoc(a,id){
+  const d=a.docs.find(x=>x.id===id&&!x.voided&&x.type!=="reversal");if(!d)return{exception:"NOT_FOUND"};
+  d.voided=true;const r=a.readings.find(x=>x.id===d.rid);if(r)r.voided=true;
+  a.docs.push({id:++SEQ,period:d.period,type:"reversal",ref:id,lines:[],total:-d.total});return{ok:true};
+}
+function correct(a,period){
+  const p=P(period),r=a.readings.find(x=>x.period===period&&x.kind==="actual"&&!x.voided&&x.units!=null);
+  if(!r)return ex(a,"NO_READING","No actual reading in that period",period);
+  const last=lastActual(a,p);if(!last)return ex(a,"NO_BASELINE","No earlier actual reading",period);
+  const lp=P(last.period),u=r.dial-last.dial;if(u<0)return ex(a,"NEGATIVE_OR_ROLLOVER","Reading is below the new baseline",period);
+  const diff=span(u,lp,p,a.pol)-sum(billed(a,lp,p),l=>l.amt);
+  r.units=u;r.months=p-lp;
+  if(!diff)return{none:true};
+  const d={id:++SEQ,period,type:"correction",lines:[L("CORR","Reading correction",diff,PS(lp+1),period,0)],total:diff};
+  a.docs.push(d);return{doc:d};
+}
+function disconnect(a,period,dial,key,fee=100000){
+  if(a.keys.has(key))return{duplicate:true};
+  const r=bill(a,period,{dial,final:true,fee});
+  if(!r.exception){a.status="DISCONNECTED";a.keys.add(key)}return r;
+}
+function pay(a,amt){a.docs.push({id:++SEQ,period:"",type:"payment",lines:[],total:-amt})}
+
+// ---------- TESTS ----------
+const T=[],ALL=[];
+const t=(name,fn)=>T.push({name,fn});
+const eq=(x,y,m)=>{if(x!==y)throw new Error((m?m+": ":"")+"expected "+y+", got "+x)};
+const mk=o=>{const a=newAcct(o);ALL.push(a);return a};
+const cons=a=>sum(live(a).flatMap(d=>d.lines).filter(l=>CONS.includes(l.code)),l=>l.amt);
+
+t("1. 6 units estimated = 645.00 (matches legacy)",()=>{const a=mk();bill(a,"2026-01",{dial:10});eq(bill(a,"2026-02",{units:6}).doc.total,64500)});
+t("2. 2 units at the 2026-10 tariff = 340.00 (matches legacy)",()=>{const a=mk();bill(a,"2026-09",{dial:10});eq(bill(a,"2026-10",{dial:12}).doc.total,34000)});
+t("3. 20 units in one month = 1,839.00 consumption",()=>eq(Math.round(cm(20,TARIFFS[0])),183900));
+t("4. Sep 20, est 4, actual 22, actual 23: 480.00, credit note -15.00, 232.50",()=>{
+  const a=mk();bill(a,"2026-01",{dial:20});
+  eq(bill(a,"2026-02",{units:4}).doc.total,48000,"estimate");
+  const n=bill(a,"2026-03",{dial:22}).doc;eq(n.total,-1500,"true-up");eq(n.type,"credit_note","type");
+  eq(bill(a,"2026-04",{dial:23}).doc.total,23250,"next");eq(balance(a),69750,"balance")});
+t("5a. Scaled bands: estimated path costs the same as reading monthly (5,517.00)",()=>{
+  const a=mk();bill(a,"2026-01",{dial:0});bill(a,"2026-02",{units:10});bill(a,"2026-03",{units:10});bill(a,"2026-04",{dial:60});
+  const b=mk();bill(b,"2026-01",{dial:0});["2026-02","2026-03","2026-04"].forEach((p,i)=>bill(b,p,{dial:20*(i+1)}));
+  eq(cons(a),551700,"estimated path");eq(cons(b),551700,"monthly path")});
+t("5b. Legacy mode (tier_scaling none) reproduces 5,797.00",()=>{
+  const a=mk({scaling:"none"});bill(a,"2026-01",{dial:0});bill(a,"2026-02",{units:10});bill(a,"2026-03",{units:10});bill(a,"2026-04",{dial:60});eq(cons(a),579700)});
+t("6. Wrong dial corrected: void Oct, rebill 25, correct Nov (net 1,387.50)",()=>{
+  const a=mk();bill(a,"2026-01",{dial:20});const d=bill(a,"2026-02",{dial:30}).doc;bill(a,"2026-03",{dial:36});
+  voidDoc(a,d.id);eq(bill(a,"2026-02",{dial:25}).doc.lines[0].q,5,"rebilled units");
+  eq(correct(a,"2026-03").doc.total,48000,"correction");eq(cons(a),138750,"net consumption");eq(correct(a,"2026-03").none,true,"idempotent")});
+t("7. Rollover 9990 to 0015 needs confirmation, then bills 25 units",()=>{
+  const a=mk();bill(a,"2026-01",{dial:9990});eq(bill(a,"2026-02",{dial:15}).exception,"NEGATIVE_OR_ROLLOVER");
+  const r=bill(a,"2026-02",{dial:15,rollover:true});eq(r.doc.lines[0].amt,238900)});
+t("8. Estimate with no actual reading is held (NO_BASELINE), not billed",()=>{const a=mk();eq(bill(a,"2026-01",{units:5}).exception,"NO_BASELINE");eq(a.docs.length,0)});
+t("8b. Estimate with a baseline but no history is held (NO_HISTORY), never a silent zero",()=>{const a=mk();bill(a,"2026-01",{dial:50});eq(bill(a,"2026-02",{}).exception,"NO_HISTORY")});
+t("8c. First actual reading is a baseline: no bill, no 689-unit surprise",()=>{const a=mk();eq(bill(a,"2026-01",{dial:707}).baseline,true);eq(a.docs.length,0)});
+t("9. Disconnect bills final units, month standing charge and fee; later bills blocked",()=>{
+  const a=mk();bill(a,"2026-01",{dial:100});bill(a,"2026-02",{dial:110});
+  eq(disconnect(a,"2026-03",112,"D1").doc.total,131500);eq(a.status,"DISCONNECTED");eq(bill(a,"2026-04",{dial:115}).exception,"STATUS_BLOCKED")});
+t("10. Duplicate disconnection event posts no second fee",()=>{
+  const a=mk();bill(a,"2026-01",{dial:100});disconnect(a,"2026-02",101,"D1");const n=a.docs.length;eq(disconnect(a,"2026-02",101,"D1").duplicate,true);eq(a.docs.length,n)});
+t("11. Reading below the last actual after an estimate is rejected",()=>{
+  const a=mk();bill(a,"2026-01",{dial:20});bill(a,"2026-02",{units:4});eq(bill(a,"2026-03",{dial:19}).exception,"NEGATIVE_OR_ROLLOVER")});
+t("12. Voiding an invoice restores the prior state",()=>{
+  const a=mk();bill(a,"2026-01",{dial:20});const d=bill(a,"2026-02",{units:5}).doc;voidDoc(a,d.id);
+  eq(balance(a),0,"balance");eq(lastActual(a,P("2026-12")).dial,20,"baseline");eq(bill(a,"2026-02",{units:5}).doc.total,d.total,"re-bill")});
+t("13. Tariff change inside a span: each month at its own tariff (655.00 incl. missed standing)",()=>{
+  const a=mk();bill(a,"2026-08",{dial:0});eq(bill(a,"2026-10",{dial:4}).doc.total,65500)});
+t("14. Property test: span total is independent of the estimate path (300 random cases)",()=>{
+  for(let k=0;k<300;k++){const m=2+Math.floor(Math.random()*4),U=Math.floor(Math.random()*80),a=newAcct();
+    bill(a,"2026-01",{dial:0});for(let i=1;i<m;i++)bill(a,PS(P("2026-01")+i),{units:Math.floor(Math.random()*40)});
+    bill(a,PS(P("2026-01")+m),{dial:U});eq(cons(a),span(U,P("2026-01"),P("2026-01")+m,a.pol),"case "+k)}});
+t("15. Invariants: every document's lines sum to its total; balance is derived",()=>{
+  for(const a of ALL){for(const d of a.docs)if(d.type!=="payment")eq(sum(d.lines,l=>l.amt)+(d.type==="reversal"?d.total:0),d.total,"doc "+d.id)}
+  const a=mk();bill(a,"2026-01",{dial:0});bill(a,"2026-02",{dial:10});const b0=balance(a);pay(a,50000);eq(balance(a),b0-50000)});
+
+function runTests(){
+  ALL.length=0;let ok=0;
+  $("#tests").innerHTML=T.map(x=>{let r;try{x.fn();ok++;r='<span class="ok">Pass</span>'}catch(e){r='<span class="bad">Fail</span> '+e.message}return"<tr><td>"+x.name+"</td><td>"+r+"</td></tr>"}).join("");
+  $("#sum").innerHTML='<b class="'+(ok===T.length?"ok":"bad")+'">'+ok+" of "+T.length+" passed</b>";
+}
+
+// ---------- SIMULATOR ----------
+let S;
+function reset(){S=newAcct({scaling:$("#scal").value});show("Ready. Enter a baseline reading first (for example 2026-01, dial 20).")}
+function show(m){
+  $("#msg").textContent=m||"";let bal=0;
+  $("#st").innerHTML=S.docs.map(d=>{bal+=d.total;
+    const ls=d.lines.length?d.lines.map(l=>'<div class="ln"><span>'+l.desc+'</span><span class="n">'+fmt(l.amt)+"</span></div>").join(""):(d.type==="payment"?"Payment":"Reversal of document "+d.ref);
+    return'<tr class="'+(d.voided?"v":"")+'"><td>'+d.period+"</td><td>"+d.type+"</td><td>"+ls+'</td><td class="n">'+fmt(d.total)+'</td><td class="n">'+fmt(bal)+"</td></tr>"}).join("");
+  $("#ex").innerHTML=S.ex.length?'<h2>Exceptions (held, not billed)</h2><table><tbody>'+S.ex.map(e=>"<tr><td>"+e.period+"</td><td class=\"bad\">"+e.code+"</td><td>"+e.msg+"</td></tr>").join("")+"</tbody></table>":"";
+}
+const res=r=>r.exception?"Held: "+r.exception+". "+(r.msg||""):r.baseline?"Baseline reading saved. Nothing billed.":r.doc?"Issued "+r.doc.type+" of "+fmt(r.doc.total)+".":r.duplicate?"Duplicate event ignored.":r.none?"No correction needed.":"Done.";
+const val=id=>$(id).value===""?null:Number($(id).value);
+$("#bBill").onclick=()=>{S.pol.scaling=$("#scal").value;const o={dial:val("#dial"),rollover:$("#roll").checked};const u=val("#units");if(u!=null)o.units=u;show(res(bill(S,$("#per").value,o)))};
+$("#bCorr").onclick=()=>show(res(correct(S,$("#per").value)));
+$("#bVoid").onclick=()=>{const d=[...live(S)].pop();show(d?(voidDoc(S,d.id),"Voided document "+d.id+" and reversed it."):"Nothing to void.")};
+$("#bDis").onclick=()=>show(res(disconnect(S,$("#per").value,val("#dial"),"sim-"+$("#per").value)));
+$("#bPay").onclick=()=>{const v=val("#pay");if(v>0){pay(S,Math.round(v*100));show("Payment posted.")}};
+$("#bReset").onclick=reset;$("#rerun").onclick=runTests;$("#scal").onchange=()=>{S.pol.scaling=$("#scal").value};
+runTests();reset();
+</script></body></html>
