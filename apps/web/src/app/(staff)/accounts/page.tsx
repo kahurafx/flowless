@@ -21,7 +21,7 @@ export default function AccountsPage() {
 
 async function Accounts() {
   const { organization } = await getSession();
-  // Server-side entitlement check (K-04, NF-03); Phase 2 moves this into moduleProcedure.
+  // Server-side entitlement check (K-04, NF-03); Phase 3 moves this into moduleProcedure.
   if (!organization.entitlements.includes("accounts")) notFound();
   const accounts = await listAccounts();
   return <AccountsGrid accounts={accounts} locale={organization.settings.locale} />;

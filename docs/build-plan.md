@@ -30,7 +30,9 @@ packages/
           service.ts  use cases; the only code that touches this module's tables
           events.ts   events this module publishes and the consumers it registers
           index.ts    the module's published interface: what other modules may import
-  billing-engine/   Pure library (Phase 3): pricing, scaling, estimate, true-up, validators,
+  network/          Pure graph traces over the water network (Phase 2): directional, isolation,
+                    subnetwork and DMA membership. Shared by the API, web and mobile. No I/O.
+  billing-engine/   Pure library (Phase 4): pricing, scaling, estimate, true-up, validators,
                     rollover, void, correct, final bill. No I/O, no DB, no clock.
   db/               Drizzle: client, one schema file per module (each in its own Postgres
                     schema), migrations, RLS policies, withTenant(organizationId, fn).
@@ -118,8 +120,11 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Idempotent event consumer helper, with a `replay` flag.
 - Configuration store.
 - Exception queue (X-02 framework) fed by the job runner (NF-24).
-- File service.
+- File service (K-08), ported from Majimap's attachments: S3-compatible, presigned uploads, tenant-prefixed keys, per-subject limits.
 - Notification service interface.
+- Hierarchy (K-02): scheme, zone, sub-zone and DMA as kernel tables, plus a separate route hierarchy (a route is an ordered list of service points). GIS adds map data to the kernel's DMA ids in Phase 2.
+- Work registry: the ports through which modules contribute work-order kinds, asset and evidence resolvers, branch guards and completion effects without importing each other (adopted from Majimap's `kernel/ports.ts` and `registry.ts`).
+- PostGIS in the dev database and in the test container (`postgis/postgis` image).
 - ESLint module-boundary rules.
 - Report publish guard (X-04).
 
@@ -129,7 +134,31 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Turning off a module unmounts its router and consumers, and the other modules keep working (NF-31).
 - A failing job shows up in the exception queue.
 
-### Phase 2: Foundation domain
+### Phase 2: Work Orders core and GIS
+
+Brought forward from the old Phases 9 and 10 and ported from Majimap (`majimap-v2`), which was built to become this module. Neither depends on accounts or billing: other modules add their own work kinds when they ship.
+
+**Scope:** W-01 (generic and GIS kinds), W-02, W-03 (framework), W-04 (S), G-01 to G-03, K-02 map data, U-02 (the work-order half). NFRs: NF-41.
+
+**Code:** `packages/network` (pure graph traces), `modules/work-orders`, `modules/gis`, `packages/db` (`work_orders` and `gis` schemas), web screens and map, `apps/mobile` (ported from Majimap's field app, Expo 58).
+
+**Deliverables:**
+
+- One work-order lifecycle for every kind: pending, in progress (started by the assignee's first action), blocked, submitted, completed, cancelled; review policy none, optional or required per kind, overridable per organization (K-10); parent jobs finalized by a supervisor; idempotent, replayable actions with client-minted ids for offline devices.
+- Kinds are registered in code by the module that owns them, with a target (asset, route of assets, area, location, customer), a review policy, required evidence (photo, GPS), a capture schema for completion data, and the event completion publishes (W-03).
+- Crews, scheduling, priority and SLA, with breaches in the exception queue (W-02, X-02). Seeing every job needs `work_orders:read`; members who only execute see their own.
+- GIS: network assets (nodes, pipes, structures, service connections), tiers, subnetworks, condition and valve logs, traces (directional, isolation, DMA membership). Edits are versioned on branches and posted to main through a field-level three-way merge with integrity checks; deletes are tombstones.
+- GIS functions are work kinds: logs (leak, inspection, valve exercise route, flushing, PRV adjustment, facility service, leak survey), edits (valve replacement, asset update) and creates (asset capture, connection capture). A job's edits live on its branch `wo-<code>` and are posted after approval.
+- Work-order level: GIS licensed alone gives the GIS kinds; Work Orders licensed adds crews, SLA and other modules' kinds; with neither, dependent features fall back to office action (NF-31).
+- Field app: offline store, queued sync with per-item status, job screens, map, asset and connection capture.
+
+**Done when:**
+
+- An asset-capture job raised on web, executed offline on a phone with a photo, approved and posted shows the new asset on the map.
+- A cancelled job's branch cannot be posted; a technician cannot write to main.
+- The isolation canary covers every `work_orders` and `gis` table.
+
+### Phase 3: Foundation domain
 
 **Scope:** C-01 to C-12, T-01 to T-03, T-07 to T-10. These cover customers, accounts with check-digit numbers and parent/child links, service points, the two status axes, activation gates, tariffs with effective dates, the charge catalog, and invoice types and terms.
 
@@ -144,7 +173,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Tariff versions.
 - Data-quality dashboards.
 
-Activation gates that depend on later modules work by office checklist until those modules exist. The meter-installed gate is satisfied through Work Orders and Inventory in Phase 9, and the initial-reading gate through Metering in Phase 4.
+Activation gates that depend on later modules work by office checklist until those modules exist. The meter-installed gate is satisfied through Work Orders and Inventory in Phase 10, and the initial-reading gate through Metering in Phase 5.
 
 **Done when:**
 
@@ -152,7 +181,7 @@ Activation gates that depend on later modules work by office checklist until tho
 - A tariff change effective next period is stored as a new version.
 - Stale `NEW` or `PENDING_PAYMENT` accounts appear in the exception queue.
 
-### Phase 3: Billing engine and sub-ledger (reference-driven)
+### Phase 4: Billing engine and sub-ledger (reference-driven)
 
 **Scope:** B-05, B-06, B-08 to B-11, B-18, T-04, T-05, and requirements §6. NFRs: NF-22, NF-60.
 
@@ -174,7 +203,7 @@ Activation gates that depend on later modules work by office checklist until tho
 - A fast-check property test of at least 200 runs confirms that a span's total does not depend on the estimate path (I-7).
 - The engine package has no I/O imports. A lint rule bans `@flowless/db`, `node:*` and network libraries there.
 
-### Phase 4: Metering, readings and billing runs
+### Phase 5: Metering, readings and billing runs
 
 **Scope:** M-01 to M-12, B-01 to B-04, B-07, B-12 to B-17, B-19, T-06, X-01, X-03. NFRs: NF-11, NF-12, NF-13.
 
@@ -203,7 +232,7 @@ Activation gates that depend on later modules work by office checklist until tho
 - Every legacy failure mode the requirements name has a test.
 - Billing a seeded tenant of 100,000 accounts meets NF-11.
 
-### Phase 5: Payments
+### Phase 6: Payments
 
 **Scope:** P-01 to P-11. NFRs: NF-04, NF-20, NF-23.
 
@@ -228,7 +257,7 @@ Activation gates that depend on later modules work by office checklist until tho
 - An unmatched payment is visible and can be resolved.
 - Reconciliation produces typed exceptions.
 
-### Phase 6: Communications
+### Phase 7: Communications
 
 **Scope:** N-01 to N-07. Implements the K-07 interface from Phase 1.
 
@@ -249,7 +278,7 @@ Activation gates that depend on later modules work by office checklist until tho
 - Re-running a campaign never sends a duplicate.
 - Every account without a message is listed with a reason.
 
-### Phase 7: Import and migration
+### Phase 8: Import and migration
 
 **Scope:** Q-01 to Q-10. NFRs: NF-61.
 
@@ -269,13 +298,13 @@ Activation gates that depend on later modules work by office checklist until tho
 - Balances reconcile.
 - A parallel-run report compares legacy and Flowless.
 
-### Phase 8: Technician app and customer portal
+### Phase 9: Technician app and customer portal
 
 **Scope:** U-01 to U-04. It extends M-03 (mobile and portal reading sources) and M-11. NFRs: NF-14, NF-41, NF-42.
 
 **Code:**
 
-- `apps/mobile`: Expo Router and an offline store.
+- `apps/mobile`: reading tasks on the offline store and sync protocol from Phase 2.
 - `modules/portal`.
 - Portal routes in `apps/web`.
 - The landing page as a static route that does not depend on `@flowless/api`.
@@ -290,11 +319,11 @@ Activation gates that depend on later modules work by office checklist until tho
 
 - A technician syncs a full route after a day offline, with no lost or duplicate readings.
 
-### Phase 9: Collections, Work Orders, Inventory
+### Phase 10: Collections and Inventory
 
-**Scope:** D-01 to D-06, W-01 to W-04, I-01 to I-05. This phase also wires the C-05 and C-06 gates that wait on work orders and inventory.
+**Scope:** D-01 to D-06, I-01 to I-05. Registers the disconnection, reconnection, illegal-connection and dispute-inspection work kinds, adds materials to work orders (I-02, I-05), and wires the C-05 and C-06 gates that wait on work orders and inventory.
 
-**Code:** `modules/collections`, `modules/work-orders`, `modules/inventory`.
+**Code:** `modules/collections`, `modules/inventory`.
 
 **Done when:**
 
@@ -302,11 +331,11 @@ Activation gates that depend on later modules work by office checklist until tho
 - The nightly check across status, connection and meter location raises exceptions.
 - Accounts with commitments in good standing never appear in disconnection lists.
 
-### Phase 10: GIS, NRW, then Finance and GL
+### Phase 11: NRW, then Finance and GL
 
-**Scope:** G-01 to G-03, R-01, R-02, then the GL module from requirements §5.
+**Scope:** R-01, R-02 (using GIS DMA inlet meters and Metering), then the GL module from requirements §5.
 
-**Code:** `modules/gis`, `modules/nrw`, `modules/finance`.
+**Code:** `modules/nrw`, `modules/finance`.
 
 **Done when:**
 

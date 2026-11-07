@@ -8,7 +8,7 @@ import {
 import { accounts, ledger, type MockAccount } from "@/mocks/accounts";
 import { requirePermission } from "./session";
 
-// UI track seam: becomes `caller.accounts.list()` / `caller.accounts.get()` in Phase 2.
+// UI track seam: becomes `caller.accounts.list()` / `caller.accounts.get()` in Phase 3.
 
 function summarize(account: MockAccount, currency: string): AccountSummary {
   const { org: _org, openingMinor, ...rest } = account;
