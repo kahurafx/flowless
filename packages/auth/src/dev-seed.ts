@@ -16,6 +16,7 @@ export const DEV_ORGANIZATIONS = [
   {
     code: "majisafi",
     name: "Maji Safi Water & Sanitation Company",
+    settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" },
     owner: { email: "wanjiru@majisafi.test", name: "Wanjiru Kamau" },
     staff: [
       { username: "baraka", name: "Baraka Mwangi", role: "clerk" },
@@ -25,12 +26,15 @@ export const DEV_ORGANIZATIONS = [
   {
     code: "kilima",
     name: "Kilima Community Water Project",
+    settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "sw-KE" },
     owner: { email: "otieno@kilima.test", name: "Otieno Odhiambo" },
     staff: [{ username: "chebet", name: "Chebet", role: "technician" }],
   },
 ] as const satisfies readonly {
   code: string;
   name: string;
+  /** Initial settings, sent as organization metadata and applied by the kernel. */
+  settings: { currency: string; timeZone: string; locale: string };
   owner: { email: string; name: string };
   staff: readonly { username: string; name: string; role: RoleKey }[];
 }[];
@@ -58,7 +62,9 @@ export async function seedDevIdentities(databaseUrl: string) {
         .from(authSchema.organization)
         .where(eq(authSchema.organization.slug, org.code));
       const organizationId =
-        existing?.id ?? (await auth.api.createOrganization({ body: { name: org.name, slug: org.code, userId: ownerId } }))!.id;
+        existing?.id ?? (await auth.api.createOrganization({
+          body: { name: org.name, slug: org.code, userId: ownerId, metadata: { settings: org.settings } },
+        }))!.id;
 
       for (const person of org.staff) {
         // Staff without email get a reserved .invalid address; they sign in by username.

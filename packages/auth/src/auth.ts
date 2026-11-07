@@ -14,6 +14,7 @@ import { username } from "better-auth/plugins/username";
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { ac, roles } from "./access";
+import { enqueueEvent } from "@flowless/db";
 import { auditIdentity, organizationIdForCode } from "./audit";
 import { emailMayAdminister, membershipOf } from "./membership";
 
@@ -47,6 +48,13 @@ const MEMBER_PATHS = new Set([
   "/organization/invite-member",
   "/organization/cancel-invitation",
 ]);
+
+/** Initial settings Flowless passed as organization metadata when onboarding, if any. */
+function initialSettings(metadata: unknown): Record<string, string> | undefined {
+  const parsed = typeof metadata === "string" ? (JSON.parse(metadata) as unknown) : metadata;
+  const settings = (parsed as { settings?: unknown } | null | undefined)?.settings;
+  return settings && typeof settings === "object" ? (settings as Record<string, string>) : undefined;
+}
 
 type Returned = { id?: string; userId?: string; role?: string; email?: string; organizationId?: string; member?: Returned };
 
@@ -246,6 +254,14 @@ export function createAuth(db: AuthDatabase) {
           // Server-side calls (onboarding, adding staff) have no request, so these are system
           // actions; invitations are accepted by the person joining.
           afterCreateOrganization: async ({ organization: org, user }) => {
+            // Lifecycle event (K-09): kernel consumers set the organization up (settings first).
+            // The organization id doubles as the event id, so it is published once.
+            await enqueueEvent(db, {
+              id: org.id,
+              organizationId: org.id,
+              type: "organization.created",
+              payload: { name: org.name, code: org.slug, settings: initialSettings(org.metadata) },
+            });
             await auditIdentity(db, undefined, {
               organizationId: org.id,
               action: "organization.create",

@@ -71,6 +71,20 @@
       "when": 1794076252808,
       "tag": "0009_kernel_audit_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794077320980,
+      "tag": "0010_kernel_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794077321932,
+      "tag": "0011_kernel_outbox_claim",
+      "breakpoints": true
     }
   ]
 }

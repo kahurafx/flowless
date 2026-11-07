@@ -1,10 +1,11 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Caller } from "@flowless/auth";
-import { memberPermission, recordAudit, withTenant, type AuditEntry, type AuditSource, type Database } from "@flowless/db";
+import { enqueueEvent, memberPermission, recordAudit, withTenant, type AuditEntry, type AuditSource, type Database } from "@flowless/db";
 import { effectivePermissions, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
 import { loadEntitlements } from "./kernel/entitlement-store";
+import type { EventDef } from "./kernel/events";
 import { loadScope } from "./kernel/scope";
 
 /**
@@ -41,7 +42,8 @@ export const publicProcedure = t.procedure;
  * (role defaults plus extra grants, K-03) and which part of the organization they cover
  * as `ctx.scope()` (scope restrictions, K-03), and the licensed modules as
  * `ctx.entitlements()` (K-04). Both load on first use. `ctx.audit(note)` appends to the
- * audit log in the same transaction, so the entry commits only with the change (K-06). The tenant is the caller's membership, and it
+ * audit log in the same transaction, so the entry commits only with the change (K-06).
+ * `ctx.publish(event, payload)` writes to the outbox the same way (K-09). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -82,6 +84,14 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
             source: ctx.source ?? "api",
             actorUserId: session.user.id,
             actorLabel: session.user.name,
+          }),
+        publish: <T>(event: EventDef<T>, payload: T, options: { id?: string } = {}) =>
+          enqueueEvent(tx, {
+            organizationId,
+            type: event.type,
+            version: event.version,
+            payload: event.schema.parse(payload),
+            id: options.id,
           }),
       },
     });

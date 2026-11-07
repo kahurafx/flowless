@@ -20,6 +20,8 @@ pnpm check-types    # turbo run check-types
 
 Target one workspace with Turbo's filter, e.g. `pnpm turbo run check-types --filter=web` or `--filter=@flowless/db`, or run a package script directly: `pnpm --filter web dev`.
 
+`pnpm dev` also starts `apps/worker` (the outbox dispatcher). Replay an organization's events to one consumer with `pnpm --filter worker replay -- --consumer <name> --organization <id> [--since <date>]`.
+
 Mobile (`apps/mobile`) is not started by `pnpm dev`; run `pnpm --filter mobile start` (or `android` / `ios` / `web`). It has `check-types` but no `lint` script, so `pnpm lint` skips it.
 
 Local services and database:
@@ -44,7 +46,7 @@ Env lives in the root `.env`. `apps/web` loads it with `process.loadEnvFile` in 
   - `db` — Drizzle schema per module, migrations, runtime roles, RLS policies, `withTenant`.
   - `auth` — Better Auth (organization + twoFactor plugins); owns the `auth` Postgres schema, generated into `packages/db/src/schema/auth.ts` by `pnpm --filter @flowless/auth auth:generate`.
   - `seed` — `pnpm db:seed`: dev data, identities from `@flowless/auth/dev-seed`, everything else through the API as the owner.
-  - `network` (planned, Phase 2) — pure graph traces shared by API, web and mobile. `billing-engine` (planned, Phase 4) — pure billing library, no I/O. `apps/worker` (planned, Phase 1) — outbox dispatcher and queued jobs.
+  - `network` (planned, Phase 2) — pure graph traces shared by API, web and mobile. `billing-engine` (planned, Phase 4) — pure billing library, no I/O. `apps/worker` — outbox dispatcher (A6); queued jobs come with A7.
 - Target layout and module boundary rules: `docs/build-plan.md` → "Code layout". Follow it when adding code; update it in the same change if the layout has to move.
   - `typescript-config` — `base.json` (strict, `noUncheckedIndexedAccess`, Bundler resolution, `noEmit`); packages extend it. The apps use their own framework tsconfigs instead.
   - `eslint-config` — flat config exported as `@flowless/eslint-config/base`; packages re-export it from `eslint.config.js`. Web uses `eslint-config-next` instead.

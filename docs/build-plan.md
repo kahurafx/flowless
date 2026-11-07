@@ -69,7 +69,8 @@ These rules turn the CLAUDE.md rules into code. Each one is enforced by a check,
 
 | Rule | Enforced by |
 | --- | --- |
-| The auth role's only access outside `auth` is `INSERT` on `kernel.audit_log` (policy `auth_insert`), so identity events are audited (K-06); it can read nothing there. | grants in `0009_kernel_audit_append_only.sql`; audit tests |
+| The auth role's only access outside `auth` is `INSERT` on `kernel.audit_log` and `kernel.outbox_event` (policies `auth_insert`), so identity events are audited (K-06) and organization lifecycle events published (K-09); it can read nothing there. | grants in `0009_kernel_audit_append_only.sql` and `0011_kernel_outbox_claim.sql`; audit and lifecycle tests |
+| The worker finds due events across tenants only through `kernel.claim_outbox()`, which returns routing fields; each consumer then runs inside `withTenant` for its event (K-09). | SECURITY DEFINER function granted to `flowless_app` only; outbox tests |
 | The `auth` schema is the one exception to tenant RLS: Better Auth must work before any tenant is known (sign-in, invitations). It is isolated by role instead: `flowless_auth` reaches only `auth`, `flowless_app` never does, and only `packages/auth` imports `@flowless/db/auth-schema`. Modules learn about organizations through events, never by reading `auth.*`. | per-schema grants in migrations; role-separation tests; ESLint import ban outside `packages/auth` |
 | Every request runs inside `withTenant`. That sets `app.organization_id` for the transaction, and RLS does the rest (K-01, NF-01). No procedure or job gets the raw connection. | `tenantProcedure`, the app DB role without `BYPASSRLS`, isolation canary test (NF-02) |
 | Every module procedure checks the module's entitlement on the server (K-04, NF-03). | `moduleProcedure(module)` is the only builder module routers may use |
@@ -117,8 +118,8 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - `tenantProcedure` and `moduleProcedure` builders as the entitlement guard for routes and reports (K-04, done in A4): licences are rows in `kernel.organization_module`, set only server-side by Flowless (`setEntitlements`, which rejects modules whose hard dependencies in `MODULE_REQUIRES` are missing); an unlicensed module answers NOT_FOUND before permissions are checked.
 - Generic approval engine.
 - Audit log (K-06, NF-07, done in A5): `kernel.audit_log`, insert-only for the app role and the auth role, hash-chained per organization by a trigger and checked by `kernel.verify_audit_chain()`. Procedures write `ctx.audit(...)` in the same transaction as the change; Better Auth hooks record sign-ins (including refused ones), member, invitation and account changes. Each entry has actor, source (web, mobile, api, import, system), before and after.
-- Outbox, with a dispatcher in `apps/worker`.
-- Idempotent event consumer helper, with a `replay` flag.
+- Outbox, with a dispatcher in `apps/worker` (K-09, done in A6): `ctx.publish(event, payload)` writes `kernel.outbox_event` in the change's transaction; the worker claims due events through `kernel.claim_outbox()` and delivers them to consumers registered in `packages/api/src/kernel/consumers.ts`.
+- Idempotent event consumer helper, with a `replay` flag (done in A6): one receipt per consumer and event (`kernel.consumer_receipt`), per-consumer retry with backoff, `failed` after the last attempt, consumers of unlicensed modules skipped; `replayEvents` re-delivers with `replay: true`. Onboarding publishes `organization.created` (initial settings from organization metadata), whose kernel consumer creates the settings row.
 - Configuration store.
 - Exception queue (X-02 framework) fed by the job runner (NF-24).
 - File service (K-08), ported from Majimap's attachments: S3-compatible, presigned uploads, tenant-prefixed keys, per-subject limits.

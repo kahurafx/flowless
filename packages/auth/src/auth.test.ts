@@ -1,4 +1,4 @@
-import { auditLog } from "@flowless/db";
+import { auditLog, outboxEvent } from "@flowless/db";
 import { startTestDatabase, type TestDatabase } from "@flowless/db/testing";
 import { and, asc, eq } from "drizzle-orm";
 import { PERMISSION_STATEMENTS, ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
@@ -245,5 +245,16 @@ describe("audit", () => {
       before: { role: "cashier" },
       after: { role: "accountant" },
     });
+  });
+});
+
+// K-09: organization lifecycle events.
+describe("organization lifecycle", () => {
+  it("onboarding publishes organization.created, keyed by the organization id", async () => {
+    const { org } = await onboard("tango");
+    const events = await t.admin.select().from(outboxEvent).where(eq(outboxEvent.organizationId, org.id));
+    expect(events).toEqual([
+      expect.objectContaining({ id: org.id, type: "organization.created", status: "pending", payload: { name: "Water tango", code: "tango" } }),
+    ]);
   });
 });

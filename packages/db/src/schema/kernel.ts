@@ -4,9 +4,11 @@ import {
   type AnyPgColumn,
   bigint,
   char,
+  check,
   customType,
   foreignKey,
   index,
+  integer,
   jsonb,
   pgPolicy,
   pgSchema,
@@ -235,4 +237,59 @@ export const auditLog = kernel.table(
     tenantPolicy(t.organizationId),
     pgPolicy("auth_insert", { for: "insert", to: authRole, withCheck: sql`true` }),
   ],
+);
+
+export const OUTBOX_STATUSES = ["pending", "done", "failed"] as const;
+
+/**
+ * The transactional outbox (K-09). An event is written in the same transaction as the
+ * change it describes, so it exists only if the change committed. `id` is the stable
+ * event id consumers deduplicate on. `apps/worker` claims due events through
+ * `kernel.claim_outbox()` (no RLS bypass), delivers each to its consumers inside the
+ * event's tenant, then marks it done; failures back off through `available_at` until
+ * `failed`. The auth role may insert (organization lifecycle events) and nothing else.
+ */
+export const outboxEvent = kernel.table(
+  "outbox_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    /** "<area>.<event>", e.g. "organization.created". */
+    type: text("type").notNull(),
+    /** Payload schema version; consumers accept every version they know. */
+    version: integer("version").notNull().default(1),
+    payload: jsonb("payload").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    attempts: integer("attempts").notNull().default(0),
+    status: text("status", { enum: OUTBOX_STATUSES }).notNull().default("pending"),
+    lastError: text("last_error"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("outbox_event_status_valid", sql`${t.status} in ('pending', 'done', 'failed')`),
+    index("outbox_event_due_idx").on(t.availableAt).where(sql`${t.status} = 'pending'`),
+    index("outbox_event_type_idx").on(t.organizationId, t.type, t.occurredAt),
+    tenantPolicy(t.organizationId),
+    pgPolicy("auth_insert", { for: "insert", to: authRole, withCheck: sql`true` }),
+  ],
+);
+
+/**
+ * Which consumer has processed which event (K-09): written in the consumer's own
+ * transaction, so a retried event never runs a consumer twice.
+ */
+export const consumerReceipt = kernel.table(
+  "consumer_receipt",
+  {
+    organizationId: uuid("organization_id").notNull(),
+    consumer: text("consumer").notNull(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => outboxEvent.id),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.consumer, t.eventId] }), tenantPolicy(t.organizationId)],
 );
