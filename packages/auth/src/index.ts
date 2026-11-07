@@ -1,2 +1,2 @@
 export { createAuth, type Auth, type AuthDatabase, type AuthSession } from "./auth";
-export { connectAuth } from "./connect";
+export { connectAuth, type AuthConnection, type Caller } from "./connect";

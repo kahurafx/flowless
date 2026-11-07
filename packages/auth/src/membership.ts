@@ -1,12 +1,10 @@
 import * as authSchema from "@flowless/db/auth-schema";
+import { ADMIN_ROLES, parseRoles } from "@flowless/shared-types";
 import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 type Db = PostgresJsDatabase<typeof authSchema>;
 const { member, organization, user } = authSchema;
-
-/** Roles that sign in with email. Better Auth stores several roles comma-separated. */
-const ADMIN_ROLES = ["owner", "admin"];
 
 /** The user's one membership, if any. */
 export async function membershipOf(db: Db, userId: string) {
@@ -27,5 +25,5 @@ export async function emailMayAdminister(db: Db, code: string, email: string): P
     .innerJoin(organization, eq(organization.id, member.organizationId))
     .where(and(eq(organization.slug, code), eq(sql`lower(${user.email})`, email.trim().toLowerCase())))
     .limit(1);
-  return !!row && row.role.split(",").some((role) => ADMIN_ROLES.includes(role.trim()));
+  return !!row && parseRoles(row.role).some((role) => ADMIN_ROLES.includes(role));
 }

@@ -1,17 +1,19 @@
 import { startTestDatabase, type TestDatabase } from "@flowless/db/testing";
-import { ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
+import { PERMISSION_STATEMENTS, ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
+import { defaultStatements } from "better-auth/plugins/organization/access";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Auth } from "./auth";
-import { connectAuth } from "./connect";
+import { connectAuth, type AuthConnection } from "./connect";
 
 let t: TestDatabase;
 let auth: Auth;
 let close: () => Promise<void>;
+let getCaller: AuthConnection["getCaller"];
 
 beforeAll(async () => {
   t = await startTestDatabase();
   // The runtime auth role: reaches only the `auth` schema.
-  ({ auth, close } = connectAuth(t.urlFor("flowless_auth_api")));
+  ({ auth, close, getCaller } = connectAuth(t.urlFor("flowless_auth_api")));
 });
 afterAll(async () => {
   await close?.();
@@ -158,3 +160,38 @@ describe("one organization per user", () => {
     expect(control.status).toBe(200);
   });
 });
+
+// K-03: Flowless default roles are registered with Better Auth.
+describe("default roles", () => {
+  it("Flowless resources never reuse a Better Auth statement name", () => {
+    for (const resource of Object.keys(PERMISSION_STATEMENTS)) expect(Object.keys(defaultStatements)).not.toContain(resource);
+  });
+
+  it("accepts Flowless roles and leaves member management to owners and admins", async () => {
+    const { org } = await onboard("november");
+    await addStaff("november", org.id, "clerk", "clerk");
+    await expect(addStaff("november", org.id, "ghost", "janitor")).rejects.toMatchObject({ status: "BAD_REQUEST" });
+
+    const { headers } = await signInUsername("november", "clerk");
+    await expect(
+      auth.api.createInvitation({ headers: cookieFrom(headers), body: { email: "new@november.test", role: "clerk" } }),
+    ).rejects.toMatchObject({ status: "FORBIDDEN" });
+  });
+
+  it("getCaller reads the membership fresh, so a role change applies at once", async () => {
+    const { org } = await onboard("oscar");
+    const staff = await addStaff("oscar", org.id, "teller", "cashier");
+    const { headers } = await signInUsername("oscar", "teller");
+    const cookie = cookieFrom(headers);
+    expect((await getCaller(cookie))?.member).toEqual({ organizationId: org.id, role: "cashier" });
+
+    const owner = cookieFrom((await signInEmail("oscar", "owner@oscar.test")).headers);
+    await auth.api.updateMemberRole({ headers: owner, body: { memberId: (await memberId(staff.id))!, role: "accountant" } });
+    expect((await getCaller(cookie))?.member).toEqual({ organizationId: org.id, role: "accountant" });
+  });
+});
+
+async function memberId(userId: string) {
+  const rows = await t.admin.execute<{ id: string }>(`select id from auth.member where user_id = '${userId}'`);
+  return rows[0]?.id;
+}

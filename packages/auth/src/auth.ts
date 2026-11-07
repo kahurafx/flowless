@@ -3,6 +3,7 @@ import {
   LOCAL_USERNAME_PATTERN,
   normalizeOrganizationCode,
   ORGANIZATION_CODE_HEADER,
+  parseRoles,
 } from "@flowless/shared-types";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -11,6 +12,7 @@ import { organization } from "better-auth/plugins/organization";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { username } from "better-auth/plugins/username";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { ac, roles } from "./access";
 import { emailMayAdminister, membershipOf } from "./membership";
 
 export type AuthDatabase = PostgresJsDatabase<typeof authSchema>;
@@ -81,10 +83,17 @@ export function createAuth(db: AuthDatabase) {
     },
     plugins: [
       organization({
+        ac,
+        roles,
         allowUserToCreateOrganization: false,
         organizationLimit: 1,
         organizationHooks: {
           beforeAddMember: async ({ member }) => {
+            // Better Auth checks role names on invitations and role changes, but not when
+            // a member is added server-side; an unknown role would hold no permissions.
+            if (parseRoles(member.role).length !== member.role.split(",").length) {
+              throw new APIError("BAD_REQUEST", { message: `Unknown role: ${member.role}` });
+            }
             if (await membershipOf(db, member.userId)) throw new APIError("BAD_REQUEST", { message: ONE_ORGANIZATION });
           },
           beforeAcceptInvitation: async ({ user }) => {

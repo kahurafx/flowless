@@ -53,11 +53,11 @@ Better Auth is the identity layer, and its `organization` table is the tenant ta
 | Users, sessions, passwords, MFA, sign-in rate limits (NF-05) | Better Auth core and `twoFactor` |
 | Organizations, members, invitations, member roles, the session's active organization (K-01, K-03) | Better Auth `organization` plugin. One membership per user (unique index on `auth.member.user_id`); the active organization is set from it when the session is created and cannot be switched. |
 | Sign-in by organization code: email for owners and admins, `<code>.<username>` for other staff (requirements §1) | `packages/auth` sign-in hook and Better Auth `username` plugin |
-| Role permissions, such as "can approve a rebate" (K-03) | Better Auth access control (`createAccessControl`) with Flowless permission statements |
+| Role permissions, such as "can approve a rebate" (K-03) | Default roles, each a list of `<resource>:<action>` permissions (`@flowless/shared-types` permissions), registered with Better Auth access control so it accepts the role names. A member's permissions are their role's defaults plus extra permissions an administrator granted them (`kernel.member_permission`, RLS, deleted with the membership). Checked in `packages/api` (`permittedProcedure`); granting needs `access:manage`, and only permissions the granter holds. |
 | Per-scope restrictions by scheme, zone or route (K-03) | Kernel tables. Better Auth roles do not restrict data. |
 | Module licensing (K-04), hierarchy (K-02), audit (K-06), support access (K-12) | Kernel. Better Auth hooks feed audit records and publish organization lifecycle events. |
 
-Request flow: `createContext` resolves the Better Auth session from the request headers. `tenantProcedure` takes `session.activeOrganizationId` (rejecting a session without one) and opens `withTenant` with it. RLS still decides what each query sees.
+Request flow: `createContext` resolves the caller from the request headers (`connectAuth().getCaller`: the Better Auth session plus the current membership, read fresh). `tenantProcedure` rejects a session without an active organization or whose membership is gone or elsewhere, opens `withTenant` with it, and loads the member's permissions. RLS still decides what each query sees.
 
 Module folder names (one per entry in requirements §3): `accounts` (customers, accounts, service points), `tariffs`, `metering`, `billing`, `payments`, `communications`, `collections`, `work-orders`, `inventory`, `gis`, `nrw`, `portal`, `reporting`, `migration`, and later `finance`.
 
@@ -110,7 +110,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 
 - Better Auth wired up: secret and base URL from env, handler at `/api/auth/[...all]` in web, `@better-auth/expo` for mobile, access-control statements, audit hooks (K-06), organization lifecycle events.
 - `createContext` resolves the Better Auth session; `tenantProcedure` uses its `activeOrganizationId` and rejects sessions without one.
-- Scope restrictions (K-03) and support access (K-12) as kernel tables on top of Better Auth roles.
+- Default roles with permission arrays plus per-member extra permissions (K-03, done in A2). Scope restrictions (K-03) land with the hierarchy tables (A3) so they can reference schemes, zones and routes. Support access (K-12) as a kernel table.
 - `tenantProcedure` and `moduleProcedure` builders as the entitlement guard for routes and reports.
 - Generic approval engine.
 - Audit log.

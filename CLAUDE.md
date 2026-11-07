@@ -28,7 +28,7 @@ Local services and database:
 pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres :54320, Redis :63790), migrate, seed
 pnpm db:generate    # drizzle-kit generate after changing packages/db/src/schema
 pnpm db:migrate     # bootstrap roles + apply migrations (uses DATABASE_ADMIN_URL)
-pnpm db:seed        # dev organizations and users: code MAJISAFI, wanjiru@majisafi.test or username baraka, password flowless-dev-password
+pnpm db:seed        # dev organizations and users: code MAJISAFI, wanjiru@majisafi.test (owner) or usernames baraka (clerk) / achieng (cashier), password flowless-dev-password
 pnpm test           # turbo run test — Vitest; integration tests start their own Postgres via Testcontainers (Docker required)
 ```
 

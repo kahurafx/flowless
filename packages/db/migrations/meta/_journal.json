@@ -29,6 +29,20 @@
       "when": 1794069431127,
       "tag": "0003_auth_single_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794071682519,
+      "tag": "0004_auth_member_organization_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794071716796,
+      "tag": "0005_kernel_member_permission",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { ping } from "@flowless/db";
+import { accessRouter } from "./kernel/access";
 import { organizationsRouter } from "./kernel/organizations";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
 
@@ -9,6 +10,7 @@ export const appRouter = router({
     return { status: "ok" as const };
   }),
   organization: organizationsRouter,
+  access: accessRouter,
 });
 
 export type AppRouter = typeof appRouter;
