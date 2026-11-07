@@ -1,0 +1,25 @@
+{
+  "name": "worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "replay": "tsx --env-file-if-exists=../../.env src/replay.ts",
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flowless/api": "workspace:*",
+    "@flowless/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@flowless/eslint-config": "workspace:*",
+    "@flowless/typescript-config": "workspace:*",
+    "@types/node": "^24.19.2",
+    "eslint": "^9",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}

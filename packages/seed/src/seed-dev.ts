@@ -1,10 +1,10 @@
 // Dev-only seed (`pnpm db:seed`). Idempotent. Identities come from @flowless/auth; every
 // other row is written through the real API as the organization's owner, so seeds obey
 // the same permissions, validation and RLS as the app.
-import { createCaller, setEntitlements } from "@flowless/api";
+import { consumers, createCaller, drainOutbox, setEntitlements } from "@flowless/api";
 import { connectAuth } from "@flowless/auth";
 import { DEV_ORGANIZATIONS, DEV_PASSWORD, seedDevIdentities } from "@flowless/auth/dev-seed";
-import { createDatabase, organizationSettings, withTenant } from "@flowless/db";
+import { createDatabase } from "@flowless/db";
 import { ORGANIZATION_CODE_HEADER, type AreaLevel, type ModuleKey } from "@flowless/shared-types";
 
 const authUrl = process.env.DATABASE_AUTH_URL;
@@ -29,7 +29,6 @@ interface RouteSeed {
 const KERNEL: Record<
   string,
   {
-    settings: { currency: string; timeZone: string; locale: string };
     /** Licensed modules (K-04). */
     modules: ModuleKey[];
     areas: AreaSeed[];
@@ -39,7 +38,6 @@ const KERNEL: Record<
   }
 > = {
   majisafi: {
-    settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" },
     modules: ["accounts", "tariffs", "metering", "billing", "payments", "communications", "collections", "reporting"],
     areas: [
       { level: "scheme", code: "RUI", name: "Ruiru scheme" },
@@ -59,7 +57,6 @@ const KERNEL: Record<
     scopes: { achieng: { areas: ["KW"] } },
   },
   kilima: {
-    settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "sw-KE" },
     // A small project licensed for the foundation only.
     modules: ["accounts", "tariffs", "metering", "billing", "payments"],
     areas: [
@@ -80,6 +77,10 @@ await seedDevIdentities(authUrl);
 const identity = connectAuth(authUrl);
 const database = createDatabase(appUrl);
 try {
+  // Onboarding publishes organization.created; deliver it now (the worker would) so new
+  // organizations get their settings before the API is used.
+  await drainOutbox(database.db, consumers);
+
   for (const org of DEV_ORGANIZATIONS) {
     const plan = KERNEL[org.code];
     if (!plan) continue;
@@ -95,14 +96,6 @@ try {
     if (!caller?.member) throw new Error(`Could not sign in as ${org.owner.email}`);
     const organizationId = caller.member.organizationId;
     const api = createCaller({ db: database.db, session: caller });
-
-    // No procedure creates settings yet: that is the organization lifecycle event (A6).
-    await withTenant(database.db, organizationId, (tx) =>
-      tx
-        .insert(organizationSettings)
-        .values({ organizationId, ...plan.settings })
-        .onConflictDoNothing(),
-    );
 
     // Licences are set by Flowless, never by the tenant, so there is no procedure for this.
     await setEntitlements(database.db, organizationId, plan.modules);
