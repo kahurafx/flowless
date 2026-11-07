@@ -1,4 +1,3 @@
-import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/shell/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,8 +20,6 @@ export default function AccountsPage() {
 
 async function Accounts() {
   const { organization } = await getSession();
-  // Server-side entitlement check (K-04, NF-03); Phase 3 moves this into moduleProcedure.
-  if (!organization.entitlements.includes("accounts")) notFound();
   const accounts = await listAccounts();
   return <AccountsGrid accounts={accounts} locale={organization.settings.locale} />;
 }

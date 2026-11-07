@@ -1,3 +1,4 @@
+import type { ModuleKey } from "@flowless/shared-types";
 import { CheckIcon } from "lucide-react";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/shell/page-header";
@@ -17,7 +18,7 @@ export default function OrganizationSettingsPage() {
   );
 }
 
-const moduleLabels: Record<string, string> = {
+const moduleLabels: Record<ModuleKey, string> = {
   accounts: "Customers and accounts",
   tariffs: "Tariffs and charge catalog",
   metering: "Metering and readings",
@@ -25,11 +26,16 @@ const moduleLabels: Record<string, string> = {
   payments: "Payments",
   communications: "Communications",
   collections: "Collections",
+  "work-orders": "Work orders",
+  inventory: "Inventory",
+  gis: "GIS and network",
+  nrw: "Non-revenue water",
+  portal: "Customer portal",
   reporting: "Reporting",
+  migration: "Import and migration",
 };
 
 async function Settings() {
-  // Phase 1 swaps this for `organization.settings` over tRPC (the procedure already exists).
   const { organization } = await getSession();
   const { currency, timeZone, locale } = organization.settings;
   return (
@@ -59,7 +65,7 @@ async function Settings() {
           {organization.entitlements.map((m) => (
             <li key={m} className="flex items-center gap-2">
               <CheckIcon className="size-4 text-success" />
-              {moduleLabels[m] ?? m}
+              {moduleLabels[m]}
             </li>
           ))}
         </ul>

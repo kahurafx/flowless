@@ -38,7 +38,6 @@ const lineLabel: Record<StatementLineType, string> = {
 
 async function Account({ params }: { params: PageProps<"/accounts/[number]">["params"] }) {
   const [{ number }, { organization }] = await Promise.all([params, getSession()]);
-  if (!organization.entitlements.includes("accounts")) notFound();
   const found = await getAccount(decodeURIComponent(number));
   if (!found) notFound();
 

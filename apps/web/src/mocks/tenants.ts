@@ -1,16 +1,8 @@
-import type { Entitlements } from "@flowless/shared-types";
-
 /**
- * Mock organization profiles, keyed by organization code (the Better Auth slug;
- * `pnpm db:seed` creates organizations with these codes). Settings and entitlements move to the kernel
- * configuration store (A8) and entitlements table (A4); then this file goes away.
+ * Mock people for the exception queue, keyed by organization code (the Better Auth slug;
+ * `pnpm db:seed` creates organizations with these codes). Settings and licensed modules are
+ * real (kernel); this goes away when exceptions come from the kernel (A7).
  */
-export interface OrganizationProfile {
-  settings: { currency: string; timeZone: string; locale: string };
-  entitlements: Entitlements;
-  staff: readonly Person[];
-}
-
 export interface Person {
   id: string;
   name: string;
@@ -28,27 +20,12 @@ export const people = {
 export const MAJI_SAFI = "majisafi";
 export const KILIMA = "kilima";
 
-const profiles: Record<string, OrganizationProfile> = {
-  [MAJI_SAFI]: {
-    settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" },
-    entitlements: ["accounts", "tariffs", "metering", "billing", "payments", "communications", "collections", "reporting"],
-    staff: [people.wanjiru, people.baraka, people.achieng],
-  },
-  // A small project licensed for the foundation only: Communications and Collections are off.
-  [KILIMA]: {
-    settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "sw-KE" },
-    entitlements: ["accounts", "tariffs", "metering", "billing", "payments"],
-    staff: [people.otieno, people.chebet],
-  },
+const staff: Record<string, readonly Person[]> = {
+  [MAJI_SAFI]: [people.wanjiru, people.baraka, people.achieng],
+  [KILIMA]: [people.otieno, people.chebet],
 };
 
-/** Any other organization (for example one created after sign-up) gets the foundation tier. */
-const defaultProfile: OrganizationProfile = {
-  settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" },
-  entitlements: ["accounts", "tariffs", "metering", "billing", "payments"],
-  staff: [],
-};
-
-export function profileFor(slug: string): OrganizationProfile {
-  return profiles[slug] ?? defaultProfile;
+/** Exception owners for an organization's mock queue. */
+export function staffFor(code: string): readonly Person[] {
+  return staff[code] ?? [];
 }

@@ -1,9 +1,9 @@
 import { createCaller } from "@flowless/api";
-import type { Permission } from "@flowless/shared-types";
+import type { ModuleKey, Permission } from "@flowless/shared-types";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
-import { profileFor } from "@/mocks/tenants";
+import { staffFor } from "@/mocks/tenants";
 import { getAuth, getCaller } from "@/server/auth";
 import { getDb } from "@/server/db";
 
@@ -23,17 +23,19 @@ export const getApi = cache(async () => {
 /**
  * The signed-in user, their organization, and what they may do (K-01, K-03). A user
  * belongs to exactly one organization, set as the session's active organization at
- * sign-in. Identity, membership and permissions are real; the organization's settings
- * and entitlements are still mock profiles until A4/A8.
+ * sign-in. Identity, membership, permissions, settings and licensed modules are real;
+ * only the staff list for mock exceptions still comes from `src/mocks/tenants.ts`.
  */
 export const getSession = cache(async () => {
   const { caller, headers: requestHeaders, api } = await getApi();
-  const [organization, access] = await Promise.all([
+  const [organization, access, settings, entitlements] = await Promise.all([
     getAuth().api.getFullOrganization({
       headers: requestHeaders,
       query: { organizationId: caller.session.activeOrganizationId!, membersLimit: 0 },
     }),
     api.access.me(),
+    api.organization.settings(),
+    api.entitlements.list(),
   ]);
   if (!organization) redirect("/sign-in");
 
@@ -44,7 +46,9 @@ export const getSession = cache(async () => {
       id: organization.id,
       name: organization.name,
       code: organization.slug,
-      ...profileFor(organization.slug),
+      settings: { currency: settings.currency, timeZone: settings.timeZone, locale: settings.locale },
+      entitlements,
+      staff: staffFor(organization.slug),
     },
   };
 });
@@ -60,4 +64,14 @@ export async function requirePermission(permission: Permission): Promise<Session
   const session = await getSession();
   if (!session.access.permissions.includes(permission)) notFound();
   return session;
+}
+
+/**
+ * The session, if the organization is licensed for `module` (K-04); otherwise the page is
+ * not found, as an unlicensed module's procedures are (`moduleProcedure`).
+ */
+export async function requireModule(module: ModuleKey, permission?: Permission): Promise<Session> {
+  const session = await getSession();
+  if (!session.organization.entitlements.includes(module)) notFound();
+  return permission ? requirePermission(permission) : session;
 }

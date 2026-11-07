@@ -7,7 +7,7 @@ import {
 } from "@flowless/shared-types";
 import { accounts, ledger, type MockAccount } from "@/mocks/accounts";
 import { getHierarchy } from "./hierarchy";
-import { requirePermission } from "./session";
+import { requireModule } from "./session";
 
 // UI track seam: becomes `caller.accounts.list()` / `caller.accounts.get()` in Phase 3.
 
@@ -24,7 +24,7 @@ function summarize(account: MockAccount, currency: string): AccountSummary {
  * accounts procedure will filter by area and route ids instead (`scopeCovers`).
  */
 async function inScope(): Promise<(account: MockAccount) => boolean> {
-  const { scope } = (await requirePermission("accounts:read")).access;
+  const { scope } = (await requireModule("accounts", "accounts:read")).access;
   if (scope.kind === "all") return () => true;
   const { areas, routes } = await getHierarchy();
   const areaNames = new Set(areas.filter((a) => scope.areaIds.includes(a.id)).map((a) => a.name));
@@ -33,7 +33,7 @@ async function inScope(): Promise<(account: MockAccount) => boolean> {
 }
 
 export async function listAccounts(): Promise<AccountSummary[]> {
-  const [{ organization }, visible] = await Promise.all([requirePermission("accounts:read"), inScope()]);
+  const [{ organization }, visible] = await Promise.all([requireModule("accounts", "accounts:read"), inScope()]);
   return accounts
     .filter((a) => a.org === organization.code && visible(a))
     .map((a) => summarize(a, organization.settings.currency));
@@ -42,7 +42,7 @@ export async function listAccounts(): Promise<AccountSummary[]> {
 export async function getAccount(
   number: string,
 ): Promise<{ account: AccountSummary; statement: StatementRow[]; opening: bigint } | null> {
-  const [{ organization }, visible] = await Promise.all([requirePermission("accounts:read"), inScope()]);
+  const [{ organization }, visible] = await Promise.all([requireModule("accounts", "accounts:read"), inScope()]);
   const found = accounts.find((a) => a.org === organization.code && a.number === number && visible(a));
   if (!found) return null;
   const { currency } = organization.settings;
