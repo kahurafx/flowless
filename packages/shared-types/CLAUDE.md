@@ -10,4 +10,5 @@ Types shared by `apps/web` and `apps/mobile` (both depend on it via `workspace:*
 - Keep it platform-neutral — no DOM, Node, React Native, or runtime-library imports, since it is compiled by both Next.js and Metro. Prefer type-only exports; small pure helpers (for example `money.ts`, using only `Intl`) are fine.
 - Built with `noUncheckedIndexedAccess` and `isolatedModules` (from `@flowless/typescript-config`), so use `export type` for re-exported types.
 - After changing types, run `pnpm check-types` from the repo root to catch breakage in both apps.
+- `modules.ts` (K-04): `MODULE_KEYS`, `MODULE_REQUIRES` (hard dependencies only) and `entitlementProblem`.
 - `permissions.ts` (K-03): the permission catalogue (`PERMISSION_STATEMENTS`, `"<resource>:<action>"`), `DEFAULT_ROLES` (each a permission array) and `effectivePermissions(role, grants)`. Adding a role or permission here also registers it with Better Auth (`packages/auth/src/access.ts`); give it a label in `apps/web/src/lib/permission-labels.ts`.

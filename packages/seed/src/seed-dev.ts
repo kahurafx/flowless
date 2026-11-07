@@ -1,11 +1,11 @@
 // Dev-only seed (`pnpm db:seed`). Idempotent. Identities come from @flowless/auth; every
 // other row is written through the real API as the organization's owner, so seeds obey
 // the same permissions, validation and RLS as the app.
-import { createCaller } from "@flowless/api";
+import { createCaller, setEntitlements } from "@flowless/api";
 import { connectAuth } from "@flowless/auth";
 import { DEV_ORGANIZATIONS, DEV_PASSWORD, seedDevIdentities } from "@flowless/auth/dev-seed";
 import { createDatabase, organizationSettings, withTenant } from "@flowless/db";
-import { ORGANIZATION_CODE_HEADER, type AreaLevel } from "@flowless/shared-types";
+import { ORGANIZATION_CODE_HEADER, type AreaLevel, type ModuleKey } from "@flowless/shared-types";
 
 const authUrl = process.env.DATABASE_AUTH_URL;
 const appUrl = process.env.DATABASE_URL;
@@ -30,6 +30,8 @@ const KERNEL: Record<
   string,
   {
     settings: { currency: string; timeZone: string; locale: string };
+    /** Licensed modules (K-04). */
+    modules: ModuleKey[];
     areas: AreaSeed[];
     routes: RouteSeed[];
     /** Staff username (or owner email) → area or route codes they are limited to. */
@@ -38,6 +40,7 @@ const KERNEL: Record<
 > = {
   majisafi: {
     settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" },
+    modules: ["accounts", "tariffs", "metering", "billing", "payments", "communications", "collections", "reporting"],
     areas: [
       { level: "scheme", code: "RUI", name: "Ruiru scheme" },
       { level: "zone", code: "KW", name: "Kahawa West", parent: "RUI" },
@@ -57,6 +60,8 @@ const KERNEL: Record<
   },
   kilima: {
     settings: { currency: "KES", timeZone: "Africa/Nairobi", locale: "sw-KE" },
+    // A small project licensed for the foundation only.
+    modules: ["accounts", "tariffs", "metering", "billing", "payments"],
     areas: [
       { level: "scheme", code: "KIL", name: "Kilima scheme" },
       { level: "zone", code: "KJ", name: "Kilima Juu", parent: "KIL" },
@@ -98,6 +103,9 @@ try {
         .values({ organizationId, ...plan.settings })
         .onConflictDoNothing(),
     );
+
+    // Licences are set by Flowless, never by the tenant, so there is no procedure for this.
+    await setEntitlements(database.db, organizationId, plan.modules);
 
     const areas = new Map((await api.hierarchy.areas({ includeArchived: true })).map((a) => [a.code, a.id]));
     for (const a of plan.areas) {
@@ -144,6 +152,7 @@ try {
       return `${s.username} (${s.role}${where})`;
     });
     console.log(`  ${org.code.toUpperCase()}: ${org.owner.email} (owner), ${staff.join(", ")}`);
+    console.log(`    modules: ${KERNEL[org.code]?.modules.join(", ")}`);
   }
 } finally {
   await identity.close();

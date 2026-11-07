@@ -3,6 +3,7 @@ import { normalizePhone } from "./accounts";
 import { isEmailIdentifier, normalizeOrganizationCode, qualifiedUsername } from "./sign-in";
 import { exceptionAge } from "./exceptions";
 import { money } from "./money";
+import { entitlementProblem } from "./modules";
 import { buildStatement, type StatementLine } from "./statement";
 
 const line = (id: string, day: number, amountMinor: bigint, type: StatementLine["type"] = "invoice"): StatementLine => ({
@@ -70,5 +71,19 @@ describe("sign-in identifiers", () => {
     expect(qualifiedUsername("kilima", " Baraka ")).toBe("kilima.baraka");
     expect(isEmailIdentifier("wanjiru@majisafi.test")).toBe(true);
     expect(isEmailIdentifier("baraka")).toBe(false);
+  });
+});
+
+// K-04: module licensing.
+describe("entitlements", () => {
+  it("accepts modules whose dependencies are licensed", () => {
+    expect(entitlementProblem([])).toBeNull();
+    expect(entitlementProblem(["gis", "work-orders"])).toBeNull();
+    expect(entitlementProblem(["accounts", "tariffs", "billing"])).toBeNull();
+  });
+
+  it("names what a module is missing", () => {
+    expect(entitlementProblem(["billing", "accounts"])).toBe("billing needs tariffs");
+    expect(entitlementProblem(["nrw"])).toBe("nrw needs gis and metering");
   });
 });

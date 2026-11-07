@@ -1,9 +1,10 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Caller } from "@flowless/auth";
 import { memberPermission, withTenant, type Database } from "@flowless/db";
-import { effectivePermissions, type Permission, type Scope } from "@flowless/shared-types";
+import { effectivePermissions, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
+import { loadEntitlements } from "./kernel/entitlement-store";
 import { loadScope } from "./kernel/scope";
 
 /**
@@ -33,7 +34,8 @@ export const publicProcedure = t.procedure;
  * Runs the whole procedure inside `withTenant`, exposing the tenant-scoped
  * transaction as `ctx.tx` (K-01), what the caller may do as `ctx.permissions`
  * (role defaults plus extra grants, K-03) and which part of the organization they cover
- * as `ctx.scope()` (scope restrictions, K-03; loaded on first use). The tenant is the caller's membership, and it
+ * as `ctx.scope()` (scope restrictions, K-03), and the licensed modules as
+ * `ctx.entitlements()` (K-04). Both load on first use. The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -57,20 +59,48 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
       grants.map((g) => g.permission),
     );
     let scope: Promise<Scope> | undefined;
+    let entitlements: Promise<ModuleKey[]> | undefined;
     const result = await next({
-      ctx: { session, organizationId, role: member.role, permissions, tx, scope: () => (scope ??= loadScope(tx, session.user.id)) },
+      ctx: {
+        session,
+        organizationId,
+        role: member.role,
+        permissions,
+        tx,
+        scope: () => (scope ??= loadScope(tx, session.user.id)),
+        entitlements: () => (entitlements ??= loadEntitlements(tx)),
+      },
     });
     if (!result.ok) throw result.error;
     return result;
   });
 });
 
+function assertPermissions(permissions: ReadonlySet<Permission>, required: readonly Permission[]) {
+  const missing = required.filter((p) => !permissions.has(p));
+  if (missing.length) throw new TRPCError({ code: "FORBIDDEN", message: `Missing permission: ${missing.join(", ")}` });
+}
+
 /** A tenant procedure the caller may run only with every listed permission (K-03). */
 export function permittedProcedure(...required: [Permission, ...Permission[]]) {
   return tenantProcedure.use(({ ctx, next }) => {
-    const missing = required.filter((p) => !ctx.permissions.has(p));
-    if (missing.length) throw new TRPCError({ code: "FORBIDDEN", message: `Missing permission: ${missing.join(", ")}` });
+    assertPermissions(ctx.permissions, required);
     return next();
+  });
+}
+
+/**
+ * The only builder module routers use (K-04, NF-03). An unlicensed module answers
+ * NOT_FOUND, as if it were not mounted, before anything else runs; then every listed
+ * permission is required (K-03).
+ */
+export function moduleProcedure(module: ModuleKey, ...required: Permission[]) {
+  return tenantProcedure.use(async ({ ctx, next }) => {
+    if (!(await ctx.entitlements()).includes(module)) {
+      throw new TRPCError({ code: "NOT_FOUND", message: `${module} is not licensed for this organization` });
+    }
+    assertPermissions(ctx.permissions, required);
+    return next({ ctx: { module } });
   });
 }
 

@@ -157,3 +157,21 @@ export const memberRouteScope = kernel.table(
     tenantPolicy(t.organizationId),
   ],
 );
+
+/**
+ * Module licensing (K-04): one row per module the organization is licensed for. The
+ * kernel is always on and has no row. Set by Flowless when onboarding or changing a plan
+ * (`setEntitlements` in packages/api), never by the tenant; module keys are validated
+ * there against `MODULE_KEYS`, so adding a module needs no migration.
+ */
+export const organizationModule = kernel.table(
+  "organization_module",
+  {
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    module: text("module").notNull(),
+    licensedAt: timestamp("licensed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.module] }), tenantPolicy(t.organizationId)],
+);

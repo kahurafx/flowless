@@ -113,7 +113,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Better Auth wired up: secret and base URL from env, handler at `/api/auth/[...all]` in web, `@better-auth/expo` for mobile, access-control statements, audit hooks (K-06), organization lifecycle events.
 - `createContext` resolves the Better Auth session; `tenantProcedure` uses its `activeOrganizationId` and rejects sessions without one.
 - Default roles with permission arrays plus per-member extra permissions (K-03, done in A2). Scope restrictions (K-03, done in A3): a member limited to areas and routes covers everything below them; no restriction rows means the whole organization; modules filter with `ctx.scope()` and `scopeCovers`. Support access (K-12) as a kernel table.
-- `tenantProcedure` and `moduleProcedure` builders as the entitlement guard for routes and reports.
+- `tenantProcedure` and `moduleProcedure` builders as the entitlement guard for routes and reports (K-04, done in A4): licences are rows in `kernel.organization_module`, set only server-side by Flowless (`setEntitlements`, which rejects modules whose hard dependencies in `MODULE_REQUIRES` are missing); an unlicensed module answers NOT_FOUND before permissions are checked.
 - Generic approval engine.
 - Audit log.
 - Outbox, with a dispatcher in `apps/worker`.

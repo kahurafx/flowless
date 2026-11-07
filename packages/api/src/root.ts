@@ -1,5 +1,6 @@
 import { ping } from "@flowless/db";
 import { accessRouter } from "./kernel/access";
+import { entitlementsRouter } from "./kernel/entitlements";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
@@ -13,6 +14,7 @@ export const appRouter = router({
   organization: organizationsRouter,
   access: accessRouter,
   hierarchy: hierarchyRouter,
+  entitlements: entitlementsRouter,
 });
 
 export type AppRouter = typeof appRouter;
