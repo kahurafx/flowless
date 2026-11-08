@@ -23,3 +23,5 @@ export { createMemoryStorage, createS3Storage, storageFromEnv, type Storage } fr
 export { notificationRequested, notify, type Notify, type NotifyResult } from "./kernel/notification-store";
 export { supportSession } from "./kernel/support";
 export { defineReport, reportPublishProblems, type ReportDef } from "./kernel/report-guard";
+export { work } from "./wiring";
+export * from "./kernel/work";
