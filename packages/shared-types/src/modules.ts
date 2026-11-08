@@ -47,3 +47,54 @@ export function entitlementProblem(modules: Entitlements): string | null {
   }
   return null;
 }
+
+/** Every module that needs `module`, directly or through another. */
+export function dependentsOf(module: ModuleKey): ModuleKey[] {
+  const out = new Set<ModuleKey>();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const candidate of MODULE_KEYS) {
+      const needs = MODULE_REQUIRES[candidate] ?? [];
+      if (!out.has(candidate) && needs.some((n) => n === module || out.has(n))) {
+        out.add(candidate);
+        grew = true;
+      }
+    }
+  }
+  return MODULE_KEYS.filter((m) => out.has(m));
+}
+
+/** `module` plus everything it needs, directly or not. */
+export function withRequirements(module: ModuleKey): ModuleKey[] {
+  const out = new Set<ModuleKey>([module]);
+  const queue: ModuleKey[] = [module];
+  for (let next = queue.pop(); next; next = queue.pop()) {
+    for (const need of MODULE_REQUIRES[next] ?? []) {
+      if (!out.has(need)) {
+        out.add(need);
+        queue.push(need);
+      }
+    }
+  }
+  return MODULE_KEYS.filter((m) => out.has(m));
+}
+
+/**
+ * The module combinations CI runs (NF-31). Every subset would be 2^14; these cover each
+ * module being absent (with what needs it) and present on its own (with what it needs),
+ * plus none and all. Every combination is licensable.
+ */
+export function moduleMatrix(): { name: string; modules: ModuleKey[] }[] {
+  const combos = [
+    { name: "kernel only", modules: [] as ModuleKey[] },
+    { name: "everything", modules: [...MODULE_KEYS] },
+    ...MODULE_KEYS.map((m) => {
+      const gone = new Set([m, ...dependentsOf(m)]);
+      return { name: `without ${m}`, modules: MODULE_KEYS.filter((k) => !gone.has(k)) };
+    }),
+    ...MODULE_KEYS.map((m) => ({ name: `only ${m}`, modules: withRequirements(m) })),
+  ];
+  const seen = new Set<string>();
+  return combos.filter((c) => !seen.has(c.modules.join()) && seen.add(c.modules.join()));
+}

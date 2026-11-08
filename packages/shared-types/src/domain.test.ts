@@ -87,3 +87,17 @@ describe("entitlements", () => {
     expect(entitlementProblem(["nrw"])).toBe("nrw needs gis and metering");
   });
 });
+
+describe("module matrix (NF-31)", () => {
+  it("lists only licensable combinations, each module absent and present at least once", async () => {
+    const { MODULE_KEYS, entitlementProblem, moduleMatrix, dependentsOf } = await import("./modules");
+    const matrix = moduleMatrix();
+    for (const c of matrix) expect({ name: c.name, problem: entitlementProblem(c.modules) }).toEqual({ name: c.name, problem: null });
+    for (const m of MODULE_KEYS) {
+      expect(matrix.some((c) => c.modules.includes(m))).toBe(true);
+      expect(matrix.some((c) => !c.modules.includes(m) && c.modules.length > 0)).toBe(true);
+    }
+    expect(dependentsOf("accounts")).toEqual(["tariffs", "metering", "billing", "payments", "collections", "nrw", "portal"]);
+    expect(matrix.find((c) => c.name === "only nrw")!.modules).toEqual(["accounts", "metering", "gis", "nrw"]);
+  });
+});
