@@ -6,3 +6,7 @@ export const isForeignKeyViolation = (error: unknown) => pgCode(error) === "2350
 
 /** unique_violation: e.g. a code already used in this organization. */
 export const isUniqueViolation = (error: unknown) => pgCode(error) === "23505";
+
+/** The constraint a violation names, to tell which reference was missing. */
+export const violatedConstraint = (error: unknown): string | undefined =>
+  (error as { cause?: { constraint_name?: string } })?.cause?.constraint_name;

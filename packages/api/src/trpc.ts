@@ -195,15 +195,20 @@ export function permittedProcedure(...required: [Permission, ...Permission[]]) {
 /**
  * The only builder module routers use (K-04, NF-03). An unlicensed module answers
  * NOT_FOUND, as if it were not mounted, before anything else runs; then every listed
- * permission is required (K-03).
+ * permission is required (K-03). A router several modules bring (Work Orders, which GIS
+ * alone also gives at level basic) names them all and answers while ANY is licensed;
+ * finer checks, such as `workLevel(entitlements)`, are the router's own.
  */
-export function moduleProcedure(module: ModuleKey, ...required: Permission[]) {
+export function moduleProcedure(modules: ModuleKey | readonly [ModuleKey, ...ModuleKey[]], ...required: Permission[]) {
+  const list: readonly ModuleKey[] = typeof modules === "string" ? [modules] : modules;
   return tenantProcedure.use(async ({ ctx, next }) => {
-    if (!(await ctx.entitlements()).includes(module)) {
-      throw new TRPCError({ code: "NOT_FOUND", message: `${module} is not licensed for this organization` });
+    const licensed = await ctx.entitlements();
+    if (!list.some((m) => licensed.includes(m))) {
+      const names = list.join(" or ");
+      throw new TRPCError({ code: "NOT_FOUND", message: `${names} ${list.length > 1 ? "are" : "is"} not licensed for this organization` });
     }
     assertPermissions(ctx.permissions, required);
-    return next({ ctx: { module } });
+    return next({ ctx: { modules: list } });
   });
 }
 

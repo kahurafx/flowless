@@ -19,6 +19,7 @@ const accountsLike = router({
   list: moduleProcedure("accounts").query(() => "accounts"),
   open: moduleProcedure("accounts", "accounts:create").mutation(() => "opened"),
   approve: moduleProcedure("billing", "billing:approve").mutation(() => "approved"),
+  field: moduleProcedure(["work-orders", "gis"]).query(({ ctx }) => ctx.modules.join(",")),
 });
 const moduleCaller = (m: Member) => createCallerFactory(accountsLike)({ db: t.app, session: sessionOf(m) });
 
@@ -44,6 +45,15 @@ describe("entitlements", () => {
     expect(await moduleCaller(clerkA).list()).toBe("accounts");
     await setEntitlements(t.app, tenants.a.id, []);
     await expect(moduleCaller(clerkA).list()).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("a router several modules bring answers while any of them is licensed", async () => {
+    await setEntitlements(t.app, tenants.a.id, []);
+    await expect(moduleCaller(clerkA).field()).rejects.toMatchObject({ code: "NOT_FOUND", message: "work-orders or gis are not licensed for this organization" });
+    await setEntitlements(t.app, tenants.a.id, ["gis"]);
+    expect(await moduleCaller(clerkA).field()).toBe("work-orders,gis");
+    await setEntitlements(t.app, tenants.a.id, ["work-orders"]);
+    expect(await moduleCaller(clerkA).field()).toBe("work-orders,gis");
   });
 
   it("checks the licence before permissions, then requires the permissions", async () => {
