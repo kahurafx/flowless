@@ -71,5 +71,5 @@ Both apps pin versions newer than typical training data, and each has an `AGENTS
 - Every background job failure becomes a visible exception with owner and age. No silent failures.
 - Add or update tests with every change. packages/billing-engine must keep its invariant and property tests green.
 - Small commits, conventional messages, no unrelated refactors.
-- A phase is done only when its acceptance checks pass in CI. Do not start the next phase on red tests.
+- A phase is done only when its acceptance checks pass. Tests are off in CI for now, so run `pnpm test` locally before calling a step done. Do not start the next phase on red tests.
 

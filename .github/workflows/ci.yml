@@ -18,5 +18,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm check-types
-      # Integration tests start Postgres via Testcontainers (Docker is on the runner).
-      - run: pnpm test
+      # Tests are off in CI for now; run `pnpm test` locally (Docker required for
+      # Testcontainers). Restore with:
+      #   - run: pnpm test

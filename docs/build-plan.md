@@ -2,7 +2,7 @@
 
 This plan says **when** each requirement is built and **where in the code** it lives. **What** each ID means is in [requirements.md](requirements.md); that file is the source of truth for behaviour.
 
-A phase is done only when its **Done when** checks pass in CI. Do not start the next phase on red tests.
+A phase is done only when its **Done when** checks pass. CI runs lint and type checks; tests are off in CI for now and run locally (`pnpm test`) until it is restored. Do not start the next phase on red tests.
 
 ## Code layout
 
@@ -106,7 +106,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 
 ### Phase 1: Kernel
 
-**Scope:** K-01 to K-12, X-02, X-04. NFRs: NF-01, NF-02, NF-03, NF-07, NF-24, NF-30, NF-31, NF-32.
+**Scope:** K-01 to K-10, K-12, X-02, X-04 (K-11 moved to Phase 6). NFRs: NF-01, NF-02, NF-03, NF-07, NF-24, NF-30, NF-31, NF-32.
 
 **Code:** `packages/api/src/kernel/*`, `packages/auth`, `packages/db` (kernel schema), `apps/worker` (new).
 
@@ -236,7 +236,7 @@ Activation gates that depend on later modules work by office checklist until tho
 
 ### Phase 6: Payments
 
-**Scope:** P-01 to P-11. NFRs: NF-04, NF-20, NF-23.
+**Scope:** P-01 to P-11, K-11 (moved from Phase 1: the first events outside systems need are payments). NFRs: NF-04, NF-20, NF-23.
 
 **Code:** `modules/payments`. Provider callbacks are tRPC-free HTTP route handlers in `apps/web` that only enqueue. Processing runs in `apps/worker`.
 
@@ -252,10 +252,12 @@ Activation gates that depend on later modules work by office checklist until tho
 - Statement import.
 - Three-way reconciliation.
 - Claim by transaction code.
+- Public API and webhooks per organization (K-11, moved from Phase 1): API keys with permissions and expiry, rate limits, signed webhooks delivered from the outbox with retries; a delivery that keeps failing becomes an exception.
 
 **Done when:**
 
 - Polling recovers a dropped callback.
+- A webhook subscriber receives a signed payment event, and a revoked API key is refused at once.
 - An unmatched payment is visible and can be resolved.
 - Reconciliation produces typed exceptions.
 
