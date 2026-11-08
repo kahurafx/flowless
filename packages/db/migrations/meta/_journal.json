@@ -134,6 +134,13 @@
       "when": 1794110006705,
       "tag": "0018_kernel_support_access",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794111743848,
+      "tag": "0019_postgis",
+      "breakpoints": true
     }
   ]
 }

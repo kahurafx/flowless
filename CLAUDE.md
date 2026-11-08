@@ -27,7 +27,7 @@ Mobile (`apps/mobile`) is not started by `pnpm dev`; run `pnpm --filter mobile s
 Local services and database:
 
 ```bash
-pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres :54320, Redis :63790), migrate, seed
+pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres 17 with PostGIS :54320, Redis :63790), migrate, seed
 pnpm db:generate    # drizzle-kit generate after changing packages/db/src/schema
 pnpm db:migrate     # bootstrap roles + apply migrations (uses DATABASE_ADMIN_URL)
 pnpm db:seed        # packages/seed: dev organizations, users, settings, areas, routes and scopes. Code MAJISAFI, wanjiru@majisafi.test (owner) or usernames baraka (clerk) / achieng (cashier, limited to Kahawa West), password flowless-dev-password

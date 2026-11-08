@@ -96,3 +96,13 @@ describe("runtime roles", () => {
     expect(await isMember("stray_api", "flowless_app")).toBe(true);
   });
 });
+
+describe("PostGIS", () => {
+  it("is available to the app role for the network model", async () => {
+    const [row] = await t.app.execute<{ version: string; metres: number }>(sql`
+      select postgis_lib_version() as version,
+             round(st_distance(st_geogfromtext('POINT(36.8869 -1.2195)'), st_geogfromtext('POINT(36.8870 -1.2195)'))::numeric, 1)::float as metres`);
+    expect(row!.version).toMatch(/^3\.5/);
+    expect(row!.metres).toBeCloseTo(11.1, 0);
+  });
+});

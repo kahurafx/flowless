@@ -7,6 +7,9 @@ import { migrateDatabase } from "./migrate";
 import { organizationSettings } from "./schema";
 import { organization } from "./schema/auth";
 
+/** Same image as docker-compose.yml: Postgres 17 with PostGIS (GIS, Phase 2). */
+const POSTGRES_IMAGE = "postgis/postgis:17-3.5-alpine";
+
 declare module "vitest" {
   export interface ProvidedContext {
     /** Owner connection to the shared test cluster, set by `vitest-setup.ts`. */
@@ -41,7 +44,7 @@ function withDatabase(url: string, database: string, user?: string): string {
  * template database, and returns the owner URL plus a stop function.
  */
 export async function startTestCluster(): Promise<{ url: string; stop: () => Promise<void> }> {
-  const container = await new PostgreSqlContainer("postgres:17-alpine").start();
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
   const url = container.getConnectionUri();
 
   const owner = postgres(url, { max: 1, onnotice: () => {} });
