@@ -23,6 +23,12 @@ export const auditActionLabel: Record<string, string> = {
   "hierarchy.archive_route": "Route archived",
   "hierarchy.restore_route": "Route restored",
   "entitlements.set": "Modules licensed",
+  "config.set": "Setting changed",
+  "exceptions.assign": "Exception assigned",
+  "exceptions.start": "Exception taken",
+  "exceptions.resolve": "Exception resolved",
+  "exceptions.reopen": "Exception reopened",
+  "exceptions.retry": "Exception retried",
 };
 
 /** Filters on the audit page, by action prefix. */
@@ -32,6 +38,8 @@ export const AUDIT_FILTERS = [
   { key: "members", label: "Members", prefix: "member." },
   { key: "access", label: "Permissions and coverage", prefix: "access." },
   { key: "hierarchy", label: "Areas and routes", prefix: "hierarchy." },
+  { key: "settings", label: "Settings", prefix: "config." },
+  { key: "exceptions", label: "Exceptions", prefix: "exceptions." },
   { key: "licences", label: "Licences", prefix: "entitlements." },
 ] as const;
 

@@ -44,7 +44,7 @@ export const getSession = cache(async () => {
       id: organization.id,
       name: organization.name,
       code: organization.slug,
-      settings: { currency: settings.currency, timeZone: settings.timeZone, locale: settings.locale },
+      settings: { currency: settings.currency, timeZone: settings.timeZone, locale: settings.locale, regionalVersion: settings.regionalVersion },
       entitlements,
     },
   };
