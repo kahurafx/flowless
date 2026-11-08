@@ -8,3 +8,4 @@ export * from "./sign-in";
 export * from "./permissions";
 export * from "./hierarchy";
 export * from "./approvals";
+export * from "./files";

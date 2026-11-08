@@ -18,3 +18,5 @@ export {
   type ApprovalDef,
   type ApprovalPolicy,
 } from "./kernel/approval-store";
+export { defineFileSubject, type FileSubjectDef } from "./kernel/file-subjects";
+export { createMemoryStorage, createS3Storage, storageFromEnv, type Storage } from "./kernel/storage";

@@ -10,6 +10,7 @@ import { loadEntitlements } from "./kernel/entitlement-store";
 import type { EventDef } from "./kernel/events";
 import { enqueueJob, type EnqueueOptions, type JobDef } from "./kernel/jobs";
 import { loadScope } from "./kernel/scope";
+import type { Storage } from "./kernel/storage";
 
 /**
  * Who is calling: the parts of the Better Auth caller the API relies on. Derived from
@@ -27,6 +28,8 @@ export interface Context {
   session: Session | null;
   /** Where the request came from, for the audit log (K-06). Defaults to "api". */
   source?: AuditSource;
+  /** Object storage for the file service (K-08). Defaults to the environment's. */
+  storage?: Storage;
 }
 
 /** What a procedure says about a change; the kernel adds tenant, actor and source. */

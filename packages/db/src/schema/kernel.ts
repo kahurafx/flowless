@@ -1,4 +1,4 @@
-import { APPROVAL_DECISIONS, APPROVAL_STATUSES, AREA_LEVELS, EXCEPTION_STATUSES } from "@flowless/shared-types";
+import { APPROVAL_DECISIONS, APPROVAL_STATUSES, AREA_LEVELS, EXCEPTION_STATUSES, FILE_STATUSES } from "@flowless/shared-types";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -6,6 +6,7 @@ import {
   char,
   check,
   customType,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -481,6 +482,50 @@ export const approvalDecision = kernel.table(
       foreignColumns: [approvalRequest.organizationId, approvalRequest.id],
     }),
     index("approval_decision_request_idx").on(t.organizationId, t.requestId),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * Files attached to a record (K-08): a photo, evidence or a document. The bytes live in
+ * object storage under a key that starts with the organization id (NF-01); this row is
+ * what makes them reachable. The id is minted by the device, so a retried announcement
+ * finds its row. `pending` until the server has seen the bytes. A file is a fact, like a
+ * log: it is not versioned with the record it belongs to.
+ */
+export const file = kernel.table(
+  "file",
+  {
+    id: uuid("id").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    /** A registered file subject, e.g. "work_order". */
+    subjectKind: text("subject_kind").notNull(),
+    subjectId: text("subject_id").notNull(),
+    fileName: text("file_name").notNull(),
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    status: text("status", { enum: FILE_STATUSES }).notNull().default("pending"),
+    /** Where and when a field photo was taken (W-02), from the device. */
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }),
+    uploadedByUserId: uuid("uploaded_by_user_id").notNull(),
+    /** Renewed while a device keeps retrying a pending upload. */
+    announcedAt: timestamp("announced_at", { withTimezone: true }).notNull().defaultNow(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("file_status_valid", sql`${t.status} in ('pending', 'uploaded')`),
+    check("file_size_positive", sql`${t.sizeBytes} > 0`),
+    check(
+      "file_position_valid",
+      sql`(${t.latitude} is null) = (${t.longitude} is null) and coalesce(${t.latitude} between -90 and 90, true) and coalesce(${t.longitude} between -180 and 180, true)`,
+    ),
+    uniqueIndex("file_storage_key_unique").on(t.storageKey),
+    index("file_subject_idx").on(t.organizationId, t.subjectKind, t.subjectId),
     tenantPolicy(t.organizationId),
   ],
 );

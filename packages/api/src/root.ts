@@ -5,6 +5,7 @@ import { auditRouter } from "./kernel/audit";
 import { configRouter } from "./kernel/config";
 import { entitlementsRouter } from "./kernel/entitlements";
 import { exceptionsRouter } from "./kernel/exceptions";
+import { filesRouter } from "./kernel/files";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
@@ -23,6 +24,7 @@ export const appRouter = router({
   audit: auditRouter,
   exceptions: exceptionsRouter,
   approvals: approvalsRouter,
+  files: filesRouter,
 });
 
 export type AppRouter = typeof appRouter;
