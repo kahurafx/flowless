@@ -149,7 +149,8 @@ export function NetworkMap({ data }: { data: NetworkMapData }) {
   };
 
   const onClick = (click: MapClick) => {
-    const f = click.feature;
+    // A DMA's shaded area is only something to click while selecting; when placing or drawing it is empty ground.
+    const f = click.feature?.kind === "dma" && tool !== "select" ? null : click.feature;
     if (dmaDraw) {
       setDmaDraw({ ...dmaDraw, points: [...dmaDraw.points, click.point] });
       return;
@@ -302,7 +303,7 @@ export function NetworkMap({ data }: { data: NetworkMapData }) {
 
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="relative h-[60dvh] min-h-80 overflow-hidden rounded-xl border bg-muted lg:h-[calc(100dvh-14rem)]">
-          <div ref={container} className="absolute inset-0" aria-label="Network map" role="application" />
+          <div ref={container} className="size-full" aria-label="Network map" role="application" />
         </div>
         <div className="rounded-xl border bg-card p-3 lg:max-h-[calc(100dvh-14rem)] lg:overflow-y-auto">
           <Tabs value={tab} onValueChange={(v) => setTab(v as PanelTab)}>

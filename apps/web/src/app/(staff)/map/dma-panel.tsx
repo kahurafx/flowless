@@ -39,6 +39,8 @@ function EditDma({ dma, nodes, branch }: { dma: DmaDto; nodes: readonly NodeDto[
   const [valves, setValves] = useState<string[]>(dma.boundaryValveIds);
   const meters = nodes.filter((n) => n.type === "meter");
   const valveNodes = nodes.filter((n) => n.type === "valve");
+  const valvesChanged = JSON.stringify([...valves].sort()) !== JSON.stringify([...dma.boundaryValveIds].sort());
+  const changed = color !== dma.color || inlet !== (dma.inletMeterId ?? "") || valvesChanged;
   return (
     <ActionDialog
       label="Inlet and valves"
@@ -47,7 +49,7 @@ function EditDma({ dma, nodes, branch }: { dma: DmaDto; nodes: readonly NodeDto[
       description="Boundary valves are the ones that should stay closed to seal this DMA. Membership is traced from the inlet meter."
       submitLabel="Save"
       success="DMA saved"
-      canSubmit={inlet !== ""}
+      canSubmit={inlet !== "" && changed}
       onSubmit={() =>
         updateDma({
           branch,
@@ -56,7 +58,7 @@ function EditDma({ dma, nodes, branch }: { dma: DmaDto; nodes: readonly NodeDto[
           patch: {
             ...(color !== dma.color ? { color } : {}),
             ...(inlet !== (dma.inletMeterId ?? "") ? { inletMeterId: inlet } : {}),
-            ...(JSON.stringify([...valves].sort()) !== JSON.stringify([...dma.boundaryValveIds].sort()) ? { boundaryValveIds: valves } : {}),
+            ...(valvesChanged ? { boundaryValveIds: valves } : {}),
           },
         })
       }

@@ -258,7 +258,7 @@ function EditNode({ node, branch }: { node: NodeDto; branch: string }) {
       title={`Edit ${node.name}`}
       submitLabel="Save"
       success="Node saved"
-      canSubmit={name.trim() !== ""}
+      canSubmit={name.trim() !== "" && (name.trim() !== node.name || condition !== node.condition)}
       onSubmit={() =>
         updateNode({
           branch,
@@ -293,7 +293,7 @@ function EditPipe({ pipe, branch }: { pipe: PipeDto; branch: string }) {
       description="Its end nodes are fixed. To reconnect it, delete it and draw a new one."
       submitLabel="Save"
       success="Pipe saved"
-      canSubmit={Number.isFinite(diameterMm) && diameterMm > 0}
+      canSubmit={Number.isFinite(diameterMm) && diameterMm > 0 && (material !== pipe.material || diameterMm !== pipe.diameterMm || condition !== pipe.condition)}
       onSubmit={() =>
         updatePipe({
           branch,

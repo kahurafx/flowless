@@ -30,7 +30,8 @@ function show(value: unknown): string {
   if (typeof value === "string") return value.replaceAll("_", " ");
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (value instanceof Date) return value.toLocaleDateString();
-  if (Array.isArray(value)) return value.length > 3 ? `${value.length} points` : JSON.stringify(value);
+  if (Array.isArray(value)) return value.every((p) => p && typeof p === "object" && "lat" in p) ? `${value.length} points` : value.length > 3 ? `${value.length} items` : JSON.stringify(value);
+  if (typeof value === "object" && "lat" in value && "lng" in value) return `${Number(value.lat).toFixed(5)}, ${Number(value.lng).toFixed(5)}`;
   const text = JSON.stringify(value);
   return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 }
@@ -133,9 +134,10 @@ export function BranchReview({ preview }: { preview: BranchPreview }) {
               </p>
               {e.changes.length > 0 && (
                 <ul className="grid gap-0.5 text-sm text-muted-foreground">
-                  {e.changes.map((c) => (
+                  {/* A new asset lists what it has, not every empty field. */}
+                  {e.changes.filter((c) => e.detail !== "create" || (c.to !== null && c.to !== undefined)).map((c) => (
                     <li key={c.field}>
-                      <span className="text-foreground">{c.field.replace(/([A-Z])/g, " $1").toLowerCase()}</span>: {show(c.from)} to {show(c.to)}
+                      <span className="text-foreground">{c.field.replace(/([A-Z])/g, " $1").toLowerCase()}</span>: {e.detail === "create" ? show(c.to) : `${show(c.from)} to ${show(c.to)}`}
                     </li>
                   ))}
                 </ul>

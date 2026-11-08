@@ -28,7 +28,7 @@ export function BranchBar({
   why: string | null;
 }) {
   const router = useRouter();
-  const options = choices.map((c) => ({ value: c.branch, label: c.kind === "main" || c.kind === "mine" ? c.label : `${c.label} (${c.branch})` }));
+  const options = choices.map((c) => ({ value: c.branch, label: c.kind === "main" || c.kind === "mine" || c.label === c.branch ? c.label : `${c.label} (${c.branch})` }));
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center gap-2">

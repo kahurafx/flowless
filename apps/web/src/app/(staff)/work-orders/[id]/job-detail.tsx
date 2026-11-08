@@ -22,7 +22,7 @@ export function JobDetail({ page }: { page: JobPage }) {
   const { job, kind, can, children, locale, timeZone } = page;
   const when = (d: Date) => formatWhen(d, locale, timeZone);
   const capture = job.capture && typeof job.capture === "object" ? Object.entries(job.capture as Record<string, unknown>) : [];
-  const humanize = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+  const humanize = (key: string) => key.replace(/([A-Z])/g, " $1").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 
   return (
     <div className="grid gap-6">

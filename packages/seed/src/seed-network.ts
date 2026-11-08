@@ -18,15 +18,11 @@ const at = (dLat: number, dLng: number) => ({ lat: Number((KAHAWA.lat + dLat).to
  * boundary on the existing DMA-KW1 area. Skipped when the organization already has nodes.
  */
 export async function seedRuiruNetwork(api: Api, areas: ReadonlyMap<string, string>) {
-  if ((await api.gis.nodes.list()).length > 0) return;
-  const dmaArea = areas.get("DMA-KW1");
-  if (!dmaArea) throw new Error("DMA-KW1 is missing: seed the areas first");
+  if ((await api.gis.nodes.list()).length === 0) await seedNodesAndPipes(api);
+  if ((await api.gis.dmas.list()).length === 0) await seedDma(api, areas);
+}
 
-  const tiers = await api.gis.tiers.list();
-  const tierId =
-    tiers.find((t) => t.name === "DMA")?.id ??
-    (await Promise.all([api.gis.tiers.create({ name: "Transmission", order: 1 }), api.gis.tiers.create({ name: "Distribution", order: 2 }), api.gis.tiers.create({ name: "DMA", order: 3 })]))[2].id;
-
+async function seedNodesAndPipes(api: Api) {
   const chamber = await api.gis.structures.create({ type: "chamber", name: "Chamber C-12", location: at(-0.0005, -0.0025), condition: "fair" });
   await api.gis.structures.create({ type: "manhole", name: "Manhole MH-3", location: at(-0.0015, 0.0015), condition: "good" });
 
@@ -67,6 +63,24 @@ export async function seedRuiruNetwork(api: Api, areas: ReadonlyMap<string, stri
   await connection("KW-0003", [-0.001, 0.0027], second.id);
   await connection("KW-0004", [-0.0003, 0.0021], second.id);
 
+}
+
+/** DMA Kahawa West 1's boundary, with the inlet meter and boundary valve seeded above. */
+async function seedDma(api: Api, areas: ReadonlyMap<string, string>) {
+  const dmaArea = areas.get("DMA-KW1");
+  if (!dmaArea) throw new Error("DMA-KW1 is missing: seed the areas first");
+  // A DMA someone archived while testing the hierarchy can't take map data until it is back.
+  const all = await api.hierarchy.areas({ includeArchived: true });
+  const chain: typeof all = [];
+  for (let a = all.find((x) => x.id === dmaArea); a; a = all.find((x) => x.id === a!.parentId)) chain.unshift(a);
+  for (const a of chain) if (a.archivedAt) await api.hierarchy.restoreArea({ id: a.id });
+  const nodes = await api.gis.nodes.list();
+  const meter = nodes.find((n) => n.name === "KW1 inlet meter");
+  const boundary = nodes.find((n) => n.name === "KW1 boundary valve");
+  if (!meter || !boundary) throw new Error("The Ruiru network nodes are missing");
+
+  const tiers = await api.gis.tiers.list();
+  const tierId = tiers.find((t) => t.name === "DMA")?.id ?? (await createTiers(api));
   await api.gis.dmas.create({
     areaId: dmaArea,
     color: "#3b82f6",
@@ -75,6 +89,15 @@ export async function seedRuiruNetwork(api: Api, areas: ReadonlyMap<string, stri
     boundaryValveIds: [boundary.id],
     ring: [at(0.0015, -0.0035), at(0.0015, 0.0047), at(-0.0032, 0.0047), at(-0.0032, -0.0035)],
   });
+}
+
+/** Transmission, distribution and DMA tiers, top of the hierarchy first; returns the DMA tier's id. */
+async function createTiers(api: Api): Promise<string> {
+  const existing = new Map((await api.gis.tiers.list()).map((t) => [t.name, t.id]));
+  for (const [name, order] of [["Transmission", 1], ["Distribution", 2], ["DMA", 3]] as const) {
+    if (!existing.has(name)) existing.set(name, (await api.gis.tiers.create({ name, order })).id);
+  }
+  return existing.get("DMA")!;
 }
 
 /** A handful of jobs in different states: assigned, unassigned, overdue and one waiting for review. */

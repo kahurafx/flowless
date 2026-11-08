@@ -13,7 +13,7 @@ export interface CaptureSchema {
   required?: string[];
 }
 
-const humanize = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+const humanize = (key: string) => key.replace(/([A-Z])/g, " $1").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 
 /** The completion data a kind asks for (W-03), drawn from the kind's JSON Schema. The server checks it again. */
 export function CaptureForm({

@@ -58,11 +58,13 @@ export async function getNetworkMap(params: { branch: string; jobId?: string; dm
     choices.push({ branch: b.branch, label: branchLabel(b), kind: b.origin ? "job" : "other" });
   }
   // A requested branch with no edits yet (a job's fresh branch, someone's empty one) is still a place to work.
-  if (!choices.some((c) => c.branch === branch)) choices.push({ branch, label: branch, kind: branch.startsWith("wo-") ? "job" : "other" });
-
   const job = params.jobId && /^[0-9a-f-]{36}$/i.test(params.jobId) && session.organization.entitlements.some((m) => m === "work-orders" || m === "gis")
     ? await api.workOrders.byId({ id: params.jobId }).catch(() => null)
     : null;
+
+  if (!choices.some((c) => c.branch === branch)) {
+    choices.push({ branch, label: job && job.branch === branch ? `${job.code} · ${job.title}` : branch, kind: branch.startsWith("wo-") ? "job" : "other" });
+  }
 
   const mapped = new Set(dmas.map((d) => d.id));
   const all = [...nodes.map((n) => n.location), ...pipes.flatMap((p) => p.path.slice(0, 1)), ...structures.map((s) => s.location)];

@@ -96,7 +96,7 @@ export function TracePanel({
               ))}
             </div>
           )}
-          {result.alreadyClosed.length > 0 && <p className="text-xs text-muted-foreground">{result.alreadyClosed.length} valves are already closed and isolate the section.</p>}
+          {result.alreadyClosed.length > 0 && <p className="text-xs text-muted-foreground">{result.alreadyClosed.length} {result.alreadyClosed.length === 1 ? "valve is" : "valves are"} already closed and {result.alreadyClosed.length === 1 ? "isolates" : "isolate"} the section.</p>}
           {result.unisolatedSources > 0 && (
             <p className="flex items-start gap-1.5 text-destructive">
               <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
