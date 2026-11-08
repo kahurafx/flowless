@@ -1,5 +1,6 @@
 import { ping } from "@flowless/db";
 import { accessRouter } from "./kernel/access";
+import { approvalsRouter } from "./kernel/approvals";
 import { auditRouter } from "./kernel/audit";
 import { configRouter } from "./kernel/config";
 import { entitlementsRouter } from "./kernel/entitlements";
@@ -21,6 +22,7 @@ export const appRouter = router({
   entitlements: entitlementsRouter,
   audit: auditRouter,
   exceptions: exceptionsRouter,
+  approvals: approvalsRouter,
 });
 
 export type AppRouter = typeof appRouter;

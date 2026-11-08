@@ -14,13 +14,14 @@ export const EXCEPTION_TYPES = [
   "NO_BASELINE",
   "JOB_FAILURE",
   "EVENT_FAILURE",
+  "APPROVAL_OVERDUE",
 ] as const;
 export type ExceptionType = (typeof EXCEPTION_TYPES)[number];
 
 export const EXCEPTION_STATUSES = ["open", "in_progress", "resolved"] as const;
 export type ExceptionStatus = (typeof EXCEPTION_STATUSES)[number];
 
-export const EXCEPTION_SUBJECT_KINDS = ["account", "payment", "message", "job", "event"] as const;
+export const EXCEPTION_SUBJECT_KINDS = ["account", "payment", "message", "job", "event", "approval"] as const;
 export type ExceptionSubjectKind = (typeof EXCEPTION_SUBJECT_KINDS)[number];
 
 export interface ExceptionItem {

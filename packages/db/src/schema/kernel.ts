@@ -1,4 +1,4 @@
-import { AREA_LEVELS, EXCEPTION_STATUSES } from "@flowless/shared-types";
+import { APPROVAL_DECISIONS, APPROVAL_STATUSES, AREA_LEVELS, EXCEPTION_STATUSES } from "@flowless/shared-types";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -407,6 +407,80 @@ export const configVersion = kernel.table(
     unique("config_version_unique").on(t.organizationId, t.key, t.version),
     index("config_version_effective_idx").on(t.organizationId, t.key, t.effectiveFrom),
     check("config_version_positive", sql`${t.version} > 0`),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * Approval requests (K-05). A module asks for one inside its own procedure; the request
+ * keeps a snapshot of the organization's policy for its kind at that moment (`policy`:
+ * the levels that apply to its amount, SLA, escalation), so a later policy change does
+ * not move requests already in flight. `level` is the index of the level now deciding.
+ */
+export const approvalRequest = kernel.table(
+  "approval_request",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    /** The approval kind, "<module>.<what>". */
+    kind: text("kind").notNull(),
+    /** What is being approved, in the requesting module's terms (an invoice id, a receipt number). */
+    subjectRef: text("subject_ref").notNull(),
+    title: text("title").notNull(),
+    /** Minor units (B-18); thresholds compare against it. */
+    amount: bigint("amount", { mode: "bigint" }),
+    reasonCode: text("reason_code"),
+    note: text("note").notNull().default(""),
+    /** What the requesting module needs to apply the outcome. */
+    payload: jsonb("payload").notNull().default({}),
+    policy: jsonb("policy").notNull(),
+    status: text("status", { enum: APPROVAL_STATUSES }).notNull().default("pending"),
+    level: integer("level").notNull().default(0),
+    /** When the current level's SLA runs out (null once decided). */
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    /** Set when the current level went past its SLA. */
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+    areaId: uuid("area_id"),
+    routeId: uuid("route_id"),
+    requestedByUserId: uuid("requested_by_user_id").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("approval_request_status_valid", sql`${t.status} in ('pending', 'approved', 'rejected', 'cancelled')`),
+    uniqueIndex("approval_request_one_pending").on(t.organizationId, t.kind, t.subjectRef).where(sql`${t.status} = 'pending'`),
+    index("approval_request_status_idx").on(t.organizationId, t.status, t.requestedAt),
+    index("approval_request_due_idx").on(t.dueAt).where(sql`${t.status} = 'pending' and ${t.escalatedAt} is null`),
+    unique("approval_request_organization_id").on(t.organizationId, t.id),
+    foreignKey({ name: "approval_request_area_fk", columns: [t.organizationId, t.areaId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "approval_request_route_fk", columns: [t.organizationId, t.routeId], foreignColumns: [route.organizationId, route.id] }),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/** Every approve, reject and cancel on a request, append-only (K-05, K-06). */
+export const approvalDecision = kernel.table(
+  "approval_decision",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull(),
+    requestId: uuid("request_id").notNull(),
+    level: integer("level").notNull(),
+    decision: text("decision", { enum: APPROVAL_DECISIONS }).notNull(),
+    byUserId: uuid("by_user_id").notNull(),
+    note: text("note"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("approval_decision_valid", sql`${t.decision} in ('approve', 'reject', 'cancel')`),
+    foreignKey({
+      name: "approval_decision_request_fk",
+      columns: [t.organizationId, t.requestId],
+      foreignColumns: [approvalRequest.organizationId, approvalRequest.id],
+    }),
+    index("approval_decision_request_idx").on(t.organizationId, t.requestId),
     tenantPolicy(t.organizationId),
   ],
 );

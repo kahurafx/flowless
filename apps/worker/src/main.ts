@@ -1,7 +1,8 @@
 // The background process (K-09, NF-12, NF-24): delivers outbox events to their consumers
 // and runs queued jobs until stopped. Runs as the app database role; every consumer and
-// job works inside its organization (RLS). Failures end up in the exception queue.
-import { consumers, dispatchOutbox, jobs, runJobs } from "@flowless/api";
+// job works inside its organization (RLS). Failures end up in the exception queue, and so
+// do approvals past their SLA (K-05), checked once a minute.
+import { consumers, dispatchOutbox, escalateApprovals, jobs, runJobs } from "@flowless/api";
 import { createDatabase } from "@flowless/db";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -11,6 +12,8 @@ if (!url) throw new Error("DATABASE_URL must be set (see .env.example)");
 const BATCH = Number(process.env.WORKER_BATCH ?? 50);
 const JOB_BATCH = Number(process.env.WORKER_JOB_BATCH ?? 5);
 const IDLE_MS = Number(process.env.WORKER_IDLE_MS ?? 1000);
+const ESCALATE_EVERY_MS = 60_000;
+let lastEscalation = 0;
 
 const { db, close } = createDatabase(url, { max: 4 });
 const stop = new AbortController();
@@ -25,6 +28,11 @@ while (!stop.signal.aborted) {
     if (events.claimed) log({ msg: "events", ...events });
     const ran = await runJobs(db, jobs, { batch: JOB_BATCH });
     if (ran.claimed) log({ msg: "jobs", ...ran });
+    if (Date.now() - lastEscalation >= ESCALATE_EVERY_MS) {
+      lastEscalation = Date.now();
+      const escalated = await escalateApprovals(db);
+      if (escalated) log({ msg: "approvals escalated", escalated });
+    }
     // A full batch means more may be waiting: go again without pausing.
     if (events.claimed < BATCH && ran.claimed < JOB_BATCH) await sleep(IDLE_MS, undefined, { signal: stop.signal }).catch(() => {});
   } catch (error) {

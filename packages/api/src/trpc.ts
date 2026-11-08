@@ -4,6 +4,7 @@ import { enqueueEvent, memberPermission, recordAudit, withTenant, type AuditEntr
 import { effectivePermissions, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
+import { requestApproval, type ApprovalDef, type RequestApproval } from "./kernel/approval-store";
 import { readSetting, type SettingDef } from "./kernel/config-store";
 import { loadEntitlements } from "./kernel/entitlement-store";
 import type { EventDef } from "./kernel/events";
@@ -47,7 +48,8 @@ export const publicProcedure = t.procedure;
  * audit log in the same transaction, so the entry commits only with the change (K-06).
  * `ctx.publish(event, payload)` writes to the outbox the same way (K-09), and
  * `ctx.enqueue(job, payload)` queues background work owned by the caller (NF-12, NF-24).
- * `ctx.config(setting, at?)` reads the organization's value in force (K-10). The tenant is the caller's membership, and it
+ * `ctx.config(setting, at?)` reads the organization's value in force (K-10), and
+ * `ctx.requestApproval(kind, input)` asks for an approval as the caller, audited (K-05). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -98,6 +100,21 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
             id: options.id,
           }),
         config: <T>(def: SettingDef<T>, at?: Date) => readSetting(tx, def, at).then((v) => v.value),
+        requestApproval: async (def: ApprovalDef, input: Omit<RequestApproval, "requestedByUserId">) => {
+          const request = await requestApproval(tx, organizationId, def, { ...input, requestedByUserId: session.user.id });
+          await recordAudit(tx, {
+            organizationId,
+            source: ctx.source ?? "api",
+            actorUserId: session.user.id,
+            actorLabel: session.user.name,
+            action: "approvals.request",
+            subjectType: "approval",
+            subjectId: request.id,
+            after: { kind: def.key, subject: input.subjectRef, status: request.status, amount: input.amount?.toString() ?? null },
+            reason: input.note || null,
+          });
+          return request;
+        },
         enqueue: <T>(def: JobDef<T>, payload: T, options: Omit<EnqueueOptions, "createdByUserId"> = {}) =>
           enqueueJob(tx, organizationId, def, payload, { ...options, createdByUserId: session.user.id }),
       },

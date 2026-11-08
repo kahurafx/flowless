@@ -8,3 +8,13 @@ export { jobs } from "./kernel/job-registry";
 export { defineJob, runJobs, type JobDef, type JobRunResult } from "./kernel/jobs";
 export { defineSetting, readSetting, type SettingDef, type SettingValue } from "./kernel/config-store";
 export { regionalSetting } from "./kernel/regional";
+export {
+  approvalDecided,
+  approvalPolicySetting,
+  defineApproval,
+  defineApprovalConsumer,
+  escalateApprovals,
+  type ApprovalDecided,
+  type ApprovalDef,
+  type ApprovalPolicy,
+} from "./kernel/approval-store";
