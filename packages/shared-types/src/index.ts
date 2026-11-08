@@ -10,3 +10,4 @@ export * from "./hierarchy";
 export * from "./approvals";
 export * from "./files";
 export * from "./notifications";
+export * from "./support";

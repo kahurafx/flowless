@@ -1,8 +1,8 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { Caller } from "@flowless/auth";
-import { enqueueEvent, memberPermission, recordAudit, withTenant, type AuditEntry, type AuditSource, type Database } from "@flowless/db";
-import { effectivePermissions, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
-import { eq } from "drizzle-orm";
+import { enqueueEvent, memberPermission, recordAudit, supportGrant, withTenant, type AuditEntry, type AuditSource, type Database } from "@flowless/db";
+import { effectivePermissions, SUPPORT_PERMISSIONS, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
+import { and, eq, gt, isNull, lte } from "drizzle-orm";
 import superjson from "superjson";
 import { requestApproval, type ApprovalDef, type RequestApproval } from "./kernel/approval-store";
 import { readSetting, type SettingDef } from "./kernel/config-store";
@@ -22,6 +22,11 @@ export interface Session {
   user: Pick<Caller["user"], "id" | "name" | "email">;
   session: Pick<Caller["session"], "id" | "activeOrganizationId">;
   member: Caller["member"];
+  /**
+   * Set for a Flowless support engineer (K-12), who is never a member: `member` is null
+   * and access comes from this grant in the active organization, checked on every call.
+   */
+  support?: { grantId: string };
 }
 
 export interface Context {
@@ -56,46 +61,87 @@ export const publicProcedure = t.procedure;
  * `ctx.requestApproval(kind, input)` asks for an approval as the caller, audited (K-05).
  * `ctx.notify(input)` notifies a member in-app or through Communications (K-07). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
+ * A support session (K-12) instead needs a live grant on every call, may only run queries
+ * with read permissions, and each call is audited.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
  */
-export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
+export const tenantProcedure = t.procedure.use(({ ctx, next, path, type }) => {
   const { session } = ctx;
   if (!session) throw new TRPCError({ code: "UNAUTHORIZED" });
   const organizationId = session.session.activeOrganizationId;
   const member = session.member;
-  if (!organizationId || member?.organizationId !== organizationId) {
+  const support = session.support;
+  if (!organizationId || (!support && member?.organizationId !== organizationId)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "No active organization" });
   }
-
-  return withTenant(ctx.db, organizationId, async (tx) => {
-    const grants = await tx
-      .select({ permission: memberPermission.permission })
-      .from(memberPermission)
-      .where(eq(memberPermission.userId, session.user.id));
-    const permissions = effectivePermissions(
-      member.role,
-      grants.map((g) => g.permission),
+  // A refused support call is recorded in its own transaction, since the call's rolls back.
+  const refuse = async (error: TRPCError) => {
+    await withTenant(ctx.db, organizationId, (tx) =>
+      recordAudit(tx, {
+        organizationId,
+        source: "support",
+        actorUserId: null,
+        actorLabel: `Flowless support: ${session.user.email}`,
+        action: "support.refused",
+        subjectType: "support_grant",
+        subjectId: support!.grantId,
+        after: { path, code: error.code },
+        reason: error.message,
+      }),
     );
+    throw error;
+  };
+  if (support && type !== "query") return refuse(new TRPCError({ code: "FORBIDDEN", message: "Support access is read-only" }));
+
+  const run = withTenant(ctx.db, organizationId, async (tx) => {
+    let role: string;
+    let permissions: ReadonlySet<Permission>;
+    const actor = support
+      ? { actorUserId: null, actorLabel: `Flowless support: ${session.user.email}`, source: "support" as const }
+      : { actorUserId: session.user.id, actorLabel: session.user.name, source: ctx.source ?? "api" };
+    if (support) {
+      const now = new Date();
+      const [grant] = await tx
+        .select({ permissions: supportGrant.permissions })
+        .from(supportGrant)
+        .where(
+          and(
+            eq(supportGrant.id, support.grantId),
+            eq(supportGrant.engineerEmail, session.user.email.toLowerCase()),
+            isNull(supportGrant.revokedAt),
+            lte(supportGrant.startsAt, now),
+            gt(supportGrant.expiresAt, now),
+          ),
+        );
+      if (!grant) throw new TRPCError({ code: "FORBIDDEN", message: "Support access has ended" });
+      role = "support";
+      permissions = new Set(SUPPORT_PERMISSIONS.filter((p) => grant.permissions.includes(p)));
+      // Every look at tenant data is on the record (K-12).
+      await recordAudit(tx, { ...actor, organizationId, action: "support.read", subjectType: "support_grant", subjectId: support.grantId, after: { path } });
+    } else {
+      const grants = await tx
+        .select({ permission: memberPermission.permission })
+        .from(memberPermission)
+        .where(eq(memberPermission.userId, session.user.id));
+      role = member!.role;
+      permissions = effectivePermissions(
+        role,
+        grants.map((g) => g.permission),
+      );
+    }
     let scope: Promise<Scope> | undefined;
     let entitlements: Promise<ModuleKey[]> | undefined;
     const result = await next({
       ctx: {
         session,
         organizationId,
-        role: member.role,
+        role,
         permissions,
         tx,
         scope: () => (scope ??= loadScope(tx, session.user.id)),
         entitlements: () => (entitlements ??= loadEntitlements(tx)),
-        audit: (note: AuditNote) =>
-          recordAudit(tx, {
-            ...note,
-            organizationId,
-            source: ctx.source ?? "api",
-            actorUserId: session.user.id,
-            actorLabel: session.user.name,
-          }),
+        audit: (note: AuditNote) => recordAudit(tx, { ...note, organizationId, ...actor }),
         publish: <T>(event: EventDef<T>, payload: T, options: { id?: string } = {}) =>
           enqueueEvent(tx, {
             organizationId,
@@ -110,9 +156,7 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
           const request = await requestApproval(tx, organizationId, def, { ...input, requestedByUserId: session.user.id });
           await recordAudit(tx, {
             organizationId,
-            source: ctx.source ?? "api",
-            actorUserId: session.user.id,
-            actorLabel: session.user.name,
+            ...actor,
             action: "approvals.request",
             subjectType: "approval",
             subjectId: request.id,
@@ -127,6 +171,11 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
     });
     if (!result.ok) throw result.error;
     return result;
+  });
+  if (!support) return run;
+  return run.catch((error: unknown) => {
+    if (error instanceof TRPCError && (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")) return refuse(error);
+    throw error;
   });
 });
 

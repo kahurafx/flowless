@@ -127,6 +127,13 @@
       "when": 1794109783545,
       "tag": "0017_kernel_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794110006705,
+      "tag": "0018_kernel_support_access",
+      "breakpoints": true
     }
   ]
 }

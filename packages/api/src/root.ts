@@ -7,6 +7,7 @@ import { entitlementsRouter } from "./kernel/entitlements";
 import { exceptionsRouter } from "./kernel/exceptions";
 import { filesRouter } from "./kernel/files";
 import { notificationsRouter } from "./kernel/notifications";
+import { supportRouter } from "./kernel/support";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
@@ -27,6 +28,7 @@ export const appRouter = router({
   approvals: approvalsRouter,
   files: filesRouter,
   notifications: notificationsRouter,
+  support: supportRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -29,6 +29,16 @@ export const auditActionLabel: Record<string, string> = {
   "exceptions.resolve": "Exception resolved",
   "exceptions.reopen": "Exception reopened",
   "exceptions.retry": "Exception retried",
+  "approvals.request": "Approval requested",
+  "approvals.approve": "Approved",
+  "approvals.reject": "Rejected",
+  "approvals.cancel": "Approval withdrawn",
+  "files.add": "File added",
+  "files.remove": "File removed",
+  "support.grant": "Support access granted",
+  "support.revoke": "Support access revoked",
+  "support.read": "Support looked",
+  "support.refused": "Support refused",
 };
 
 /** Filters on the audit page, by action prefix. */
@@ -40,6 +50,7 @@ export const AUDIT_FILTERS = [
   { key: "hierarchy", label: "Areas and routes", prefix: "hierarchy." },
   { key: "settings", label: "Settings", prefix: "config." },
   { key: "exceptions", label: "Exceptions", prefix: "exceptions." },
+  { key: "support", label: "Flowless support", prefix: "support." },
   { key: "licences", label: "Licences", prefix: "entitlements." },
 ] as const;
 
@@ -49,4 +60,5 @@ export const auditSourceLabel: Record<string, string> = {
   api: "API",
   import: "Import",
   system: "Flowless",
+  support: "Flowless support",
 };

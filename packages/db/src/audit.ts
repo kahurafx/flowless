@@ -2,7 +2,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { auditLog } from "./schema/kernel";
 
 /** Where an audited action came from (K-06). */
-export const AUDIT_SOURCES = ["web", "mobile", "api", "import", "system"] as const;
+export const AUDIT_SOURCES = ["web", "mobile", "api", "import", "system", "support"] as const;
 export type AuditSource = (typeof AUDIT_SOURCES)[number];
 
 export interface AuditEntry {

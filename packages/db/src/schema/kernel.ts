@@ -562,3 +562,35 @@ export const notification = kernel.table(
     tenantPolicy(t.organizationId),
   ],
 );
+
+/**
+ * Support access (K-12): an organization's administrator lets one named Flowless engineer
+ * read its data for a stated reason, for at most 72 hours, and can revoke it at any time.
+ * Checked on every call the engineer makes, each of which is audited. Flowless support
+ * is never a member of the organization (requirements §1).
+ */
+export const supportGrant = kernel.table(
+  "support_grant",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    /** The Flowless engineer, by their Flowless email. */
+    engineerEmail: text("engineer_email").notNull(),
+    reason: text("reason").notNull(),
+    /** Read permissions only (SUPPORT_PERMISSIONS). */
+    permissions: jsonb("permissions").$type<string[]>().notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    grantedByUserId: uuid("granted_by_user_id").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedByUserId: uuid("revoked_by_user_id"),
+  },
+  (t) => [
+    check("support_grant_window", sql`${t.expiresAt} > ${t.startsAt} and ${t.expiresAt} <= ${t.startsAt} + interval '72 hours'`),
+    check("support_grant_reason", sql`length(trim(${t.reason})) > 0`),
+    index("support_grant_active_idx").on(t.organizationId, t.expiresAt),
+    tenantPolicy(t.organizationId),
+  ],
+);
