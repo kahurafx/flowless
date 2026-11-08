@@ -100,7 +100,8 @@ export const crewMember = workOrders.table(
  * place the job for area and route targets and for scope (K-03). The assignee must be a
  * member; when they leave the job stays and becomes unassigned (SET NULL on
  * `assigned_to_user_id` only, `0022_work_orders_access.sql`). Other user columns are
- * history and have no foreign key.
+ * history and have no foreign key. `overdue_at` marks a job whose breach was raised, so the
+ * sweep (`work_orders.overdue_work_orders`, `0025_work_orders_overdue.sql`) raises it once.
  */
 export const workOrder = workOrders.table(
   "work_order",
@@ -138,6 +139,8 @@ export const workOrder = workOrders.table(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     outcome: text("outcome", { enum: WORK_ORDER_OUTCOMES }),
     completionNote: text("completion_note"),
+    /** When the SLA breach was put in the exception queue (X-02); cleared when the job is rescheduled. */
+    overdueAt: timestamp("overdue_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
