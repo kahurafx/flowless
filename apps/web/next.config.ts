@@ -13,7 +13,7 @@ try {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
 
-// MapLibre's worker is served as a plain file (the map code sets its URL): bundling it breaks
+// MapLibre's worker is served as a plain file (the map code sets its URL): bundling it is unreliable
 // under Turbopack. Copying here keeps it in step with the installed version for dev, build and start.
 {
   const dist = join(dirname(createRequire(import.meta.url).resolve("maplibre-gl/package.json")), "dist");

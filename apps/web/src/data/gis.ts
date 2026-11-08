@@ -1,9 +1,8 @@
 import { MAIN_BRANCH, personalBranch } from "@flowless/shared-types";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { requireModule } from "./session";
-import { getApi } from "./session";
 import { listPeople, nameOf } from "./people";
+import { getApi, requireModule } from "./session";
 
 type Api = Awaited<ReturnType<typeof getApi>>["api"];
 export type NodeDto = Awaited<ReturnType<Api["gis"]["nodes"]["list"]>>[number];
