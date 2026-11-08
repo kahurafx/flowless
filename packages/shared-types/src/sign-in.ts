@@ -31,3 +31,9 @@ export function qualifiedUsername(code: string, localUsername: string): string {
 export function isEmailIdentifier(identifier: string): boolean {
   return identifier.includes("@");
 }
+
+/**
+ * URL scheme of the mobile app (`scheme` in apps/mobile/app.json). Better Auth trusts it as an
+ * origin so the Expo client can sign in; the two must match.
+ */
+export const MOBILE_APP_SCHEME = "flowless";

@@ -16,15 +16,16 @@
   "devDependencies": {
     "@flowless/eslint-config": "workspace:*",
     "@flowless/typescript-config": "workspace:*",
-    "auth": "1.7.18",
-    "eslint": "^9",
-    "typescript": "^5",
     "@testcontainers/postgresql": "^12.2.1",
     "@types/node": "^24.19.2",
+    "auth": "1.7.18",
+    "eslint": "^9",
     "tsx": "^4.23.15",
+    "typescript": "^5",
     "vitest": "^5.1.0"
   },
   "dependencies": {
+    "@better-auth/expo": "1.7.18",
     "@flowless/db": "workspace:*",
     "@flowless/shared-types": "workspace:*",
     "better-auth": "1.7.18",

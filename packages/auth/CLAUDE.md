@@ -22,5 +22,6 @@ Better Auth 1.7 with the `organization`, `twoFactor` and `username` plugins. Ide
 - Ids are UUIDs (`advanced.database.generateId: "uuid"`), because module RLS policies compare `organization_id` as `uuid`.
 - This is the only package allowed to import `@flowless/db/auth-schema`. Other modules learn about organizations from events this package publishes.
 - Holds no tRPC procedures. `packages/api` calls it to resolve the session.
-- Still to come in Phase 1: Expo client, audit hooks (A5), organization lifecycle events (A6), enforced MFA enrolment for staff.
+- Mobile (Phase 2 W5): the `expo()` plugin from `@better-auth/expo` (same version as `better-auth`) is registered first in `plugins`, and `trustedOrigins` holds `flowless://` (`MOBILE_APP_SCHEME` in shared-types, which must equal `scheme` in `apps/mobile/app.json`). The Expo client sends `expo-origin`; the plugin copies it to `origin` so the origin check sees the app's scheme. The plugin adds `exp://` itself in development. The mobile client names itself with `x-flowless-client: mobile`, so sign-ins audit with source `mobile`. Tests: `mobile app (Expo)` in `auth.test.ts` (Better Auth skips the origin check under the test environment, so refusal of an untrusted scheme is not asserted).
+- Still to come: enforced MFA enrolment for staff.
 - Server-only (Node). Mobile uses `better-auth` client APIs and `@better-auth/expo`, never this package.

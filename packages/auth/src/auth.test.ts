@@ -1,7 +1,7 @@
 import { auditLog, outboxEvent } from "@flowless/db";
 import { startTestDatabase, type TestDatabase } from "@flowless/db/testing";
 import { and, asc, eq } from "drizzle-orm";
-import { PERMISSION_STATEMENTS, ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
+import { MOBILE_APP_SCHEME, PERMISSION_STATEMENTS, ORGANIZATION_CODE_HEADER, qualifiedUsername } from "@flowless/shared-types";
 import { defaultStatements } from "better-auth/plugins/organization/access";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Auth } from "./auth";
@@ -256,5 +256,38 @@ describe("organization lifecycle", () => {
     expect(events).toEqual([
       expect.objectContaining({ id: org.id, type: "organization.created", status: "pending", payload: { name: "Water tango", code: "tango" } }),
     ]);
+  });
+});
+
+// Phase 2 W5: the field app signs in through the Better Auth Expo plugin, from its own URL scheme.
+describe("mobile app (Expo)", () => {
+  const signIn = (headers: Record<string, string>) =>
+    auth.handler(
+      new Request("http://localhost:3000/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", [ORGANIZATION_CODE_HEADER]: "uniform", ...headers },
+        body: JSON.stringify({ email: "owner@uniform.test", password }),
+      }),
+    );
+
+  it("registers the expo plugin and trusts the app scheme", () => {
+    expect(auth.options.plugins?.map((p) => p.id)).toContain("expo");
+    expect(auth.options.trustedOrigins).toContain(`${MOBILE_APP_SCHEME}://`);
+  });
+
+  it("signs in a request whose origin is the app, and sends the session as a cookie the app can keep", async () => {
+    await onboard("uniform");
+    const res = await signIn({ "expo-origin": `${MOBILE_APP_SCHEME}://`, "x-flowless-client": "mobile" });
+    expect(res.status).toBe(200);
+    expect(res.headers.getSetCookie().join(";")).toContain("session_token");
+  });
+
+  it("records the sign-in with source mobile in the audit log", async () => {
+    const [organization] = await t.admin.execute<{ id: string }>("select id from auth.organization where slug = 'uniform'");
+    const [entry] = await t.admin
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.organizationId, organization!.id), eq(auditLog.action, "auth.sign_in")));
+    expect(entry).toMatchObject({ source: "mobile", after: { method: "sign-in/email" } });
   });
 });

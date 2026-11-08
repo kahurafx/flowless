@@ -1,10 +1,12 @@
 import * as authSchema from "@flowless/db/auth-schema";
 import {
   LOCAL_USERNAME_PATTERN,
+  MOBILE_APP_SCHEME,
   normalizeOrganizationCode,
   ORGANIZATION_CODE_HEADER,
   parseRoles,
 } from "@flowless/shared-types";
+import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
@@ -90,6 +92,8 @@ export function createAuth(db: AuthDatabase) {
     // UUIDs because tenant RLS policies compare organization_id as uuid.
     advanced: { database: { generateId: "uuid" } },
     emailAndPassword: { enabled: true, minPasswordLength: 10 },
+    // The mobile app signs in from its own scheme (apps/mobile), not from a web origin.
+    trustedOrigins: [`${MOBILE_APP_SCHEME}://`],
     // Brute-force protection (NF-05), on in every environment, stricter on sign-in.
     // In-memory per instance for now; move to shared storage when web scales out.
     rateLimit: {
@@ -234,6 +238,8 @@ export function createAuth(db: AuthDatabase) {
       },
     },
     plugins: [
+      // Lets the Expo client keep the session in secure storage and send it as a cookie header.
+      expo(),
       organization({
         ac,
         roles,
