@@ -9,3 +9,4 @@ export * from "./permissions";
 export * from "./hierarchy";
 export * from "./approvals";
 export * from "./files";
+export * from "./notifications";

@@ -529,3 +529,36 @@ export const file = kernel.table(
     tenantPolicy(t.organizationId),
   ],
 );
+
+/**
+ * In-app notifications (K-07): a member's inbox. Deleted with the membership. Other
+ * channels go out through the Communications module (`notification.requested`).
+ */
+export const notification = kernel.table(
+  "notification",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull(),
+    recipientUserId: uuid("recipient_user_id").notNull(),
+    /** What happened, "<area>.<event>", e.g. "exceptions.assigned". */
+    topic: text("topic").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    /** An app path to open, e.g. "/exceptions". */
+    link: text("link"),
+    /** One notification per key and recipient. */
+    dedupeKey: text("dedupe_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [
+    foreignKey({
+      name: "notification_recipient_fk",
+      columns: [t.organizationId, t.recipientUserId],
+      foreignColumns: [member.organizationId, member.userId],
+    }).onDelete("cascade"),
+    index("notification_inbox_idx").on(t.organizationId, t.recipientUserId, t.createdAt),
+    uniqueIndex("notification_dedupe_unique").on(t.organizationId, t.recipientUserId, t.dedupeKey),
+    tenantPolicy(t.organizationId),
+  ],
+);

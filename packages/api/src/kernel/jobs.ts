@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { loadEntitlements } from "./entitlement-store";
 import { raiseException, resolveByDedupeKey } from "./exception-store";
+import { notify } from "./notification-store";
 
 /**
  * The job runner (NF-12, NF-24). Heavy work is enqueued from a procedure with
@@ -161,6 +162,16 @@ export async function runJobs(
             ownerUserId: row.created_by_user_id,
             dedupeKey: `job:${row.id}`,
           });
+          if (row.created_by_user_id) {
+            await notify(tx, organizationId, {
+              to: { userId: row.created_by_user_id },
+              topic: "jobs.failed",
+              title: `${def?.label ?? row.type} failed`,
+              body: "It is in the exception queue with what went wrong.",
+              link: "/exceptions",
+              dedupeKey: `job:${row.id}:${row.attempts}`,
+            });
+          }
         });
         result.failed += 1;
       } else {

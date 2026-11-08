@@ -100,6 +100,9 @@ describe("jobs", () => {
       retryable: true,
     });
     expect(item!.detail).toMatch(/Gave up after 3 attempts\. provider timed out/);
+    expect(await as(clerk).notifications.list()).toEqual([
+      expect.objectContaining({ topic: "jobs.failed", title: "Nightly test run failed", link: "/exceptions" }),
+    ]);
   });
 
   it("a retry from the queue runs the job again and resolves the exception when it works", async () => {

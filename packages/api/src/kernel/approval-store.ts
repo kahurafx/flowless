@@ -6,6 +6,7 @@ import { z } from "zod";
 import { readSetting, type SettingDef } from "./config-store";
 import { defineConsumer, defineEvent, type Consumer, type ConsumerContext } from "./events";
 import { raiseException, resolveByDedupeKey } from "./exception-store";
+import { notify } from "./notification-store";
 import { isUniqueViolation } from "./pg-errors";
 
 const permission = z.string().refine(isPermission, "Unknown permission") as unknown as z.ZodType<Permission>;
@@ -260,7 +261,16 @@ export async function decide(
   if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Someone decided this request at the same time. Reload and try again." });
 
   await resolveByDedupeKey(tx, overdueKey(row.id), next.status === "pending" ? "Moved to the next level" : `Request ${next.status}`);
-  if (next.status !== "pending") await publishOutcome(tx, updated, next.status);
+  if (next.status !== "pending") {
+    await publishOutcome(tx, updated, next.status);
+    await notify(tx, row.organizationId, {
+      to: { userId: row.requestedByUserId },
+      topic: `approvals.${next.status}`,
+      title: `${next.status === "approved" ? "Approved" : "Rejected"}: ${row.title}`,
+      body: note ?? "",
+      dedupeKey: `approval:${row.id}`,
+    });
+  }
   return { status: next.status, level: next.level };
 }
 

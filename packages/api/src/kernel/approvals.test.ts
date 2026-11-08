@@ -143,6 +143,9 @@ describe("approvals", () => {
     await as(accountant).approvals.reject({ id, note: "No meter test on file" });
     await expect(as(manager).approvals.approve({ id })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect((await outcomes()).map((o) => o.outcome)).toEqual(["rejected"]);
+    expect(await callerFor(t, owner).notifications.list()).toEqual([
+      expect.objectContaining({ topic: "approvals.rejected", title: "Rejected: Rebate on 1010", body: "No meter test on file" }),
+    ]);
   });
 
   it("allow one pending request per subject; the requester can withdraw it", async () => {

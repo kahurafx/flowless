@@ -1,12 +1,14 @@
 import { Suspense } from "react";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { CommandPalette } from "@/components/shell/command-palette";
+import { NotificationBell } from "@/components/shell/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { listAccounts } from "@/data/accounts";
+import { getInbox } from "@/data/notifications";
 import { getSession } from "@/data/session";
 
 export default function StaffLayout({ children }: LayoutProps<"/">) {
@@ -23,8 +25,10 @@ export default function StaffLayout({ children }: LayoutProps<"/">) {
 
 async function Shell({ children }: { children: React.ReactNode }) {
   const { organization, user, access } = await getSession();
-  const accounts =
-    organization.entitlements.includes("accounts") && access.permissions.includes("accounts:read") ? await listAccounts() : [];
+  const [accounts, inbox] = await Promise.all([
+    organization.entitlements.includes("accounts") && access.permissions.includes("accounts:read") ? listAccounts() : [],
+    getInbox(),
+  ]);
   return (
     <SidebarProvider>
       <AppSidebar
@@ -42,7 +46,8 @@ async function Shell({ children }: { children: React.ReactNode }) {
             permissions={access.permissions}
             accounts={accounts.map(({ number, customerName }) => ({ number, customerName }))}
           />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            <NotificationBell initial={inbox} locale={organization.settings.locale} timeZone={organization.settings.timeZone} />
             <ThemeToggle />
           </div>
         </header>

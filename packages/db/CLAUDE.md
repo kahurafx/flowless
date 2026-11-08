@@ -25,6 +25,7 @@ Drizzle (postgres-js) client, schema, migrations and tenant isolation. Shared pa
 - `kernel.config_version` (K-10): one row per version of a setting, append-only (no UPDATE, DELETE or TRUNCATE for the app role). The value in force is the newest `effective_from` that has passed. `kernel.organization_settings` holds only the currency; time zone and language are the `kernel.regional` setting (moved by `0014_kernel_config_store.sql`).
 - `kernel.approval_request` and `kernel.approval_decision` (K-05): one pending request per kind and subject (partial unique index); decisions are append-only; `kernel.overdue_approvals(batch)` is the worker's cross-tenant read for SLA escalation.
 - `kernel.file` (K-08): file metadata; the id comes from the device; `storage_key` starts with the organization id; bytes live in object storage, never in Postgres.
+- `kernel.notification` (K-07): in-app inbox; composite foreign key to the membership with `on delete cascade`.
 - `kernel.organization_module`: licensed modules (K-04), module keys as text validated against `MODULE_KEYS` in shared-types.
 - A kernel table may reference a membership with a composite foreign key to `auth.member(organization_id, user_id)` (unique constraint from `migrations/0004_auth_member_organization_user.sql`) and `on delete cascade`, as `kernel.member_permission` does; referential actions bypass RLS and run as the table owner, so neither runtime role needs access to the other schema.
 - Scripts: `lint`, `check-types`, `test`, `db:generate`, `db:migrate`.

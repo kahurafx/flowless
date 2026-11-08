@@ -98,6 +98,15 @@ export const exceptionsRouter = router({
         before: { owner: before.ownerUserId },
         after: { owner: input.ownerUserId },
       });
+      if (input.ownerUserId && input.ownerUserId !== ctx.session.user.id && input.ownerUserId !== before.ownerUserId) {
+        await ctx.notify({
+          to: { userId: input.ownerUserId },
+          topic: "exceptions.assigned",
+          title: "An exception was assigned to you",
+          body: `${before.title}, from ${ctx.session.user.name}`,
+          link: "/exceptions",
+        });
+      }
     }),
 
   /** Takes an exception and marks it in progress. */

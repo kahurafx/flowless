@@ -120,6 +120,13 @@
       "when": 1794109574876,
       "tag": "0016_kernel_files",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794109783545,
+      "tag": "0017_kernel_notifications",
+      "breakpoints": true
     }
   ]
 }
