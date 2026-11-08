@@ -15,7 +15,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { isActive, navFor } from "./nav";
+import { currentHref, navFor } from "./nav";
 import { OrganizationBadge } from "./organization-badge";
 import { UserMenu } from "./user-menu";
 
@@ -31,6 +31,8 @@ export function AppSidebar({
   user: { name: string; email: string };
 }) {
   const pathname = usePathname();
+  const items = navFor(entitlements, permissions);
+  const current = currentHref(pathname, items);
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -40,10 +42,10 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navFor(entitlements, permissions).map((item) => (
+              {items.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
-                    isActive={isActive(pathname, item.href)}
+                    isActive={item.href === current}
                     tooltip={item.label}
                     render={<Link href={item.href} />}
                   >

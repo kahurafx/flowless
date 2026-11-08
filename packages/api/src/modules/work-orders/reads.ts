@@ -26,8 +26,6 @@ export function readProcedures(p: ReturnType<typeof workOrderProcedures>) {
           hasCapture: k.capture !== undefined,
           /** The capture form as JSON Schema (input side), so a client can draw it; null when the kind has none. */
           captureSchema: k.capture ? (z.toJSONSchema(k.capture, { io: "input", unrepresentable: "any" }) as Record<string, unknown>) : null,
-          /** The capture form as JSON Schema (input side), so a client can draw it; null when the kind has none. */
-          captureSchema: k.capture ? (z.toJSONSchema(k.capture, { io: "input", unrepresentable: "any" }) as Record<string, unknown>) : null,
           defaultPriority: k.defaultPriority ?? "normal",
           canRaise: ctx.abilities.assign || (ctx.abilities.execute && k.selfRaise === true),
         };

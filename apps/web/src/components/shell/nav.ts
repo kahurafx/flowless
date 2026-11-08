@@ -1,5 +1,20 @@
 import type { Entitlements, ModuleKey, Permission } from "@flowless/shared-types";
-import { HistoryIcon, HomeIcon, InboxIcon, LifeBuoyIcon, MapIcon, SettingsIcon, ShieldCheckIcon, UsersIcon, type LucideIcon } from "lucide-react";
+import {
+  ClipboardCheckIcon,
+  ClipboardListIcon,
+  GitMergeIcon,
+  HistoryIcon,
+  HomeIcon,
+  InboxIcon,
+  LifeBuoyIcon,
+  MapIcon,
+  MapPinnedIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+  UsersIcon,
+  UsersRoundIcon,
+  type LucideIcon,
+} from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -7,15 +22,28 @@ export interface NavItem {
   icon: LucideIcon;
   /** Shown only when the organization is licensed for it (K-04). Kernel items have none. */
   module?: ModuleKey;
+  /** Shown only when the organization is licensed for any of these (a screen several modules bring, K-04). */
+  anyModule?: readonly ModuleKey[];
   /** Shown only to members who hold it (K-03). */
   permission?: Permission;
+  /** Shown only to members who hold at least one of these. */
+  anyPermission?: readonly Permission[];
 }
+
+/** Who sees jobs at all (the Work Orders router turns everyone else away). */
+const WORK_PERMISSIONS = ["work_orders:read", "work_orders:execute", "work_orders:assign", "work_orders:review", "work_orders:cancel"] as const;
 
 // Specific labels, named for what is there (apple-design: wayfinding).
 const NAV: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: HomeIcon },
   { href: "/exceptions", label: "Exceptions", icon: InboxIcon, permission: "exceptions:read" },
   { href: "/accounts", label: "Accounts", icon: UsersIcon, module: "accounts", permission: "accounts:read" },
+  // Work Orders shows at level basic or full: the Work Orders module or GIS (W-01).
+  { href: "/work-orders", label: "Work orders", icon: ClipboardListIcon, anyModule: ["work-orders", "gis"], anyPermission: WORK_PERMISSIONS },
+  { href: "/work-orders/reviews", label: "Job reviews", icon: ClipboardCheckIcon, anyModule: ["work-orders", "gis"], permission: "work_orders:review" },
+  { href: "/work-orders/crews", label: "Crews", icon: UsersRoundIcon, module: "work-orders", anyPermission: WORK_PERMISSIONS },
+  { href: "/map", label: "Network map", icon: MapPinnedIcon, module: "gis", permission: "gis:read" },
+  { href: "/map/reconcile", label: "Pending changes", icon: GitMergeIcon, module: "gis", permission: "gis:post" },
   { href: "/settings/organization", label: "Organization", icon: SettingsIcon },
   { href: "/settings/areas", label: "Areas and routes", icon: MapIcon },
   { href: "/settings/team", label: "Team and permissions", icon: ShieldCheckIcon, permission: "access:manage" },
@@ -30,10 +58,19 @@ const NAV: readonly NavItem[] = [
 export function navFor(entitlements: Entitlements, permissions: readonly Permission[]): NavItem[] {
   return NAV.filter(
     (item) =>
-      (!item.module || entitlements.includes(item.module)) && (!item.permission || permissions.includes(item.permission)),
+      (!item.module || entitlements.includes(item.module)) &&
+      (!item.anyModule || item.anyModule.some((m) => entitlements.includes(m))) &&
+      (!item.permission || permissions.includes(item.permission)) &&
+      (!item.anyPermission || item.anyPermission.some((p) => permissions.includes(p))),
   );
 }
 
 export function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** The one item that is current: the most specific match, so "Job reviews" is not also "Work orders". */
+export function currentHref(pathname: string, items: readonly NavItem[]): string | null {
+  const matches = items.filter((item) => isActive(pathname, item.href));
+  return matches.reduce<string | null>((best, item) => (best === null || item.href.length > best.length ? item.href : best), null);
 }
