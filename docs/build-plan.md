@@ -128,7 +128,7 @@ Each phase lists the requirement IDs it owns. An ID is owned by exactly one phas
 - Work registry: the ports through which modules contribute work-order kinds, asset and evidence resolvers, branch guards and completion effects without importing each other (adopted from Majimap's `kernel/ports.ts` and `registry.ts`).
 - PostGIS in the dev database and in the test container (`postgis/postgis` image).
 - ESLint module-boundary rules.
-- Report publish guard (X-04).
+- Report publish guard (X-04, done in A11): `reportPublishProblems(tx, query)` (`kernel/report-guard.ts`) plans a report's query with `EXPLAIN (VERBOSE, FORMAT JSON)` as the app role and refuses it when any relation in the plan lacks `organization_id` or row-level security (views are expanded, so they are covered), when it calls a SECURITY DEFINER function, or when the app role cannot plan it (the `auth` schema). Reports are `defineReport({ key, module, params, query })`, registered in `kernel/report-registry.ts`; CI checks every registered report. The reporting module (X-01) calls the guard when a report definition is published.
 
 **Done when:**
 

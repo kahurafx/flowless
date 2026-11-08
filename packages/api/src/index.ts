@@ -22,3 +22,4 @@ export { defineFileSubject, type FileSubjectDef } from "./kernel/file-subjects";
 export { createMemoryStorage, createS3Storage, storageFromEnv, type Storage } from "./kernel/storage";
 export { notificationRequested, notify, type Notify, type NotifyResult } from "./kernel/notification-store";
 export { supportSession } from "./kernel/support";
+export { defineReport, reportPublishProblems, type ReportDef } from "./kernel/report-guard";
