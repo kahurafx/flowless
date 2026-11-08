@@ -141,6 +141,34 @@
       "when": 1794111743848,
       "tag": "0019_postgis",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794113135325,
+      "tag": "0020_gis_work_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794113149710,
+      "tag": "0021_gis_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794113150664,
+      "tag": "0022_work_orders_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794113151602,
+      "tag": "0023_gis_structure_attachment",
+      "breakpoints": true
     }
   ]
 }

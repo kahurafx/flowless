@@ -2,3 +2,5 @@
 // The `auth` schema is deliberately not re-exported: only packages/auth may use it,
 // via `@flowless/db/auth-schema`.
 export * from "./kernel";
+export * from "./gis";
+export * from "./work-orders";

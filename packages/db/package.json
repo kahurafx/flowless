@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./auth-schema": "./src/schema/auth.ts",
+    "./schema/gis": "./src/schema/gis.ts",
+    "./schema/work-orders": "./src/schema/work-orders.ts",
     "./testing": "./src/testing.ts",
     "./vitest-setup": "./src/vitest-setup.ts"
   },
