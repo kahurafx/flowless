@@ -22,7 +22,7 @@ Target one workspace with Turbo's filter, e.g. `pnpm turbo run check-types --fil
 
 `pnpm dev` also starts `apps/worker` (the outbox dispatcher). Replay an organization's events to one consumer with `pnpm --filter worker replay -- --consumer <name> --organization <id> [--since <date>]`.
 
-Mobile (`apps/mobile`) is not started by `pnpm dev`; run `pnpm --filter mobile start` (or `android` / `ios` / `web`). It has `check-types` but no `lint` script, so `pnpm lint` skips it.
+Mobile (`apps/mobile`) is not started by `pnpm dev`; it needs a development build (MapLibre is native): `pnpm --filter mobile android` / `ios` once, then `pnpm --filter mobile start`. `pnpm lint` runs its `expo lint` (with the module-boundaries rule), `pnpm check-types` its `tsc`, and `pnpm test` its Vitest unit tests. It reads `EXPO_PUBLIC_API_URL` (default: port 3000 on the machine serving the bundle). See `apps/mobile/CLAUDE.md`.
 
 Local services and database:
 
@@ -39,9 +39,9 @@ Env lives in the root `.env`. `apps/web` loads it with `process.loadEnvFile` in 
 ## Architecture
 
 - `apps/web` (package name `web`): Next.js 16 App Router, React 19, Tailwind v4 (via `@tailwindcss/turbopack` loader in `next.config.ts`), shadcn/ui with the `base-nova` style on `@base-ui/react` (not Radix). `cacheComponents` and `partialPrefetching` are enabled. Path alias `@/*` → `src/*`. `check-types` runs `next typegen` before `tsc`.
-- `apps/mobile` (package name `mobile`): Expo SDK 58, React Native 0.88. Currently still the blank template entry (`index.ts` → `App.tsx`); `AGENTS.md` there prescribes Expo Router with routes in `src/app/`.
+- `apps/mobile` (package name `mobile`): the offline-first technician app, Expo SDK 58 / React Native 0.88 with Expo Router (routes in `src/app/`), ported from Majimap's field app. A tRPC client (`import type { AppRouter }` only) and a Better Auth Expo client; local-first state in sqlite with an ops queue that syncs idempotent, client-minted-id calls; job, map, capture and review screens; photos through the file service. Structure, sync and env vars are in `apps/mobile/CLAUDE.md`.
 - `packages/*` — internal packages, all ESM, **no build step**: each exports raw TypeScript via `"exports": { ".": "./src/index.ts" }` and is consumed directly by the apps' bundlers. Scripts: `lint`, `check-types`, and `test` where a package has tests.
-  - `shared-types` — types shared across web and mobile (the only package the apps depend on so far).
+  - `shared-types` — types and constants shared across web and mobile (sign-in identifiers, permissions, enums).
   - `api` — tRPC: the only place procedures live (`kernel/` plus one folder per module under `modules/`).
   - `db` — Drizzle schema per module, migrations, runtime roles, RLS policies, `withTenant`.
   - `auth` — Better Auth (organization + twoFactor plugins); owns the `auth` Postgres schema, generated into `packages/db/src/schema/auth.ts` by `pnpm --filter @flowless/auth auth:generate`.
