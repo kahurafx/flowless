@@ -26,6 +26,7 @@ export function ActionDialog({
   onOpen,
   children,
   className,
+  controlled,
 }: {
   label: string;
   icon?: React.ReactNode;
@@ -39,8 +40,12 @@ export function ActionDialog({
   onOpen?: () => void;
   children?: React.ReactNode;
   className?: string;
+  /** Open it from elsewhere (a click on the map) instead of from its own button. */
+  controlled?: { open: boolean; onOpenChange: (open: boolean) => void };
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = controlled ? controlled.open : ownOpen;
+  const setOpen = controlled ? controlled.onOpenChange : setOwnOpen;
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -66,10 +71,12 @@ export function ActionDialog({
         }
       }}
     >
-      <DialogTrigger render={<Button variant={variant} className={className} />}>
-        {icon}
-        {label}
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger render={<Button variant={variant} className={className} />}>
+          {icon}
+          {label}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

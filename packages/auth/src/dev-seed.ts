@@ -21,6 +21,8 @@ export const DEV_ORGANIZATIONS = [
     staff: [
       { username: "baraka", name: "Baraka Mwangi", role: "clerk" },
       { username: "achieng", name: "Achieng Otieno", role: "cashier" },
+      { username: "juma", name: "Juma Kiprono", role: "technician" },
+      { username: "njeri", name: "Njeri Waweru", role: "supervisor" },
     ],
   },
   {

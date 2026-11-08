@@ -6,6 +6,7 @@ import { connectAuth } from "@flowless/auth";
 import { DEV_ORGANIZATIONS, DEV_PASSWORD, seedDevIdentities } from "@flowless/auth/dev-seed";
 import { createDatabase } from "@flowless/db";
 import { ORGANIZATION_CODE_HEADER, type AreaLevel, type ModuleKey } from "@flowless/shared-types";
+import { seedJobs, seedRuiruNetwork } from "./seed-network";
 
 const authUrl = process.env.DATABASE_AUTH_URL;
 const appUrl = process.env.DATABASE_URL;
@@ -133,6 +134,12 @@ try {
         areaIds: (scope.areas ?? []).map((c) => areas.get(c)!),
         routeIds: (scope.routes ?? []).map((c) => routes.get(c)!),
       });
+    }
+
+    // Work Orders and GIS (Phase 2): a small network and a few jobs, only where both are licensed.
+    if (plan.modules.includes("gis") && plan.modules.includes("work-orders") && org.code === "majisafi") {
+      await seedRuiruNetwork(api, areas);
+      await seedJobs(api, areas, members.map((m) => ({ id: m.userId, who: m.user.email.split("@")[0] === "wanjiru" ? m.user.email : m.user.email.split("@")[0]! })));
     }
   }
 
