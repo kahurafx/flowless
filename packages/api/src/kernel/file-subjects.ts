@@ -1,5 +1,6 @@
-import type { Transaction } from "@flowless/db";
+import { file, type Transaction } from "@flowless/db";
 import type { FileLimits, ModuleKey, Permission, Scope } from "@flowless/shared-types";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 
 export interface FileSubjectContext {
   tx: Transaction;
@@ -19,7 +20,8 @@ export interface FileSubjectContext {
 export interface FileSubjectDef {
   /** snake_case, unique, e.g. "work_order". */
   readonly kind: string;
-  readonly module: ModuleKey | "kernel";
+  /** The subject is found while this module (or, for a list, any of them) is licensed. */
+  readonly module: ModuleKey | readonly ModuleKey[] | "kernel";
   readonly label: string;
   readonly limits?: Partial<FileLimits>;
   authorize(ctx: FileSubjectContext, subjectId: string, mode: "read" | "write" | "remove"): Promise<{ manage: boolean }>;
@@ -30,5 +32,25 @@ export function defineFileSubject(def: FileSubjectDef): FileSubjectDef {
   return def;
 }
 
-/** Every file subject. A module adds its own when it ships (work orders, assets, accounts). */
-export const fileSubjects: readonly FileSubjectDef[] = [];
+/** Whether a subject's module is licensed. */
+export function subjectLicensed(def: FileSubjectDef, licensed: readonly ModuleKey[]): boolean {
+  if (def.module === "kernel") return true;
+  const modules: readonly ModuleKey[] = typeof def.module === "string" ? [def.module] : def.module;
+  return modules.some((m) => licensed.includes(m));
+}
+
+/**
+ * Uploaded photos per record of one subject kind, for evidence checks (W-02): the kernel's
+ * published read of its file rows, so a module never queries `kernel.file` itself.
+ */
+export async function photoCounts(tx: Transaction, subjectKind: string, subjectIds: readonly string[]): Promise<Map<string, number>> {
+  if (subjectIds.length === 0) return new Map();
+  const rows = await tx
+    .select({ id: file.subjectId, n: sql<number>`count(*)::int` })
+    .from(file)
+    .where(
+      and(eq(file.subjectKind, subjectKind), inArray(file.subjectId, [...subjectIds]), eq(file.status, "uploaded"), like(file.mimeType, "image/%")),
+    )
+    .groupBy(file.subjectId);
+  return new Map(rows.map((r) => [r.id, r.n]));
+}

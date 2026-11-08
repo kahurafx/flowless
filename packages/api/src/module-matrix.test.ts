@@ -8,6 +8,7 @@ import { setEntitlements } from "./kernel/entitlement-store";
 import { dispatchOutbox } from "./kernel/events";
 import { jobs } from "./kernel/job-registry";
 import { runJobs } from "./kernel/jobs";
+import { sweepOverdueWorkOrders } from "./modules/work-orders";
 import { addMember, callerFor, callPath, procedures, type Member } from "./test-support";
 
 /** Kernel routers: always mounted. Every other top-level key must be a module's. */
@@ -27,7 +28,16 @@ const KERNEL = new Set([
 ]);
 /** Module routers are mounted at the camelCase of their module key ("work-orders" → workOrders). */
 const routerKey = (m: ModuleKey) => m.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-const moduleOf = (path: string) => MODULE_KEYS.find((m) => routerKey(m) === path.split(".")[0]);
+/**
+ * A router several modules bring, mounted at the first one's key: it answers while any of
+ * them is licensed. Work Orders comes with GIS alone at level basic (W-01).
+ */
+const SHARED: Partial<Record<ModuleKey, readonly ModuleKey[]>> = { "work-orders": ["work-orders", "gis"] };
+/** The modules that license a path's router, or undefined for a kernel router. */
+const modulesOf = (path: string): readonly ModuleKey[] | undefined => {
+  const owner = MODULE_KEYS.find((m) => routerKey(m) === path.split(".")[0]);
+  return owner ? (SHARED[owner] ?? [owner]) : undefined;
+};
 
 let t: TestDatabase;
 let owner: Member;
@@ -40,7 +50,7 @@ afterAll(() => t?.stop());
 // NF-31: absent modules never break others, for each module combination.
 describe("module combination matrix", () => {
   it("mounts only kernel routers and module routers", () => {
-    const strays = procedures().filter((p) => !KERNEL.has(p.path.split(".")[0]!) && !moduleOf(p.path));
+    const strays = procedures().filter((p) => !KERNEL.has(p.path.split(".")[0]!) && !modulesOf(p.path));
     expect(strays.map((p) => p.path)).toEqual([]);
   });
 
@@ -50,8 +60,9 @@ describe("module combination matrix", () => {
       const caller = callerFor(t, owner);
       const broken: string[] = [];
       for (const { path } of procedures()) {
-        const module = moduleOf(path);
-        const licensed = !module || combo.modules.includes(module);
+        const modules = modulesOf(path);
+        const licensed = !modules || modules.some((m) => combo.modules.includes(m));
+        const module = modules?.join(" or ");
         try {
           await callPath(caller, path, undefined);
           if (!licensed) broken.push(`${path} answered while ${module} is unlicensed`);
@@ -61,6 +72,10 @@ describe("module combination matrix", () => {
           if (licensed && (code === "INTERNAL_SERVER_ERROR" || code === "NOT_A_TRPC_ERROR")) {
             broken.push(`${path}: ${(error as Error).message}`);
           }
+          // A shared router must not refuse its licence while one of its modules is licensed.
+          if (licensed && code === "NOT_FOUND" && (error as Error).message.includes("not licensed")) {
+            broken.push(`${path}: refused as unlicensed while ${module} is licensed`);
+          }
         }
       }
       expect(broken).toEqual([]);
@@ -68,6 +83,7 @@ describe("module combination matrix", () => {
       await expect(dispatchOutbox(t.app, consumers)).resolves.toBeTruthy();
       await expect(runJobs(t.app, jobs)).resolves.toMatchObject({ failed: 0 });
       await expect(escalateApprovals(t.app)).resolves.toBeTypeOf("number");
+      await expect(sweepOverdueWorkOrders(t.app)).resolves.toBeTypeOf("number");
     });
   }
 });

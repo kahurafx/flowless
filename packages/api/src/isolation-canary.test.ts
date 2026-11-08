@@ -2,8 +2,6 @@ import {
   approvalRequest,
   asset,
   conditionLog,
-  crew,
-  crewMember,
   dma,
   dmaBoundaryValve,
   enqueueEvent,
@@ -20,11 +18,6 @@ import {
   withTenant,
   workOrder,
   workOrderAsset,
-  workOrderCapture,
-  workOrderChangeSet,
-  workOrderComment,
-  workOrderCounter,
-  workOrderEvent,
   workOrderLogLink,
   type Transaction,
 } from "@flowless/db";
@@ -51,6 +44,10 @@ interface Canary {
   file: string;
   notification: string;
   grant: string;
+  /** A job raised, crewed, commented on and submitted through the Work Orders API. */
+  workOrder: string;
+  crew: string;
+  comment: string;
 }
 
 const MARK = "CANARY-B";
@@ -97,6 +94,8 @@ async function seedB(): Promise<Canary> {
   await asB.access.setScope({ userId: clerkB.userId, areaIds: [scheme.id], routeIds: [route.id] });
   await asB.config.set({ key: "kernel.regional", value: { timeZone: "Africa/Dar_es_Salaam", locale: "sw-TZ" }, expectedVersion: 0, reason: MARK });
   const grant = await asB.support.grant({ engineerEmail: "canary@flowless.example", reason: `${MARK} support ticket`, hours: 2 });
+  const team = await asB.workOrders.crews.create({ name: `${MARK} crew` });
+  await asB.workOrders.crews.addMember({ crewId: team.id, userId: clerkB.userId });
 
   const seeded = await withTenant(t.app, tenants.b.id, async (tx) => {
     const exception = await raiseException(tx, tenants.b.id, {
@@ -135,19 +134,48 @@ async function seedB(): Promise<Canary> {
     });
     await enqueueEvent(tx, { organizationId: tenants.b.id, type: "test.canary", payload: { mark: MARK } });
     await tx.insert(job).values({ organizationId: tenants.b.id, type: "kernel.canary", payload: { mark: MARK }, status: "failed" });
-    await seedNetworkAndJobs(tx, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId });
+    await seedNetworkAndJobs(tx, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
     return { exception: exception.id, approval: approval!.id, file: fileId };
   });
+  const survey = await asB.workOrders.create({
+    title: `${MARK} survey`,
+    kind: "survey",
+    areaId: dmaArea.id,
+    routeId: route.id,
+    assigneeId: clerkB.userId,
+    crewId: team.id,
+    location: { latitude: -6.7924, longitude: 39.2083 },
+  });
+  const comment = randomUUID();
+  await asB.workOrders.comment({ id: comment, workOrderId: survey.id, body: `${MARK} comment` });
+  await asB.workOrders.changeSet({ workOrderId: survey.id });
+  await asB.workOrders.transition({
+    eventId: randomUUID(),
+    workOrderId: survey.id,
+    action: { type: "submit", outcome: "done", note: MARK, capture: { summary: `${MARK} findings` } },
+    position: { latitude: -6.7924, longitude: 39.2083 },
+  });
   const [notification] = await asB.notifications.list();
-  return { scheme: scheme.id, route: route.id, member: clerkB.userId, grant: grant.id, notification: notification!.id, ...seeded };
+  return {
+    scheme: scheme.id,
+    route: route.id,
+    member: clerkB.userId,
+    grant: grant.id,
+    notification: notification!.id,
+    workOrder: survey.id,
+    crew: team.id,
+    comment,
+    ...seeded,
+  };
 }
 
 /**
- * Tenant B's GIS network and jobs, one row or more in every gis and work_orders table,
- * written directly until the GIS and Work Orders APIs exist (Phase 2 W2, W3); then seed
- * them through those APIs like the kernel rows above.
+ * Tenant B's GIS network, and a GIS job on it with its asset and linked log, written
+ * directly until the GIS API exists (Phase 2 W3): adding a GIS asset or log to a job needs
+ * the GIS resolvers. Every other work_orders table is seeded through the Work Orders API in
+ * `seedB`.
  */
-async function seedNetworkAndJobs(tx: Transaction, at: { dmaAreaId: string; routeId: string; userId: string }) {
+async function seedNetworkAndJobs(tx: Transaction, at: { dmaAreaId: string; routeId: string; userId: string; crewId: string }) {
   const organizationId = tenants.b.id;
   const by = { organizationId, createdByUserId: at.userId };
   const newAsset = async (kind: "node" | "pipe" | "structure" | "service_connection") =>
@@ -194,9 +222,6 @@ async function seedNetworkAndJobs(tx: Transaction, at: { dmaAreaId: string; rout
     .returning({ id: conditionLog.id });
   await tx.insert(valveStateLog).values({ organizationId, valveId: valve, isOpen: false, note: MARK, changedAt: new Date(), changedByUserId: at.userId });
 
-  const [team] = await tx.insert(crew).values({ organizationId, name: `${MARK} crew` }).returning({ id: crew.id });
-  await tx.insert(crewMember).values({ organizationId, crewId: team!.id, userId: at.userId });
-  await tx.insert(workOrderCounter).values({ organizationId, nextNumber: 2 });
   const [job] = await tx
     .insert(workOrder)
     .values({
@@ -210,38 +235,13 @@ async function seedNetworkAndJobs(tx: Transaction, at: { dmaAreaId: string; rout
       routeId: at.routeId,
       location: here,
       assignedToUserId: at.userId,
-      crewId: team!.id,
+      crewId: at.crewId,
       dueAt: new Date(Date.now() + 86_400_000),
     })
     .returning({ id: workOrder.id });
   const workOrderId = job!.id;
   await tx.insert(workOrderAsset).values({ organizationId, workOrderId, module: "gis", assetId: main, role: "primary", addedByUserId: at.userId });
-  await tx.insert(workOrderChangeSet).values({ ...by, workOrderId, branch: "wo-WO-1" });
-  await tx.insert(workOrderEvent).values({
-    id: randomUUID(),
-    organizationId,
-    workOrderId,
-    type: "create",
-    outcome: "applied",
-    payload: { mark: MARK },
-    actorUserId: at.userId,
-    latitude: here.lat,
-    longitude: here.lng,
-    occurredAt: new Date(),
-  });
   await tx.insert(workOrderLogLink).values({ organizationId, workOrderId, logKind: "condition", logId: leakLog!.id });
-  await tx
-    .insert(workOrderComment)
-    .values({ id: randomUUID(), organizationId, workOrderId, authorUserId: at.userId, body: `${MARK} comment`, createdAt: new Date() });
-  await tx.insert(workOrderCapture).values({
-    id: randomUUID(),
-    organizationId,
-    workOrderId,
-    kind: "leak",
-    data: { mark: MARK },
-    capturedByUserId: at.userId,
-    capturedAt: new Date(),
-  });
 }
 
 /**
@@ -286,9 +286,13 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "approvals.cancel": (b) => [{ id: b.approval }],
   "files.announce": (b) => [
     { id: b.file, subjectKind: "dispute", subjectId: `${MARK}-1`, fileName: "x.jpg", mimeType: "image/jpeg", sizeBytes: 10 },
+    { id: randomUUID(), subjectKind: "work_order", subjectId: b.workOrder, fileName: "x.jpg", mimeType: "image/jpeg", sizeBytes: 10 },
   ],
   "files.confirm": (b) => [{ id: b.file }],
-  "files.list": () => [{ subjectKind: "dispute", subjectId: `${MARK}-1` }],
+  "files.list": (b) => [
+    { subjectKind: "dispute", subjectId: `${MARK}-1` },
+    { subjectKind: "work_order", subjectId: b.workOrder },
+  ],
   "files.remove": (b) => [{ id: b.file }],
   "notifications.list": () => [undefined],
   "notifications.unreadCount": () => [undefined],
@@ -296,6 +300,39 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "support.list": () => [undefined],
   "support.grant": () => [{ engineerEmail: "canary@flowless.example", reason: "Tenant A's own ticket", hours: 1 }],
   "support.revoke": (b) => [{ id: b.grant }],
+  "workOrders.kinds": () => [undefined],
+  "workOrders.mine": () => [undefined],
+  "workOrders.list": (b) => [undefined, { parentId: b.workOrder }, { crewId: b.crew }, { assigneeId: b.member }, { statuses: ["submitted"] }],
+  "workOrders.byId": (b) => [{ id: b.workOrder }],
+  "workOrders.history": (b) => [{ workOrderId: b.workOrder }],
+  "workOrders.comments": (b) => [{ workOrderId: b.workOrder }],
+  "workOrders.create": (b) => [
+    { title: "A's inspection", kind: "inspection_general" },
+    { title: "Under B's job", kind: "inspection_general", parentId: b.workOrder },
+    { title: "In B's area", kind: "inspection_general", areaId: b.scheme, routeId: b.route },
+    { title: "B's crew", kind: "inspection_general", crewId: b.crew },
+    { title: "For B's clerk", kind: "inspection_general", assigneeId: b.member },
+    { id: b.workOrder, title: "B's id", kind: "inspection_general" },
+  ],
+  "workOrders.assign": (b) => [{ id: b.workOrder, assigneeId: null }],
+  "workOrders.schedule": (b) => [{ id: b.workOrder, dueAt: new Date(Date.now() + 3_600_000), priority: "urgent" }],
+  "workOrders.cancel": (b) => [{ id: b.workOrder, cascade: true }],
+  "workOrders.transition": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder, action: { type: "hold", reason: "A was here" } }],
+  "workOrders.review": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder, decision: "approve" }],
+  "workOrders.finalize": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder }],
+  "workOrders.addAsset": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder, assetId: randomUUID() }],
+  "workOrders.changeSet": (b) => [{ workOrderId: b.workOrder }],
+  "workOrders.linkLog": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder, logKind: "condition", logId: randomUUID() }],
+  "workOrders.comment": (b) => [
+    { id: randomUUID(), workOrderId: b.workOrder, body: "A's note" },
+    { id: b.comment, workOrderId: b.workOrder, body: "A's note" },
+  ],
+  "workOrders.crews.list": () => [undefined, { includeArchived: true }],
+  "workOrders.crews.create": () => [{ name: "A's crew" }],
+  "workOrders.crews.rename": (b) => [{ id: b.crew, name: "Renamed by A" }],
+  "workOrders.crews.archive": (b) => [{ id: b.crew }],
+  "workOrders.crews.addMember": (b) => [{ crewId: b.crew, userId: b.member }],
+  "workOrders.crews.removeMember": (b) => [{ crewId: b.crew, userId: b.member }],
 };
 
 beforeAll(async () => {
@@ -359,11 +396,11 @@ describe("isolation canary", () => {
   it("would notice a leak: the same calls made as tenant B do return B's identifiers", async () => {
     const caller = callerFor(t, ownerB);
     const seen = new Set<string>();
-    for (const path of ["hierarchy.areas", "exceptions.list", "notifications.list", "support.list", "audit.list"]) {
+    for (const path of ["hierarchy.areas", "exceptions.list", "notifications.list", "support.list", "audit.list", "workOrders.list", "workOrders.crews.list"]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
     expect(seen).toContain(MARK);
-    expect([b.scheme, b.exception, b.notification, b.grant].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 

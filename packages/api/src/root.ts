@@ -10,7 +10,9 @@ import { notificationsRouter } from "./kernel/notifications";
 import { supportRouter } from "./kernel/support";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
+import { createWorkOrdersRouter } from "./modules/work-orders";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
+import { work } from "./wiring";
 
 /** One key per kernel area or module (docs/build-plan.md, Code layout). */
 export const appRouter = router({
@@ -29,6 +31,8 @@ export const appRouter = router({
   files: filesRouter,
   notifications: notificationsRouter,
   support: supportRouter,
+  // Modules, at the camelCase of their module key (module-matrix.test.ts).
+  workOrders: createWorkOrdersRouter(work),
 });
 
 export type AppRouter = typeof appRouter;

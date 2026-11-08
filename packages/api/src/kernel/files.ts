@@ -4,7 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, like, lt, not, sql } from "drizzle-orm";
 import { z } from "zod";
 import { router, tenantProcedure } from "../trpc";
-import { fileSubjects, type FileSubjectDef } from "./file-subjects";
+import { fileSubjects } from "./file-subject-registry";
+import { subjectLicensed, type FileSubjectDef } from "./file-subjects";
 import { defaultStorage, type Storage } from "./storage";
 
 type Row = typeof file.$inferSelect;
@@ -57,7 +58,7 @@ export function createFilesRouter(subjects: readonly FileSubjectDef[]) {
 
   async function authorize(ctx: Ctx, kind: string, subjectId: string, mode: "read" | "write" | "remove") {
     const subject = subjects.find((s) => s.kind === kind);
-    const licensed = subject && (subject.module === "kernel" || (await ctx.entitlements()).includes(subject.module));
+    const licensed = subject && subjectLicensed(subject, await ctx.entitlements());
     if (!subject || !licensed) throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
     const { manage } = await subject.authorize(
       { tx: ctx.tx, organizationId: ctx.organizationId, userId: ctx.session.user.id, permissions: ctx.permissions, scope: ctx.scope },

@@ -1,8 +1,9 @@
 // The background process (K-09, NF-12, NF-24): delivers outbox events to their consumers
 // and runs queued jobs until stopped. Runs as the app database role; every consumer and
 // job works inside its organization (RLS). Failures end up in the exception queue, and so
-// do approvals past their SLA (K-05), checked once a minute.
-import { consumers, dispatchOutbox, escalateApprovals, jobs, runJobs } from "@flowless/api";
+// do approvals past their SLA (K-05) and work orders past their due time (W-02), checked
+// once a minute.
+import { consumers, dispatchOutbox, escalateApprovals, jobs, runJobs, sweepOverdueWorkOrders } from "@flowless/api";
 import { createDatabase } from "@flowless/db";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -32,6 +33,8 @@ while (!stop.signal.aborted) {
       lastEscalation = Date.now();
       const escalated = await escalateApprovals(db);
       if (escalated) log({ msg: "approvals escalated", escalated });
+      const overdue = await sweepOverdueWorkOrders(db);
+      if (overdue) log({ msg: "work orders overdue", overdue });
     }
     // A full batch means more may be waiting: go again without pausing.
     if (events.claimed < BATCH && ran.claimed < JOB_BATCH) await sleep(IDLE_MS, undefined, { signal: stop.signal }).catch(() => {});
