@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Flowless",
+    "slug": "flowless",
     "version": "1.0.0",
+    "scheme": "flowless",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "app.flowless.field"
     },
     "android": {
+      "package": "app.flowless.field",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +23,25 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-web-browser",
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-location",
+        { "locationWhenInUsePermission": "Flowless uses your location to rank jobs by distance and to record where assets are." }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Flowless attaches photos of assets and finished work that you choose.",
+          "cameraPermission": "Flowless takes photos of assets and finished work in the field.",
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }
