@@ -30,4 +30,30 @@ describe("permissions", () => {
     expect([...both].every(isPermission)).toBe(true);
     expect(effectivePermissions("ghost").size).toBe(0);
   });
+
+  // W-01, G-01: GIS and work-order permissions for the roles that do field and network work.
+  it("the GIS engineer keeps the network and reviews its jobs, without settings or billing", () => {
+    const gis = effectivePermissions("gis_engineer");
+    for (const p of ["gis:read", "gis:edit", "gis:delete", "gis:post", "gis:configure"] as const) expect(gis.has(p)).toBe(true);
+    for (const p of ["work_orders:read", "work_orders:assign", "work_orders:review", "work_orders:execute"] as const) expect(gis.has(p)).toBe(true);
+    expect(gis.has("work_orders:cancel")).toBe(false);
+    expect(gis.has("settings:manage")).toBe(false);
+    expect(gis.has("billing:run")).toBe(false);
+    expect([...gis].sort()).toEqual([...DEFAULT_ROLES.gis_engineer].sort());
+  });
+
+  it("supervisors review and cancel jobs; technicians edit GIS but never post it", () => {
+    const supervisor = effectivePermissions("supervisor");
+    expect((["work_orders:review", "work_orders:cancel", "gis:read"] as const).every((p) => supervisor.has(p))).toBe(true);
+    expect(supervisor.has("gis:edit")).toBe(false);
+    const technician = effectivePermissions("technician");
+    expect(technician.has("gis:read") && technician.has("gis:edit")).toBe(true);
+    expect(technician.has("gis:post")).toBe(false);
+    expect(technician.has("work_orders:review")).toBe(false);
+  });
+
+  it("managers pick up the new GIS and work-order permissions", () => {
+    const manager = effectivePermissions("manager");
+    expect(manager.has("gis:configure") && manager.has("work_orders:cancel")).toBe(true);
+  });
 });

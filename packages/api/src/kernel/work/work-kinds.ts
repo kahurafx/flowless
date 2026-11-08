@@ -1,11 +1,11 @@
-import type { ModuleKey } from "@flowless/shared-types";
+import type { ModuleKey, WorkPriority } from "@flowless/shared-types";
 import type { z } from "zod";
 import type { EventDef } from "../events";
 
 /** What a kind of job points at. "assets" is a route (valve exercising, meter reading). */
 export type WorkKindTarget = "asset" | "assets" | "area" | "location" | "account";
 
-export type WorkPriority = "low" | "normal" | "high" | "urgent";
+export type { WorkPriority };
 
 /**
  * One kind of job (W-01), contributed by the module that owns the work, adopted from
