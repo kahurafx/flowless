@@ -216,6 +216,15 @@ describe("events, audit and notifications", () => {
   });
 });
 
+describe("the kinds read", () => {
+  it("publishes each kind's capture form as JSON Schema, so a client can draw it", async () => {
+    const kinds = await wo(owner).kinds();
+    const repair = kinds.find((k) => k.key === "repair")!;
+    expect(repair.captureSchema).toMatchObject({ type: "object", required: ["workDone"], properties: { workDone: { type: "string" }, materials: { type: "string" } } });
+    expect(kinds.find((k) => k.key === "inspection_general")!.captureSchema).toBeNull();
+  });
+});
+
 describe("review policy and SLA from the configuration store", () => {
   it("lets an organization require review and shorten the SLA for a kind", async () => {
     const config = callerFor(t, owner).config;
