@@ -23,7 +23,10 @@ const KIND_SHORT: Record<string, string> = {
 /** Kinds are strings (a module can add one without an app update), so an unknown one still gets a label. */
 export const kindShort = (key: string) => KIND_SHORT[key] ?? titleCase(key);
 
-export const kindInfo = (kinds: readonly WorkKind[], key: string) => kinds.find((k) => k.key === key);
+/** The API sends user ids and no directory of names, so people are "You", "Unassigned" or "A teammate". */
+export const personName = (id: string | null | undefined, me: string) => (!id ? "Unassigned" : id === me ? "You" : "A teammate");
+
+export const kindInfo =(kinds: readonly WorkKind[], key: string) => kinds.find((k) => k.key === key);
 
 export const OUTCOME_LABEL: Record<WorkOrderOutcome, string> = { done: "Job done", partial: "Partly done", no_fault: "No fault found" };
 export const HOLD_REASONS = ["Can't get access", "Parts or tools needed", "Needs an engineer", "Safety concern", "Other"];

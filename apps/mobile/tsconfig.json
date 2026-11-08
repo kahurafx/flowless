@@ -3,6 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    // TypeScript 6 includes no @types by default. The server's source (read for `AppRouter`) uses Node globals.
+    "types": ["node"],
     "paths": {
       "@/*": ["./src/*"]
     }

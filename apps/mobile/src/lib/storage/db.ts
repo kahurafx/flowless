@@ -1,5 +1,5 @@
 import { openDatabaseSync, type SQLiteDatabase } from "expo-sqlite";
-import superjson from "superjson";
+import { parse, stringify } from "superjson";
 import { diffRows } from "./diff";
 
 /**
@@ -37,12 +37,12 @@ export function openUserDb(userId: string): SQLiteDatabase {
 export function loadRows<T>(db: SQLiteDatabase, collection: string): T[] {
   return db
     .getAllSync<{ json: string }>("SELECT json FROM records WHERE collection = ? ORDER BY rowid", collection)
-    .map((row) => superjson.parse<T>(row.json));
+    .map((row) => parse<T>(row.json));
 }
 
 export function loadMeta<T>(db: SQLiteDatabase): T | null {
   const row = db.getFirstSync<{ json: string }>("SELECT json FROM meta WHERE key = 'app'");
-  return row ? superjson.parse<T>(row.json) : null;
+  return row ? parse<T>(row.json) : null;
 }
 
 export type CollectionChange<T = unknown> = { collection: string; previous: readonly T[]; next: readonly T[]; keyOf: (row: T) => string };
@@ -58,7 +58,7 @@ export function saveChanges(db: SQLiteDatabase, changes: CollectionChange[], met
           "INSERT INTO records (collection, key, json) VALUES (?, ?, ?) ON CONFLICT (collection, key) DO UPDATE SET json = excluded.json",
           collection,
           keyOf(row),
-          superjson.stringify(row),
+          stringify(row),
         );
       }
       for (const key of diff.deletes) db.runSync("DELETE FROM records WHERE collection = ? AND key = ?", collection, key);
@@ -70,4 +70,4 @@ export function saveChanges(db: SQLiteDatabase, changes: CollectionChange[], met
 }
 
 /** Meta is compared as text, so callers pass the stringified form. */
-export const stringifyMeta = (meta: unknown) => superjson.stringify(meta);
+export const stringifyMeta = (meta: unknown) => stringify(meta);

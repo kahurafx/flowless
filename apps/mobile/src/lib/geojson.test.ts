@@ -5,8 +5,8 @@ import type { Dma } from "./types";
 describe("geojson", () => {
   it("widens the bounds of a single point so it has an area to fit", () => {
     const [w, s, e, n] = boundsOf([{ lat: -1.29, lng: 36.78 }])!;
-    expect(e - w).toBeGreaterThanOrEqual(0.001);
-    expect(n - s).toBeGreaterThanOrEqual(0.001);
+    expect(e - w).toBeCloseTo(0.001, 6);
+    expect(n - s).toBeCloseTo(0.001, 6);
     expect(boundsOf([])).toBeNull();
   });
 

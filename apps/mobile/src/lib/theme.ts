@@ -110,5 +110,5 @@ export const space = (n: number) => n * 4;
 /** Minimum touch target, in points (Apple HIG). */
 export const TOUCH = 44;
 
-/** Clearance a scroll view leaves at the bottom for the floating tab bar. */
-export const TAB_SPACE = 104;
+/** Clearance a scroll view on a tab leaves at the bottom for the floating "+" button. */
+export const TAB_SPACE = 96;

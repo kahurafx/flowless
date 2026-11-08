@@ -10,6 +10,7 @@ module.exports = (async () => {
     // apps/mobile may only `import type` from @flowless/api (docs/build-plan.md → Boundary rules).
     boundaries,
     {
+      files: ["**/*.{ts,tsx}"],
       rules: {
         // `_`-prefixed bindings are deliberate omissions.
         "@typescript-eslint/no-unused-vars": ["warn", { varsIgnorePattern: "^_", argsIgnorePattern: "^_" }],

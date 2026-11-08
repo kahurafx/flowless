@@ -11,8 +11,10 @@ export type Structure = Out<typeof api.gis.structures.list.query>[number];
 export type Connection = Out<typeof api.gis.connections.list.query>[number];
 export type Dma = Out<typeof api.gis.dmas.list.query>[number];
 export type Subnetwork = Out<typeof api.gis.subnetworks.list.query>[number];
-export type ConditionLog = Out<typeof api.gis.logs.conditionFeed.query>[number];
-export type ValveLog = Out<typeof api.gis.logs.valveFeed.query>[number];
+export type Area = Out<typeof api.hierarchy.areas.query>[number];
+/** `syncedAt` is null while the record is still only on this phone. */
+export type ConditionLog = Omit<Out<typeof api.gis.logs.conditionFeed.query>[number], "syncedAt"> & { syncedAt: Date | null };
+export type ValveLog = Omit<Out<typeof api.gis.logs.valveFeed.query>[number], "syncedAt"> & { syncedAt: Date | null };
 
 export type WorkOrder = Out<typeof api.workOrders.list.query>[number];
 export type JobAsset = WorkOrder["assets"][number];

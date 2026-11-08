@@ -48,9 +48,9 @@ export async function runQueue(
     try {
       for (const op of item.ops ?? []) {
         const res = await transport.send(op);
-        const before = answer;
-        answer = worse(answer, res.outcome);
-        if (answer !== before && (res.outcome === "rejected" || res.outcome === "stale")) error = res.reason;
+        const next: OpOutcome["outcome"] = worse(answer, res.outcome);
+        if (next !== answer && (res.outcome === "rejected" || res.outcome === "stale")) error = res.reason;
+        answer = next;
         if (res.outcome === "rejected") break;
       }
     } catch (err) {
