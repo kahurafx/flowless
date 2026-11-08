@@ -1,3 +1,4 @@
+import { gisAssetFileSubject } from "../modules/gis";
 import { workOrderFileSubject } from "../modules/work-orders";
 import type { FileSubjectDef } from "./file-subjects";
 
@@ -6,7 +7,7 @@ import type { FileSubjectDef } from "./file-subjects";
  * accounts), defined in its module folder with `defineFileSubject`. Kept apart from
  * `file-subjects.ts` so modules can import the definitions without a cycle.
  */
-export const fileSubjects: readonly FileSubjectDef[] = [workOrderFileSubject];
+export const fileSubjects: readonly FileSubjectDef[] = [workOrderFileSubject, gisAssetFileSubject];
 
 const kinds = new Set<string>();
 for (const s of fileSubjects) {

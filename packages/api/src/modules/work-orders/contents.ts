@@ -1,5 +1,5 @@
 import { workOrderAsset, workOrderChangeSet, workOrderComment, workOrderLogLink } from "@flowless/db/schema/work-orders";
-import type { WorkOrderEventOutcome } from "@flowless/shared-types";
+import { MAIN_BRANCH, type WorkOrderEventOutcome } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -113,6 +113,20 @@ export function contentProcedures(p: ReturnType<typeof workOrderProcedures>) {
         if (!evidence) throw new TRPCError({ code: "NOT_FOUND", message: "That record hasn't reached the server yet" });
         if (evidence.recordedByUserId !== ctx.session.user.id && !ctx.abilities.assign) {
           throw new TRPCError({ code: "FORBIDDEN", message: "You can only link your own logs" });
+        }
+        // A job's network work lives on its branch (W3 gap fix): a log recorded for it must be
+        // on that branch, or on main when the job has none, so its edit is reviewed with the job.
+        if (evidence.branch !== undefined) {
+          const jobBranch = (await branchOf(ctx.tx, order.id)) ?? MAIN_BRANCH;
+          if (evidence.branch !== jobBranch) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                jobBranch === MAIN_BRANCH
+                  ? "That log was recorded on another branch, not for this job"
+                  : `Record logs for this job on its branch (${jobBranch})`,
+            });
+          }
         }
         const [elsewhere] = await ctx.tx
           .select({ id: workOrderLogLink.id })

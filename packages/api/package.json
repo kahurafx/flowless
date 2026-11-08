@@ -25,6 +25,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1164.0",
     "@flowless/auth": "workspace:*",
     "@flowless/db": "workspace:*",
+    "@flowless/network": "workspace:*",
     "@flowless/shared-types": "workspace:*",
     "@trpc/server": "^11.25.0",
     "drizzle-orm": "^0.45.4",

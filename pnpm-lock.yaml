@@ -182,6 +182,9 @@ importers:
       '@flowless/db':
         specifier: workspace:*
         version: link:../db
+      '@flowless/network':
+        specifier: workspace:*
+        version: link:../network
       '@flowless/shared-types':
         specifier: workspace:*
         version: link:../shared-types
