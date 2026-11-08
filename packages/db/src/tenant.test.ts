@@ -48,7 +48,7 @@ describe("row-level security", () => {
       withTenant(t.app, tenants.a.id, (tx) =>
         tx
           .insert(organizationSettings)
-          .values({ organizationId: tenants.b.id, currency: "USD", timeZone: "UTC", locale: "en" }),
+          .values({ organizationId: tenants.b.id, currency: "USD" }),
       ),
     ).rejects.toMatchObject(pgError(/row-level security/));
   });

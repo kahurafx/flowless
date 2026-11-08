@@ -99,6 +99,13 @@
       "when": 1794078218037,
       "tag": "0013_kernel_exception_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794106886749,
+      "tag": "0014_kernel_config_store",
+      "breakpoints": true
     }
   ]
 }

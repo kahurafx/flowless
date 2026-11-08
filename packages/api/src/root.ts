@@ -1,6 +1,7 @@
 import { ping } from "@flowless/db";
 import { accessRouter } from "./kernel/access";
 import { auditRouter } from "./kernel/audit";
+import { configRouter } from "./kernel/config";
 import { entitlementsRouter } from "./kernel/entitlements";
 import { exceptionsRouter } from "./kernel/exceptions";
 import { hierarchyRouter } from "./kernel/hierarchy";
@@ -14,6 +15,7 @@ export const appRouter = router({
     return { status: "ok" as const };
   }),
   organization: organizationsRouter,
+  config: configRouter,
   access: accessRouter,
   hierarchy: hierarchyRouter,
   entitlements: entitlementsRouter,

@@ -59,7 +59,7 @@ export async function startTestCluster(): Promise<{ url: string; stop: () => Pro
   await seed.db.insert(organization).values(all.map((t) => ({ ...t, createdAt: new Date() })));
   await seed.db
     .insert(organizationSettings)
-    .values(all.map((t) => ({ organizationId: t.id, currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" })));
+    .values(all.map((t) => ({ organizationId: t.id, currency: "KES" })));
   // CREATE DATABASE ... TEMPLATE needs the template to have no open connections.
   await seed.close();
 

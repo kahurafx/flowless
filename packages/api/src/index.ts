@@ -6,3 +6,5 @@ export { consumers } from "./kernel/consumers";
 export { dispatchOutbox, drainOutbox, replayEvents, type Consumer, type DispatchResult } from "./kernel/events";
 export { jobs } from "./kernel/job-registry";
 export { defineJob, runJobs, type JobDef, type JobRunResult } from "./kernel/jobs";
+export { defineSetting, readSetting, type SettingDef, type SettingValue } from "./kernel/config-store";
+export { regionalSetting } from "./kernel/regional";

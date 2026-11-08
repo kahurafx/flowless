@@ -1,13 +1,15 @@
-import { area, consumerReceipt, outboxEvent, organizationSettings } from "@flowless/db";
+import { area, consumerReceipt, outboxEvent, organizationSettings, withTenant } from "@flowless/db";
 import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/testing";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { addMember, sessionOf, type Member } from "../test-support";
 import { createCallerFactory, router, tenantProcedure } from "../trpc";
+import { readSetting } from "./config-store";
 import { setEntitlements } from "./entitlement-store";
 import { defineConsumer, defineEvent, dispatchOutbox, drainOutbox, replayEvents, type Consumer } from "./events";
 import { createOrganizationSettings, organizationCreated } from "./organization-events";
+import { regionalSetting } from "./regional";
 
 let t: TestDatabase;
 let clerkA: Member;
@@ -179,6 +181,8 @@ describe("organization lifecycle", () => {
     });
     await drainOutbox(t.app, [createOrganizationSettings as Consumer]);
     const [settings] = await t.admin.select().from(organizationSettings).where(eq(organizationSettings.organizationId, tenants.b.id));
-    expect(settings).toMatchObject({ currency: "KES", timeZone: "Africa/Nairobi", locale: "sw-KE" });
+    expect(settings).toMatchObject({ currency: "KES" });
+    const regional = await withTenant(t.app, tenants.b.id, (tx) => readSetting(tx, regionalSetting));
+    expect(regional).toMatchObject({ version: 1, value: { timeZone: "Africa/Nairobi", locale: "sw-KE" } });
   });
 });

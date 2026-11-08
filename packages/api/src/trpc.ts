@@ -4,6 +4,7 @@ import { enqueueEvent, memberPermission, recordAudit, withTenant, type AuditEntr
 import { effectivePermissions, type ModuleKey, type Permission, type Scope } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
+import { readSetting, type SettingDef } from "./kernel/config-store";
 import { loadEntitlements } from "./kernel/entitlement-store";
 import type { EventDef } from "./kernel/events";
 import { enqueueJob, type EnqueueOptions, type JobDef } from "./kernel/jobs";
@@ -45,7 +46,8 @@ export const publicProcedure = t.procedure;
  * `ctx.entitlements()` (K-04). Both load on first use. `ctx.audit(note)` appends to the
  * audit log in the same transaction, so the entry commits only with the change (K-06).
  * `ctx.publish(event, payload)` writes to the outbox the same way (K-09), and
- * `ctx.enqueue(job, payload)` queues background work owned by the caller (NF-12, NF-24). The tenant is the caller's membership, and it
+ * `ctx.enqueue(job, payload)` queues background work owned by the caller (NF-12, NF-24).
+ * `ctx.config(setting, at?)` reads the organization's value in force (K-10). The tenant is the caller's membership, and it
  * must match the session's active organization, so a removed member loses access at once.
  * In tRPC v11 `next()` reports failure as `{ ok: false }` instead of throwing, so
  * re-throw to roll the transaction back.
@@ -95,6 +97,7 @@ export const tenantProcedure = t.procedure.use(({ ctx, next }) => {
             payload: event.schema.parse(payload),
             id: options.id,
           }),
+        config: <T>(def: SettingDef<T>, at?: Date) => readSetting(tx, def, at).then((v) => v.value),
         enqueue: <T>(def: JobDef<T>, payload: T, options: Omit<EnqueueOptions, "createdByUserId"> = {}) =>
           enqueueJob(tx, organizationId, def, payload, { ...options, createdByUserId: session.user.id }),
       },

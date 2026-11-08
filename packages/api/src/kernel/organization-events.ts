@@ -1,6 +1,8 @@
 import { organizationSettings } from "@flowless/db";
 import { z } from "zod";
+import { writeSetting } from "./config-store";
 import { defineConsumer, defineEvent } from "./events";
+import { regionalSetting } from "./regional";
 
 /**
  * Published by packages/auth when Flowless onboards an organization (raw `enqueueEvent`,
@@ -15,18 +17,18 @@ export const organizationCreated = defineEvent(
   }),
 );
 
-/** Defaults for a new organization; it changes them in settings (K-10 owns them later). */
-export const DEFAULT_ORGANIZATION_SETTINGS = { currency: "KES", timeZone: "Africa/Nairobi", locale: "en-KE" } as const;
+/** Defaults for a new organization. Time zone and language can change later (K-10); currency cannot. */
+export const DEFAULT_ORGANIZATION_SETTINGS = { currency: "KES", ...regionalSetting.default } as const;
 
-/** Gives every new organization its settings row (NF-33, B-18). */
+/** Gives every new organization its currency (B-18) and version 1 of its time zone and language (NF-33). */
 export const createOrganizationSettings = defineConsumer({
   name: "kernel.organization_settings",
   module: "kernel",
   event: organizationCreated,
   async handle({ tx, organizationId }, payload) {
-    await tx
-      .insert(organizationSettings)
-      .values({ organizationId, ...DEFAULT_ORGANIZATION_SETTINGS, ...payload.settings })
-      .onConflictDoNothing();
+    const { currency, timeZone, locale } = { ...DEFAULT_ORGANIZATION_SETTINGS, ...payload.settings };
+    await tx.insert(organizationSettings).values({ organizationId, currency }).onConflictDoNothing();
+    // Version 1 exactly, so a second delivery writes nothing.
+    await writeSetting(tx, organizationId, regionalSetting, { value: { timeZone, locale }, version: 1, reason: "Onboarding" });
   },
 });

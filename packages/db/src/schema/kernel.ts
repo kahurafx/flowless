@@ -26,9 +26,10 @@ import { member, organization } from "./auth";
 export const kernel = pgSchema("kernel");
 
 /**
- * Per-organization locale settings (NF-33) and the currency all money is held in
- * (B-18). One row per tenant; the organization itself is Better Auth's
- * `auth.organization`, which only packages/auth reads.
+ * The currency all money is held in (B-18), fixed when Flowless onboards the
+ * organization. One row per tenant; the organization itself is Better Auth's
+ * `auth.organization`, which only packages/auth reads. Time zone and language are a
+ * versioned setting in `config_version` (K-10).
  */
 export const organizationSettings = kernel.table(
   "organization_settings",
@@ -37,8 +38,6 @@ export const organizationSettings = kernel.table(
       .primaryKey()
       .references(() => organization.id),
     currency: char("currency", { length: 3 }).notNull(),
-    timeZone: text("time_zone").notNull(),
-    locale: text("locale").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [tenantPolicy(t.organizationId)],
@@ -376,6 +375,38 @@ export const job = kernel.table(
     check("job_status_valid", sql`${t.status} in ('queued', 'running', 'done', 'failed')`),
     uniqueIndex("job_idempotency_unique").on(t.organizationId, t.type, t.idempotencyKey),
     index("job_due_idx").on(t.runAt).where(sql`${t.status} in ('queued', 'running')`),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * The configuration store (K-10, NF-32): every change to an organization's setting is a
+ * new version, never an edit (append-only by grants). The value in force at a time is
+ * the newest version whose `effective_from` has passed, so a change can be scheduled and
+ * a past billing run re-reads the policy it ran with. Keys and schemas are defined in
+ * code by the module that owns them (`defineSetting` in packages/api).
+ */
+export const configVersion = kernel.table(
+  "config_version",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organization.id),
+    key: text("key").notNull(),
+    /** 1, 2, 3 … per organization and key. */
+    version: integer("version").notNull(),
+    value: jsonb("value").notNull(),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
+    reason: text("reason"),
+    /** Null for changes made by Flowless itself (onboarding). */
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("config_version_unique").on(t.organizationId, t.key, t.version),
+    index("config_version_effective_idx").on(t.organizationId, t.key, t.effectiveFrom),
+    check("config_version_positive", sql`${t.version} > 0`),
     tenantPolicy(t.organizationId),
   ],
 );
