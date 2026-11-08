@@ -153,6 +153,7 @@ Brought forward from the old Phases 9 and 10 and ported from Majimap (`majimap-v
 - GIS functions are work kinds: logs (leak, inspection, valve exercise route, flushing, PRV adjustment, facility service, leak survey), edits (valve replacement, asset update) and creates (asset capture, connection capture). A job's edits live on its branch `wo-<code>` and are posted after approval.
 - Work-order level: GIS licensed alone gives the GIS kinds; Work Orders licensed adds crews, SLA and other modules' kinds; with neither, dependent features fall back to office action (NF-31).
 - Field app: offline store, queued sync with per-item status, job screens, map, asset and connection capture.
+- Data foundation (done in W1): `gis` and `work_orders` Postgres schemas with RLS on every table, per-schema grants (`0021`, `0022`), composite tenant foreign keys, GiST indexes on every geometry column, and the structure-attachment trigger (`0023`). Geometry helpers ported to `packages/db/src/geometry.ts`. GIS owns its asset identities (`gis.asset`; no shared assets table), attaches DMA map data to the kernel's DMA area, and references Accounts service points by id only. Work orders reference assets as `(module, asset_id)` without foreign keys, and gain crews, comments, GPS on events and captures; logs and job history are append-only. Permissions `work_orders:review`/`cancel` and `gis:*`, and the `gis_engineer` role.
 
 **Done when:**
 
