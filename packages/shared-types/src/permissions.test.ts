@@ -50,6 +50,8 @@ describe("permissions", () => {
     expect(technician.has("gis:read") && technician.has("gis:edit")).toBe(true);
     expect(technician.has("gis:post")).toBe(false);
     expect(technician.has("work_orders:review")).toBe(false);
+    // Technicians see their own jobs only, like Majimap's field technicians.
+    expect(technician.has("work_orders:execute") && !technician.has("work_orders:read")).toBe(true);
   });
 
   it("managers pick up the new GIS and work-order permissions", () => {

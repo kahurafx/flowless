@@ -21,9 +21,11 @@ describe("work level (Majimap's resolveLevel)", () => {
 
 describe("who sees jobs", () => {
   it("lets readers and managers see every job, and a member who only executes see their own", () => {
-    for (const role of ["owner", "supervisor", "gis_engineer", "technician"] as const) {
+    for (const role of ["owner", "supervisor", "gis_engineer"] as const) {
       expect(visibilityFor(abilitiesOf(effectivePermissions(role, [])), "u1", [], all).all, role).toBe(true);
     }
+    // Technicians execute without work_orders:read: their own jobs only (Majimap's field technician).
+    expect(visibilityFor(abilitiesOf(effectivePermissions("technician", [])), "u1", [], all).all).toBe(false);
     const executor = visibilityFor(can("work_orders:execute"), "u1", [], all);
     expect(executor.all).toBe(false);
     expect(canSeeJob(executor, job({ assignedToUserId: "u1" }))).toBe(true);

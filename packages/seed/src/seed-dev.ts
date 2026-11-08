@@ -38,7 +38,7 @@ const KERNEL: Record<
   }
 > = {
   majisafi: {
-    modules: ["accounts", "tariffs", "metering", "billing", "payments", "communications", "collections", "reporting"],
+    modules: ["accounts", "tariffs", "metering", "billing", "payments", "communications", "collections", "work-orders", "gis", "reporting"],
     areas: [
       { level: "scheme", code: "RUI", name: "Ruiru scheme" },
       { level: "zone", code: "KW", name: "Kahawa West", parent: "RUI" },

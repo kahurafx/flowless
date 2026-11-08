@@ -72,7 +72,9 @@ describe("who sees which jobs", () => {
     expect((await wo(executor).mine()).map((j) => j.id)).toEqual([mine.id]);
     await expectCode(wo(executor).byId({ id: other.id }), "NOT_FOUND");
     await expectCode(wo(executor).history({ workOrderId: other.id }), "NOT_FOUND");
-    expect((await wo(tech).list()).map((j) => j.id), "work_orders:read sees everything").toEqual(expect.arrayContaining([mine.id, other.id]));
+    const supervisor = await addMember(t, tenants.a.id, "supervisor");
+    expect((await wo(supervisor).list()).map((j) => j.id), "work_orders:read sees everything").toEqual(expect.arrayContaining([mine.id, other.id]));
+    expect((await wo(tech).list()).map((j) => j.id), "technicians see only their own").not.toContain(mine.id);
   });
 
   it("turns away a member with no work-order permission", async () => {

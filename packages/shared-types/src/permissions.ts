@@ -118,7 +118,7 @@ export const DEFAULT_ROLES = {
     "accounts:read",
     "readings:read",
     "readings:capture",
-    "work_orders:read",
+    // No work_orders:read: technicians see the jobs given to them or their crew (W-01).
     "work_orders:execute",
     "gis:read",
     "gis:edit",

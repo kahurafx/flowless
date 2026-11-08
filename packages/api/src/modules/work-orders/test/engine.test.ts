@@ -473,9 +473,12 @@ describe("files on a job", () => {
   it("keeps a job's files to those who can see it", async () => {
     const job = await newJob({ assigneeId: tech.userId });
     await h.photo(tech, job.id);
-    expect(await h.as(tech2).files.list({ subjectKind: "work_order", subjectId: job.id })).toHaveLength(1);
+    // A reader who cannot act on jobs sees the files but cannot add any.
+    const viewer = await addMember(t, tenants.a.id, "collector");
+    expect(await h.as(viewer).files.list({ subjectKind: "work_order", subjectId: job.id })).toHaveLength(1);
     await expectCode(h.as(executor).files.list({ subjectKind: "work_order", subjectId: job.id }), "NOT_FOUND");
-    await expectCode(h.announce(tech2, job.id), "FORBIDDEN");
+    await expectCode(h.as(tech2).files.list({ subjectKind: "work_order", subjectId: job.id }), "NOT_FOUND");
+    await expectCode(h.announce(viewer, job.id), "FORBIDDEN");
     await expectCode(h.as(outsider).files.list({ subjectKind: "work_order", subjectId: job.id }), "NOT_FOUND");
     expect((await as(owner).byId({ id: job.id })).photoCount).toBe(1);
   });
