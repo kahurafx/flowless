@@ -12,9 +12,12 @@ import { register, workOrderFileSubject } from "..";
 import { createWorkOrdersRouter } from "../router";
 
 /*
- * A work registry standing in for GIS until it is ported (W3): Majimap's GIS kinds (the
- * ones its work-order tests use) and in-memory asset and log resolvers that, like the real
- * ones under RLS, only answer for the transaction's organization.
+ * A work registry standing in for GIS: Majimap's GIS kinds (the ones its work-order tests
+ * use) and in-memory asset and log resolvers that, like the real ones under RLS, only
+ * answer for the transaction's organization. It keeps the Work Orders suites independent
+ * of the GIS engine; the real GIS adapters are exercised end to end in
+ * modules/gis/test/job-branches.test.ts (W3). Its logs carry no branch, so the
+ * "logs from the job's branch" rule is tested there.
  */
 
 const orgOf = async (tx: Transaction) =>

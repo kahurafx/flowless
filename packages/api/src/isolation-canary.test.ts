@@ -1,26 +1,4 @@
-import {
-  approvalRequest,
-  asset,
-  conditionLog,
-  dma,
-  dmaBoundaryValve,
-  enqueueEvent,
-  file,
-  job,
-  node,
-  pipe,
-  serviceConnection,
-  structure,
-  structureAttachmentRule,
-  subnetwork,
-  tier,
-  valveStateLog,
-  withTenant,
-  workOrder,
-  workOrderAsset,
-  workOrderLogLink,
-  type Transaction,
-} from "@flowless/db";
+import { approvalRequest, enqueueEvent, file, job, withTenant } from "@flowless/db";
 import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/testing";
 import { MODULE_KEYS } from "@flowless/shared-types";
 import { sql } from "drizzle-orm";
@@ -48,9 +26,36 @@ interface Canary {
   workOrder: string;
   crew: string;
   comment: string;
+  /** Tenant B's GIS network, built through the GIS API (Phase 2 W3). */
+  gis: GisCanary;
+}
+
+interface GisCanary {
+  valve: { id: string; versionId: string };
+  meter: string;
+  pipe: { id: string; versionId: string };
+  structure: { id: string; versionId: string };
+  connection: { id: string; versionId: string };
+  dma: { id: string; versionId: string };
+  tier: string;
+  subnetwork: string;
+  conditionLog: string;
+  valveLog: string;
+  /** An open branch with an edit of B's on it. */
+  branch: string;
+  /** A GIS job on B's pipe, with the condition log linked to it. */
+  leakJob: string;
 }
 
 const MARK = "CANARY-B";
+/** Where tenant A's own GIS calls draw things. */
+const A_HERE = { lat: -1.29, lng: 36.8 };
+const A_THERE = { lat: -1.3, lng: 36.8 };
+const A_RING = [
+  { lat: -1.28, lng: 36.79 },
+  { lat: -1.28, lng: 36.81 },
+  { lat: -1.3, lng: 36.81 },
+];
 let t: TestDatabase;
 let ownerA: Member;
 let ownerB: Member;
@@ -134,7 +139,6 @@ async function seedB(): Promise<Canary> {
     });
     await enqueueEvent(tx, { organizationId: tenants.b.id, type: "test.canary", payload: { mark: MARK } });
     await tx.insert(job).values({ organizationId: tenants.b.id, type: "kernel.canary", payload: { mark: MARK }, status: "failed" });
-    await seedNetworkAndJobs(tx, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
     return { exception: exception.id, approval: approval!.id, file: fileId };
   });
   const survey = await asB.workOrders.create({
@@ -155,6 +159,7 @@ async function seedB(): Promise<Canary> {
     action: { type: "submit", outcome: "done", note: MARK, capture: { summary: `${MARK} findings` } },
     position: { latitude: -6.7924, longitude: 39.2083 },
   });
+  const gis = await seedNetwork(asB, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -165,83 +170,70 @@ async function seedB(): Promise<Canary> {
     workOrder: survey.id,
     crew: team.id,
     comment,
+    gis,
     ...seeded,
   };
 }
 
 /**
- * Tenant B's GIS network, and a GIS job on it with its asset and linked log, written
- * directly until the GIS API exists (Phase 2 W3): adding a GIS asset or log to a job needs
- * the GIS resolvers. Every other work_orders table is seeded through the Work Orders API in
- * `seedB`.
+ * Tenant B's GIS network, through the GIS API: tier, structure, a housed valve, an inlet
+ * meter, a pipe, a service connection, DMA map data with a boundary valve, a subnetwork,
+ * condition and valve logs, an open branch, and a GIS job with its asset and linked log.
+ * The first GIS write seeds B's structure-attachment rules.
  */
-async function seedNetworkAndJobs(tx: Transaction, at: { dmaAreaId: string; routeId: string; userId: string; crewId: string }) {
-  const organizationId = tenants.b.id;
-  const by = { organizationId, createdByUserId: at.userId };
-  const newAsset = async (kind: "node" | "pipe" | "structure" | "service_connection") =>
-    (await tx.insert(asset).values({ ...by, kind }).returning({ id: asset.id }))[0]!.id;
+async function seedNetwork(asB: ReturnType<typeof callerFor>, at: { dmaAreaId: string; routeId: string; userId: string; crewId: string }): Promise<GisCanary> {
   const here = { lat: -6.7924, lng: 39.2083 };
   const inlet = { lat: -6.7925, lng: 39.2084 };
+  const tier = await asB.gis.tiers.create({ name: `${MARK} tier`, order: 1 });
+  const chamber = await asB.gis.structures.create({ type: "chamber", name: `${MARK} chamber`, location: here });
+  const valve = await asB.gis.nodes.create({ type: "valve", name: `${MARK} valve`, location: here, structureId: chamber.id, isOpen: true });
+  const meter = await asB.gis.nodes.create({ type: "meter", name: `${MARK} inlet meter`, location: inlet });
+  const main = await asB.gis.pipes.create({ fromNodeId: meter.id, toNodeId: valve.id, path: [inlet, here], diameterMm: 110 });
+  const connection = await asB.gis.connections.create({ connectionNumber: `${MARK}-SC1`, location: here, pipeId: main.id, servicePointId: randomUUID() });
+  const dma = await asB.gis.dmas.create({
+    areaId: at.dmaAreaId,
+    color: "#3B82F6",
+    tierId: tier.id,
+    inletMeterId: meter.id,
+    boundaryValveIds: [valve.id],
+    ring: [
+      { lat: -6.79, lng: 39.2 },
+      { lat: -6.79, lng: 39.21 },
+      { lat: -6.8, lng: 39.21 },
+    ],
+  });
+  const subnetwork = await asB.gis.subnetworks.create({ name: `${MARK} subnetwork`, tierId: tier.id, controllerNodeId: meter.id });
+  const leakLog = await asB.gis.logs.recordCondition({ assetId: main.id, condition: "poor", note: `${MARK} leak` });
+  const valveLog = await asB.gis.logs.recordValveState({ valveId: valve.id, isOpen: false, note: MARK });
+  const branch = "canary-b-branch";
+  await asB.gis.nodes.update({ id: meter.id, baseVersionId: meter.versionId, branch, patch: { name: `${MARK} meter on a branch` } });
 
-  await tx.insert(structureAttachmentRule).values({ organizationId, nodeType: "valve", structureType: "chamber" });
-  const chamber = await newAsset("structure");
-  await tx.insert(structure).values({ ...by, id: chamber, type: "chamber", name: `${MARK} chamber`, location: here });
-  const valve = await newAsset("node");
-  const meter = await newAsset("node");
-  await tx.insert(node).values([
-    { ...by, id: valve, type: "valve", name: `${MARK} valve`, location: here, structureId: chamber, isOpen: true },
-    { ...by, id: meter, type: "meter", name: `${MARK} inlet meter`, location: inlet },
-  ]);
-  const main = await newAsset("pipe");
-  await tx.insert(pipe).values({ ...by, id: main, fromNodeId: meter, toNodeId: valve, path: [inlet, here], diameterMm: 110, lengthM: 15 });
-  const connection = await newAsset("service_connection");
-  await tx
-    .insert(serviceConnection)
-    .values({ ...by, id: connection, connectionNumber: `${MARK}-SC1`, location: here, pipeId: main, servicePointId: randomUUID() });
-  const [band] = await tx.insert(tier).values({ organizationId, name: `${MARK} tier`, order: 1 }).returning({ id: tier.id });
-  const [dmaVersion] = await tx
-    .insert(dma)
-    .values({
-      ...by,
-      areaId: at.dmaAreaId,
-      color: "#3B82F6",
-      tierId: band!.id,
-      inletMeterId: meter,
-      boundary: [
-        { lat: -6.79, lng: 39.2 },
-        { lat: -6.79, lng: 39.21 },
-        { lat: -6.8, lng: 39.21 },
-      ],
-    })
-    .returning({ versionId: dma.versionId });
-  await tx.insert(dmaBoundaryValve).values({ organizationId, dmaVersionId: dmaVersion!.versionId, valveId: valve });
-  await tx.insert(subnetwork).values({ organizationId, name: `${MARK} subnetwork`, tierId: band!.id, controllerNodeId: meter });
-  const [leakLog] = await tx
-    .insert(conditionLog)
-    .values({ organizationId, assetId: main, condition: "poor", note: `${MARK} leak`, recordedAt: new Date(), recordedByUserId: at.userId })
-    .returning({ id: conditionLog.id });
-  await tx.insert(valveStateLog).values({ organizationId, valveId: valve, isOpen: false, note: MARK, changedAt: new Date(), changedByUserId: at.userId });
-
-  const [job] = await tx
-    .insert(workOrder)
-    .values({
-      ...by,
-      code: "WO-1",
-      title: `${MARK} leak repair`,
-      kind: "leak",
-      assetModule: "gis",
-      assetId: main,
-      areaId: at.dmaAreaId,
-      routeId: at.routeId,
-      location: here,
-      assignedToUserId: at.userId,
-      crewId: at.crewId,
-      dueAt: new Date(Date.now() + 86_400_000),
-    })
-    .returning({ id: workOrder.id });
-  const workOrderId = job!.id;
-  await tx.insert(workOrderAsset).values({ organizationId, workOrderId, module: "gis", assetId: main, role: "primary", addedByUserId: at.userId });
-  await tx.insert(workOrderLogLink).values({ organizationId, workOrderId, logKind: "condition", logId: leakLog!.id });
+  const leak = await asB.workOrders.create({
+    title: `${MARK} leak repair`,
+    kind: "leak",
+    assetId: main.id,
+    areaId: at.dmaAreaId,
+    routeId: at.routeId,
+    location: { latitude: here.lat, longitude: here.lng },
+    assigneeId: at.userId,
+    crewId: at.crewId,
+  });
+  await asB.workOrders.linkLog({ eventId: randomUUID(), workOrderId: leak.id, logKind: "condition", logId: leakLog.log.id });
+  const current = await asB.gis.nodes.byId({ id: valve.id });
+  return {
+    valve: { id: valve.id, versionId: current.versionId },
+    meter: meter.id,
+    pipe: { id: main.id, versionId: (await asB.gis.pipes.byId({ id: main.id })).versionId },
+    structure: { id: chamber.id, versionId: chamber.versionId },
+    connection: { id: connection.id, versionId: connection.versionId },
+    dma: { id: dma.id, versionId: dma.versionId },
+    tier: tier.id,
+    subnetwork: subnetwork.id,
+    conditionLog: leakLog.log.id,
+    valveLog: valveLog.log.id,
+    branch,
+    leakJob: leak.id,
+  };
 }
 
 /**
@@ -287,11 +279,13 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "files.announce": (b) => [
     { id: b.file, subjectKind: "dispute", subjectId: `${MARK}-1`, fileName: "x.jpg", mimeType: "image/jpeg", sizeBytes: 10 },
     { id: randomUUID(), subjectKind: "work_order", subjectId: b.workOrder, fileName: "x.jpg", mimeType: "image/jpeg", sizeBytes: 10 },
+    { id: randomUUID(), subjectKind: "gis_asset", subjectId: b.gis.valve.id, fileName: "x.jpg", mimeType: "image/jpeg", sizeBytes: 10 },
   ],
   "files.confirm": (b) => [{ id: b.file }],
   "files.list": (b) => [
     { subjectKind: "dispute", subjectId: `${MARK}-1` },
     { subjectKind: "work_order", subjectId: b.workOrder },
+    { subjectKind: "gis_asset", subjectId: b.gis.valve.id },
   ],
   "files.remove": (b) => [{ id: b.file }],
   "notifications.list": () => [undefined],
@@ -303,7 +297,7 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "workOrders.kinds": () => [undefined],
   "workOrders.mine": () => [undefined],
   "workOrders.list": (b) => [undefined, { parentId: b.workOrder }, { crewId: b.crew }, { assigneeId: b.member }, { statuses: ["submitted"] }],
-  "workOrders.byId": (b) => [{ id: b.workOrder }],
+  "workOrders.byId": (b) => [{ id: b.workOrder }, { id: b.gis.leakJob }],
   "workOrders.history": (b) => [{ workOrderId: b.workOrder }],
   "workOrders.comments": (b) => [{ workOrderId: b.workOrder }],
   "workOrders.create": (b) => [
@@ -322,7 +316,10 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "workOrders.finalize": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder }],
   "workOrders.addAsset": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder, assetId: randomUUID() }],
   "workOrders.changeSet": (b) => [{ workOrderId: b.workOrder }],
-  "workOrders.linkLog": (b) => [{ eventId: randomUUID(), workOrderId: b.workOrder, logKind: "condition", logId: randomUUID() }],
+  "workOrders.linkLog": (b) => [
+    { eventId: randomUUID(), workOrderId: b.workOrder, logKind: "condition", logId: randomUUID() },
+    { eventId: randomUUID(), workOrderId: b.gis.leakJob, logKind: "condition", logId: b.gis.conditionLog },
+  ],
   "workOrders.comment": (b) => [
     { id: randomUUID(), workOrderId: b.workOrder, body: "A's note" },
     { id: b.comment, workOrderId: b.workOrder, body: "A's note" },
@@ -333,6 +330,105 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "workOrders.crews.archive": (b) => [{ id: b.crew }],
   "workOrders.crews.addMember": (b) => [{ crewId: b.crew, userId: b.member }],
   "workOrders.crews.removeMember": (b) => [{ crewId: b.crew, userId: b.member }],
+  // GIS (Phase 2 W3): A's own calls, and calls aimed at B's assets, branch, logs, DMA, tier and subnetwork.
+  "gis.nodes.list": (b) => [undefined, { branch: b.gis.branch }, { types: ["valve"] }],
+  "gis.nodes.page": (b) => [{}, { branch: b.gis.branch, cursor: b.gis.valve.id }],
+  "gis.nodes.byId": (b) => [{ id: b.gis.valve.id }, { id: b.gis.meter, branch: b.gis.branch }],
+  "gis.nodes.history": (b) => [{ id: b.gis.valve.id }],
+  "gis.nodes.create": (b) => [
+    { type: "junction", name: "A's junction", location: A_HERE },
+    { id: b.gis.valve.id, type: "junction", name: "B's id", location: A_HERE },
+    { type: "valve", name: "In B's chamber", location: A_HERE, isOpen: true, structureId: b.gis.structure.id },
+    { type: "junction", name: "On B's branch", location: A_HERE, branch: b.gis.branch },
+  ],
+  "gis.nodes.update": (b) => [
+    { id: b.gis.valve.id, baseVersionId: b.gis.valve.versionId, patch: { name: "Renamed by A" } },
+    { id: b.gis.valve.id, baseVersionId: b.gis.valve.versionId, branch: "a-branch", patch: { name: "Renamed by A" } },
+  ],
+  "gis.nodes.delete": (b) => [{ id: b.gis.valve.id, baseVersionId: b.gis.valve.versionId }],
+  "gis.nodes.deleted": () => [undefined],
+  "gis.nodes.deleteImpact": (b) => [{ id: b.gis.valve.id }],
+  "gis.nodes.restore": (b) => [{ id: b.gis.valve.id }],
+  "gis.structures.list": (b) => [undefined, { branch: b.gis.branch }],
+  "gis.structures.page": () => [{}],
+  "gis.structures.byId": (b) => [{ id: b.gis.structure.id }],
+  "gis.structures.history": (b) => [{ id: b.gis.structure.id }],
+  "gis.structures.create": (b) => [
+    { type: "vault", name: "A's vault", location: A_HERE },
+    { id: b.gis.structure.id, type: "vault", name: "B's id", location: A_HERE },
+  ],
+  "gis.structures.update": (b) => [{ id: b.gis.structure.id, baseVersionId: b.gis.structure.versionId, patch: { name: "Renamed by A" } }],
+  "gis.structures.delete": (b) => [{ id: b.gis.structure.id, baseVersionId: b.gis.structure.versionId }],
+  "gis.structures.deleted": () => [undefined],
+  "gis.structures.deleteImpact": (b) => [{ id: b.gis.structure.id }],
+  "gis.structures.restore": (b) => [{ id: b.gis.structure.id }],
+  "gis.pipes.list": (b) => [undefined, { branch: b.gis.branch }],
+  "gis.pipes.page": () => [{}],
+  "gis.pipes.byId": (b) => [{ id: b.gis.pipe.id }],
+  "gis.pipes.history": (b) => [{ id: b.gis.pipe.id }],
+  "gis.pipes.create": (b) => [{ fromNodeId: b.gis.meter, toNodeId: b.gis.valve.id, path: [A_HERE, A_THERE], diameterMm: 100 }],
+  "gis.pipes.update": (b) => [{ id: b.gis.pipe.id, baseVersionId: b.gis.pipe.versionId, patch: { diameterMm: 1 } }],
+  "gis.pipes.delete": (b) => [{ id: b.gis.pipe.id, baseVersionId: b.gis.pipe.versionId }],
+  "gis.pipes.deleted": () => [undefined],
+  "gis.pipes.deleteImpact": (b) => [{ id: b.gis.pipe.id }],
+  "gis.pipes.restore": (b) => [{ id: b.gis.pipe.id }],
+  "gis.connections.list": (b) => [undefined, { branch: b.gis.branch }],
+  "gis.connections.byId": (b) => [{ id: b.gis.connection.id }],
+  "gis.connections.create": (b) => [
+    { connectionNumber: "A-SC1", location: A_HERE },
+    { connectionNumber: "A-SC2", location: A_HERE, pipeId: b.gis.pipe.id },
+    { id: b.gis.connection.id, connectionNumber: "A-SC3", location: A_HERE },
+  ],
+  "gis.connections.update": (b) => [{ id: b.gis.connection.id, baseVersionId: b.gis.connection.versionId, patch: { connectionNumber: "A-X" } }],
+  "gis.connections.delete": (b) => [{ id: b.gis.connection.id, baseVersionId: b.gis.connection.versionId }],
+  "gis.connections.deleted": () => [undefined],
+  "gis.connections.deleteImpact": (b) => [{ id: b.gis.connection.id }],
+  "gis.connections.restore": (b) => [{ id: b.gis.connection.id }],
+  "gis.dmas.list": (b) => [undefined, { branch: b.gis.branch }],
+  "gis.dmas.byId": (b) => [{ id: b.gis.dma.id }],
+  "gis.dmas.history": (b) => [{ id: b.gis.dma.id }],
+  "gis.dmas.analysis": (b) => [{ id: b.gis.dma.id }],
+  "gis.dmas.create": (b) => [
+    { areaId: b.gis.dma.id, color: "#112233", tierId: b.gis.tier, inletMeterId: b.gis.meter, ring: A_RING },
+    { areaId: b.scheme, color: "#112233", tierId: b.gis.tier, inletMeterId: b.gis.meter, ring: A_RING },
+  ],
+  "gis.dmas.update": (b) => [{ id: b.gis.dma.id, baseVersionId: b.gis.dma.versionId, patch: { color: "#000000" } }],
+  "gis.dmas.delete": (b) => [{ id: b.gis.dma.id, baseVersionId: b.gis.dma.versionId }],
+  "gis.tiers.list": () => [undefined],
+  "gis.tiers.create": () => [{ name: "A's tier", order: 1 }],
+  "gis.tiers.update": (b) => [{ id: b.gis.tier, patch: { name: "Renamed by A" } }],
+  "gis.tiers.delete": (b) => [{ id: b.gis.tier }],
+  "gis.subnetworks.list": () => [undefined],
+  "gis.subnetworks.byId": (b) => [{ id: b.gis.subnetwork }],
+  "gis.subnetworks.create": (b) => [{ name: "On B's", tierId: b.gis.tier, controllerNodeId: b.gis.meter }],
+  "gis.subnetworks.update": (b) => [{ id: b.gis.subnetwork, patch: { name: "Renamed by A" } }],
+  "gis.subnetworks.delete": (b) => [{ id: b.gis.subnetwork }],
+  "gis.subnetworks.members": (b) => [{ id: b.gis.subnetwork }],
+  "gis.subnetworks.validate": (b) => [{ id: b.gis.subnetwork }],
+  "gis.attachmentRules.list": () => [undefined],
+  "gis.attachmentRules.set": () => [{ nodeType: "hydrant", structureTypes: ["kiosk"] }],
+  "gis.trace.directional": (b) => [{ startNodeId: b.gis.meter, direction: "downstream" }],
+  "gis.trace.isolation": (b) => [{ failedPipeId: b.gis.pipe.id }],
+  "gis.logs.recordCondition": (b) => [
+    { assetId: b.gis.pipe.id, condition: "critical" },
+    { id: b.gis.conditionLog, assetId: b.gis.pipe.id, condition: "critical" },
+  ],
+  "gis.logs.recordValveState": (b) => [
+    { valveId: b.gis.valve.id, isOpen: true },
+    { id: b.gis.valveLog, valveId: b.gis.valve.id, isOpen: true },
+  ],
+  "gis.logs.conditionHistory": (b) => [{ assetId: b.gis.pipe.id }],
+  "gis.logs.valveHistory": (b) => [{ valveId: b.gis.valve.id }],
+  "gis.logs.conditionFeed": () => [undefined, { conditions: ["poor"] }],
+  "gis.logs.valveFeed": () => [undefined],
+  "gis.reconcile.branches": () => [undefined],
+  "gis.reconcile.preview": (b) => [{ branch: b.gis.branch }],
+  "gis.reconcile.post": (b) => [{ branch: b.gis.branch, token: "canary", override: true }],
+  "gis.reconcile.discard": (b) => [{ branch: b.gis.branch }],
+  "gis.reports.summary": () => [undefined],
+  "gis.reports.conditionTrend": () => [undefined],
+  "gis.reports.recentFindings": () => [undefined],
+  "gis.reports.alerts": () => [undefined],
 };
 
 beforeAll(async () => {
@@ -396,11 +492,22 @@ describe("isolation canary", () => {
   it("would notice a leak: the same calls made as tenant B do return B's identifiers", async () => {
     const caller = callerFor(t, ownerB);
     const seen = new Set<string>();
-    for (const path of ["hierarchy.areas", "exceptions.list", "notifications.list", "support.list", "audit.list", "workOrders.list", "workOrders.crews.list"]) {
+    for (const path of [
+      "hierarchy.areas",
+      "exceptions.list",
+      "notifications.list",
+      "support.list",
+      "audit.list",
+      "workOrders.list",
+      "workOrders.crews.list",
+      "gis.nodes.list",
+      "gis.dmas.list",
+      "gis.logs.conditionFeed",
+    ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
     expect(seen).toContain(MARK);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 
