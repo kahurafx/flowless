@@ -1,6 +1,9 @@
-import { organizationModule, recordAudit, withTenant, type Database, type Transaction } from "@flowless/db";
+import { enqueueEvent, organizationModule, recordAudit, withTenant, type Database, type Transaction } from "@flowless/db";
 import { entitlementProblem, isModuleKey, MODULE_KEYS, type ModuleKey } from "@flowless/shared-types";
 import { asc } from "drizzle-orm";
+
+/** Published by `setEntitlements` whenever an organization's licensed modules change. */
+export const ENTITLEMENTS_CHANGED = "entitlements.changed";
 
 /** The modules this organization is licensed for (K-04), in catalogue order. Runs under RLS. */
 export async function loadEntitlements(tx: Transaction): Promise<ModuleKey[]> {
@@ -42,6 +45,9 @@ export async function setEntitlements(
         before,
         after,
       });
+      // Modules set themselves up for a new licence from this (GIS seeds its attachment rules).
+      // Raw enqueue: `entitlementsChanged` (entitlement-events.ts) is its catalogue entry.
+      await enqueueEvent(tx, { organizationId, type: ENTITLEMENTS_CHANGED, payload: { before, after } });
     }
     return after;
   });

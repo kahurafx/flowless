@@ -37,3 +37,29 @@ export const STRUCTURE_ATTACHMENT_RULES: Record<NodeType, readonly StructureType
   meter: ["chamber", "kiosk", "manhole"],
   hydrant: [],
 };
+
+/** Whether a new node of a type must have a photo before it can go live (posted to main). */
+export type PhotoRule = "required" | "optional";
+
+/**
+ * Required where the asset is above ground and worth proving (ported from Majimap). The
+ * server enforces it when a branch is posted; clients use it to prompt for the photo.
+ */
+export const NODE_PHOTO_RULE: Record<NodeType, PhotoRule> = {
+  reservoir: "required",
+  pumping_station: "required",
+  meter: "required",
+  valve: "optional",
+  hydrant: "optional",
+  junction: "optional",
+};
+
+/** A proposed asset this close (metres) to a registered one of the same type is flagged as a possible duplicate. */
+export const DUPLICATE_RADIUS_M = 15;
+
+/**
+ * A member's personal branch for edits made outside a job: `fld-<userId>`. Only its owner
+ * (and members who may post to main) write to it; posting it needs `gis:post`.
+ */
+export const PERSONAL_BRANCH_PREFIX = "fld-";
+export const personalBranch = (userId: string) => `${PERSONAL_BRANCH_PREFIX}${userId.toLowerCase()}`;

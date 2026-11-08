@@ -37,6 +37,12 @@ export interface EvidenceRef {
   assetId: string;
   recordedByUserId: string;
   recordedAt: Date;
+  /**
+   * The branch the record was made on, for modules whose data is branch-versioned (GIS).
+   * A job only takes evidence recorded on its own branch, or on main when it has none.
+   * Absent for modules without branches.
+   */
+  branch?: string;
 }
 
 export interface EvidenceResolver {
