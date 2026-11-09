@@ -149,7 +149,7 @@ const statusOf = (a: Pick<AccountRow, "commercialStatus" | "serviceStatus" | "se
   serviceStatusReason: a.serviceStatusReason,
 });
 
-async function lockAccount(tx: Transaction, viewer: Viewer | null, accountId: string): Promise<AccountRow> {
+export async function lockAccount(tx: Transaction, viewer: Viewer | null, accountId: string): Promise<AccountRow> {
   if (viewer) return findAccount(tx, viewer, { id: accountId }, true);
   const [row] = await tx.select().from(account).where(eq(account.id, accountId)).for("update");
   if (!row) throw notFound("Account");

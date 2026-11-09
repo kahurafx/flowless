@@ -1,20 +1,19 @@
 import type { LatLng, Transaction } from "@flowless/db";
-import { account, relocation, relocationEvent, servicePoint } from "@flowless/db/schema/accounts";
+import { relocation, relocationEvent, servicePoint } from "@flowless/db/schema/accounts";
 import type { RelocationEventKind, RelocationStatus, SurveyFeasibility } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { readSetting } from "../../kernel/config-store";
 import { loadEntitlements } from "../../kernel/entitlement-store";
-import { isUniqueViolation } from "../../kernel/pg-errors";
 import { chargeItemByCode } from "../tariffs";
 import { relocationVisible, type Placement, type Viewer } from "./access";
-import { earlierChange, fingerprintOfChange, logChange, reload } from "./account-changes";
-import type { CommandEnv } from "./commands";
-import { fingerprintOfRequest, toCommandDto } from "./commands";
+import { logChange, reload } from "./account-changes";
+import { commandLog, fingerprintOfRequest, lockAccount, toCommandDto, type CommandEnv } from "./commands";
 import { servicePointRelocated, type JobCompleted } from "./events";
 import { localToday } from "./holders";
+import { claimingId, createdStep, loggedStep } from "./idempotent";
 import { createServicePoint } from "./service-points";
-import { assertPlacementInScope, findAccount, findServicePoint, notFound, toServicePointDto, validatePlacement } from "./service";
+import { assertPlacementInScope, findAccount, findServicePoint, notFound, toServicePointDto, validatePlacement, type AccountRow } from "./service";
 import { applicationSetting } from "./settings";
 
 /*
@@ -93,13 +92,26 @@ export const relocationEventsOf = (tx: Transaction, relocationId: string) =>
 
 const isOpen = (status: RelocationStatus) => status === "requested" || status === "surveyed";
 
+/** The relocation step log's idempotency (replay for the same relocation, kind, actor and request). */
+const relocationLog = loggedStep<RelocationEventRow>({
+  find: async (tx, id) => (await tx.select().from(relocationEvent).where(eq(relocationEvent.id, id)))[0],
+  parentOf: (e) => e.relocationId,
+});
+
+/** The idempotency of `request`: a repeat of the creator's own id replays. */
+const relocationCreation = createdStep<RelocationRow>({
+  find: async (tx, id) => (await tx.select().from(relocation).where(eq(relocation.id, id)))[0],
+  creatorOf: (r) => r.requestedByUserId,
+});
+
+/** One row of the relocation's step log. Not every kind moves the status: `work_recorded` rows (and a `survey_recorded` that leaves the status where it was) have from = to. */
 async function logEvent(
   env: CommandEnv,
   relocationId: string,
   e: { id?: string | undefined; kind: RelocationEventKind; from: RelocationStatus | null; to: RelocationStatus; reason: string; payload?: Record<string, unknown>; fingerprint?: string | undefined },
 ) {
-  try {
-    const [row] = await env.tx
+  const [row] = await claimingId(() =>
+    env.tx
       .insert(relocationEvent)
       .values({
         ...(e.id ? { id: e.id } : {}),
@@ -114,28 +126,45 @@ async function logEvent(
         payload: e.payload ?? {},
         fingerprint: e.fingerprint ?? null,
       })
-      .returning();
-    return row!;
-  } catch (error) {
-    if (isUniqueViolation(error)) throw new TRPCError({ code: "CONFLICT", message: "That id is already in use" });
-    throw error;
-  }
+      .returning(),
+  );
+  return row!;
 }
 
-/** The event this id belongs to, or null if unused; CONFLICT when it was a different request. */
-async function earlierEvent(env: CommandEnv, id: string | undefined, expected: { relocationId: string; kind: RelocationEventKind; fingerprint: string }) {
-  if (!id) return null;
-  const [earlier] = await env.tx.select().from(relocationEvent).where(eq(relocationEvent.id, id));
-  if (!earlier) return null;
-  if (
-    earlier.relocationId !== expected.relocationId ||
-    earlier.kind !== expected.kind ||
-    earlier.actorUserId !== env.actor.userId ||
-    earlier.fingerprint !== expected.fingerprint
-  ) {
-    throw new TRPCError({ code: "CONFLICT", message: "That id was already used for a different request" });
-  }
-  return earlier;
+/**
+ * Locks the relocation's account, then the relocation, in that order (the order every use
+ * case takes, so two of them on one relocation take turns). A hidden relocation or account
+ * is NOT_FOUND; the system (`viewer` null) sees everything.
+ */
+async function lockedRelocation(env: CommandEnv, viewer: Viewer | null, relocationId: string): Promise<{ row: RelocationRow; account: AccountRow }> {
+  const unlocked = await findRelocation(env.tx, viewer, relocationId);
+  const owner = await lockAccount(env.tx, viewer, unlocked.accountId);
+  return { row: await findRelocation(env.tx, viewer, relocationId, true), account: owner };
+}
+
+/**
+ * A step on an open relocation that is logged in `relocation_event` and replays by its id:
+ * lock, replay a repeat, refuse a closed relocation, then `apply` changes and audits it.
+ */
+async function openRelocationStep(
+  env: CommandEnv,
+  viewer: Viewer | null,
+  req: { id?: string | undefined; relocationId: string },
+  step: { kind: RelocationEventKind; fingerprint: string; apply(row: RelocationRow): Promise<RelocationRow> },
+) {
+  const { row } = await lockedRelocation(env, viewer, req.relocationId);
+  return relocationLog.once(
+    env,
+    req.id,
+    { parentId: row.id, kind: step.kind, fingerprint: step.fingerprint },
+    {
+      replay: () => ({ relocation: toRelocationDto(row) }),
+      run: async () => {
+        if (!isOpen(row.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${row.status}` });
+        return { relocation: toRelocationDto(await step.apply(row)) };
+      },
+    },
+  );
 }
 
 const placeOf = (r: RelocationRow): Placement => ({ schemeId: r.toSchemeId, zoneId: r.toZoneId, dmaId: r.toDmaId, routeId: r.toRouteId });
@@ -153,16 +182,16 @@ export interface NewRelocation {
   feeItemCodes?: string[] | undefined;
 }
 
-export async function requestRelocation(env: CommandEnv, viewer: Viewer, input: NewRelocation): Promise<{ relocation: RelocationDto; replayed: boolean }> {
+export function requestRelocation(env: CommandEnv, viewer: Viewer, input: NewRelocation): Promise<{ relocation: RelocationDto; replayed: boolean }> {
+  return relocationCreation.once(env, input.id, undefined, {
+    replay: (existing) => ({ relocation: toRelocationDto(existing) }),
+    run: () => applyRequest(env, viewer, input),
+  });
+}
+
+async function applyRequest(env: CommandEnv, viewer: Viewer, input: NewRelocation) {
   const { tx, organizationId } = env;
   const userId = env.actor.userId!;
-  if (input.id) {
-    const [existing] = await tx.select().from(relocation).where(eq(relocation.id, input.id));
-    if (existing) {
-      if (existing.requestedByUserId !== userId) throw new TRPCError({ code: "CONFLICT", message: "That id is already in use" });
-      return { relocation: toRelocationDto(existing), replayed: true };
-    }
-  }
   const acct = await findAccount(tx, viewer, { id: input.accountId }, true);
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   const from = await findServicePoint(tx, viewer, input.fromServicePointId);
@@ -181,28 +210,28 @@ export async function requestRelocation(env: CommandEnv, viewer: Viewer, input: 
       }
     }
   }
-  const [row] = await tx
-    .insert(relocation)
-    .values({
-      ...(input.id ? { id: input.id } : {}),
-      organizationId,
-      accountId: acct.id,
-      fromServicePointId: from.id,
-      toAddress: input.to.address.trim().replace(/\s+/g, " "),
-      toLocation: input.to.location ?? null,
-      toSchemeId: place.schemeId,
-      toZoneId: place.zoneId,
-      toDmaId: place.dmaId,
-      toRouteId: place.routeId,
-      reason: input.reason.trim(),
-      feeItemCodes: codes,
-      requestedByUserId: userId,
-    })
-    .returning()
-    .catch((error: unknown) => {
-      if (isUniqueViolation(error)) throw new TRPCError({ code: "CONFLICT", message: "This service point already has a relocation under way, or that id is in use" });
-      throw error;
-    });
+  const [row] = await claimingId(
+    () =>
+      tx
+        .insert(relocation)
+        .values({
+          ...(input.id ? { id: input.id } : {}),
+          organizationId,
+          accountId: acct.id,
+          fromServicePointId: from.id,
+          toAddress: input.to.address.trim().replace(/\s+/g, " "),
+          toLocation: input.to.location ?? null,
+          toSchemeId: place.schemeId,
+          toZoneId: place.zoneId,
+          toDmaId: place.dmaId,
+          toRouteId: place.routeId,
+          reason: input.reason.trim(),
+          feeItemCodes: codes,
+          requestedByUserId: userId,
+        })
+        .returning(),
+    "This service point already has a relocation under way, or that id is in use",
+  );
   await logEvent(env, row!.id, { kind: "requested", from: null, to: "requested", reason: input.reason, payload: { feeItemCodes: codes } });
   await env.audit({
     action: "accounts.relocation_request",
@@ -211,96 +240,88 @@ export async function requestRelocation(env: CommandEnv, viewer: Viewer, input: 
     after: { accountId: acct.id, number: acct.number, fromServicePointId: from.id, toAddress: row!.toAddress, feeItemCodes: codes, ...place },
     reason: input.reason.trim(),
   });
-  return { relocation: toRelocationDto(row!), replayed: false };
+  return { relocation: toRelocationDto(row!) };
 }
 
 /* ---------- survey and work ---------- */
 
-export async function recordRelocationSurvey(
+export function recordRelocationSurvey(
   env: CommandEnv,
   viewer: Viewer,
   req: { id?: string | undefined; relocationId: string; feasibility: SurveyFeasibility; findings: string },
 ) {
-  const { tx } = env;
-  const before = await findRelocation(tx, viewer, req.relocationId);
-  await findAccount(tx, viewer, { id: before.accountId }, true);
-  const row0 = await findRelocation(tx, viewer, req.relocationId, true);
   const fingerprint = fingerprintOfRequest({ kind: "survey_recorded", ...req });
-  const earlier = await earlierEvent(env, req.id, { relocationId: row0.id, kind: "survey_recorded", fingerprint });
-  if (earlier) return { relocation: toRelocationDto(row0), replayed: true };
-  if (!isOpen(row0.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${row0.status}` });
-  const to: RelocationStatus = req.feasibility === "feasible" ? "surveyed" : "requested";
-  await logEvent(env, row0.id, {
-    id: req.id,
+  return openRelocationStep(env, viewer, req, {
     kind: "survey_recorded",
-    from: row0.status,
-    to,
-    reason: `Survey recorded: ${req.feasibility.replace("_", " ")}`,
-    payload: { feasibility: req.feasibility, findings: req.findings },
     fingerprint,
+    async apply(before) {
+      const to: RelocationStatus = req.feasibility === "feasible" ? "surveyed" : "requested";
+      await logEvent(env, before.id, {
+        id: req.id,
+        kind: "survey_recorded",
+        from: before.status,
+        to,
+        reason: `Survey recorded: ${req.feasibility.replace("_", " ")}`,
+        payload: { feasibility: req.feasibility, findings: req.findings },
+        fingerprint,
+      });
+      const [row] = await env.tx
+        .update(relocation)
+        .set({ surveyFeasibility: req.feasibility, surveyFindings: req.findings.trim(), status: to, updatedAt: new Date() })
+        .where(eq(relocation.id, before.id))
+        .returning();
+      await env.audit({
+        action: "accounts.relocation_survey",
+        subjectType: "relocation",
+        subjectId: before.id,
+        before: { status: before.status },
+        after: { status: to, feasibility: req.feasibility },
+        reason: req.findings.trim(),
+      });
+      return row!;
+    },
   });
-  const [row] = await tx
-    .update(relocation)
-    .set({ surveyFeasibility: req.feasibility, surveyFindings: req.findings.trim(), status: to, updatedAt: new Date() })
-    .where(eq(relocation.id, row0.id))
-    .returning();
-  await env.audit({
-    action: "accounts.relocation_survey",
-    subjectType: "relocation",
-    subjectId: row0.id,
-    before: { status: row0.status },
-    after: { status: to, feasibility: req.feasibility },
-    reason: req.findings.trim(),
-  });
-  return { relocation: toRelocationDto(row!), replayed: false };
 }
 
 /** Records the readings and the job on an open relocation without changing its status: from the office, or from a completed `relocation` job. */
-export async function recordRelocationWork(
+export function recordRelocationWork(
   env: CommandEnv,
   viewer: Viewer | null,
   req: { id?: string | undefined; relocationId: string; finalReading?: string | undefined; initialReading?: string | undefined; workOrderId?: string | undefined },
 ) {
-  const { tx } = env;
-  const first = await findRelocation(tx, viewer, req.relocationId);
-  await findAccountLocked(env, viewer, first.accountId);
-  const row0 = await findRelocation(tx, viewer, req.relocationId, true);
   const fingerprint = fingerprintOfRequest({ kind: "work_recorded", ...req });
-  const earlier = await earlierEvent(env, req.id, { relocationId: row0.id, kind: "work_recorded", fingerprint });
-  if (earlier) return { relocation: toRelocationDto(row0), replayed: true };
-  if (!isOpen(row0.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${row0.status}` });
-  const [row] = await tx
-    .update(relocation)
-    .set({
-      finalReading: req.finalReading?.trim() || row0.finalReading,
-      initialReading: req.initialReading?.trim() || row0.initialReading,
-      workOrderId: req.workOrderId ?? row0.workOrderId,
-      updatedAt: new Date(),
-    })
-    .where(eq(relocation.id, row0.id))
-    .returning();
-  await logEvent(env, row0.id, {
-    id: req.id,
+  return openRelocationStep(env, viewer, req, {
     kind: "work_recorded",
-    from: row0.status,
-    to: row0.status,
-    reason: req.workOrderId ? "Relocation job completed" : "Readings recorded",
-    payload: { finalReading: req.finalReading ?? null, initialReading: req.initialReading ?? null, workOrderId: req.workOrderId ?? null },
     fingerprint,
+    async apply(before) {
+      const [row] = await env.tx
+        .update(relocation)
+        .set({
+          finalReading: req.finalReading?.trim() || before.finalReading,
+          initialReading: req.initialReading?.trim() || before.initialReading,
+          workOrderId: req.workOrderId ?? before.workOrderId,
+          updatedAt: new Date(),
+        })
+        .where(eq(relocation.id, before.id))
+        .returning();
+      await logEvent(env, before.id, {
+        id: req.id,
+        kind: "work_recorded",
+        from: before.status,
+        to: before.status,
+        reason: req.workOrderId ? "Relocation job completed" : "Readings recorded",
+        payload: { finalReading: req.finalReading ?? null, initialReading: req.initialReading ?? null, workOrderId: req.workOrderId ?? null },
+        fingerprint,
+      });
+      await env.audit({
+        action: "accounts.relocation_work",
+        subjectType: "relocation",
+        subjectId: before.id,
+        after: { finalReading: row!.finalReading, initialReading: row!.initialReading, workOrderId: row!.workOrderId },
+      });
+      return row!;
+    },
   });
-  await env.audit({
-    action: "accounts.relocation_work",
-    subjectType: "relocation",
-    subjectId: row0.id,
-    after: { finalReading: row!.finalReading, initialReading: row!.initialReading, workOrderId: row!.workOrderId },
-  });
-  return { relocation: toRelocationDto(row!), replayed: false };
-}
-
-async function findAccountLocked(env: CommandEnv, viewer: Viewer | null, accountId: string) {
-  if (viewer) return findAccount(env.tx, viewer, { id: accountId }, true);
-  const [row] = await env.tx.select().from(account).where(eq(account.id, accountId)).for("update");
-  return row!;
 }
 
 /**
@@ -328,17 +349,32 @@ export async function completeRelocation(
   viewer: Viewer,
   req: { id?: string | undefined; relocationId: string; reason?: string | undefined; finalReading?: string | undefined; initialReading?: string | undefined },
 ) {
+  const { row: before, account: acct } = await lockedRelocation(env, viewer, req.relocationId);
+  const fingerprint = fingerprintOfRequest({ kind: "relocate", relocationId: req.relocationId, reason: req.reason, finalReading: req.finalReading, initialReading: req.initialReading });
+  return commandLog.once(
+    env,
+    req.id,
+    { parentId: acct.id, kind: "relocate", fingerprint },
+    {
+      replay: async (earlier) => {
+        const done = before.newServicePointId ? await env.tx.select().from(servicePoint).where(eq(servicePoint.id, before.newServicePointId)) : [];
+        return { relocation: toRelocationDto(before), servicePoint: done[0] ? toServicePointDto(done[0]) : null, command: toCommandDto(earlier) };
+      },
+      run: () => applyCompletion(env, viewer, before, acct, req, fingerprint),
+    },
+  );
+}
+
+async function applyCompletion(
+  env: CommandEnv,
+  viewer: Viewer,
+  before: RelocationRow,
+  acct: AccountRow,
+  req: { id?: string | undefined; reason?: string | undefined; finalReading?: string | undefined; initialReading?: string | undefined },
+  fingerprint: string,
+) {
   const { tx, organizationId } = env;
   const userId = env.actor.userId!;
-  const first = await findRelocation(tx, viewer, req.relocationId);
-  const acct = await findAccount(tx, viewer, { id: first.accountId }, true);
-  const before = await findRelocation(tx, viewer, req.relocationId, true);
-  const fingerprint = fingerprintOfChange({ kind: "relocate", relocationId: req.relocationId, reason: req.reason, finalReading: req.finalReading, initialReading: req.initialReading });
-  const earlier = await earlierChange(env, req.id, { accountId: acct.id, kind: "relocate", fingerprint });
-  if (earlier) {
-    const done = before.newServicePointId ? await tx.select().from(servicePoint).where(eq(servicePoint.id, before.newServicePointId)) : [];
-    return { relocation: toRelocationDto(before), servicePoint: done[0] ? toServicePointDto(done[0]) : null, command: toCommandDto(earlier), replayed: true };
-  }
   if (!isOpen(before.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${before.status}` });
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   const config = (await readSetting(tx, applicationSetting)).value;
@@ -413,20 +449,19 @@ export async function completeRelocation(
     actorUserId: userId,
     occurredAt: command.occurredAt.toISOString(),
   });
-  return { relocation: toRelocationDto(done!), servicePoint: fresh, command: toCommandDto(command), replayed: false };
+  return { relocation: toRelocationDto(done!), servicePoint: fresh, command: toCommandDto(command) };
 }
 
-export async function cancelRelocation(env: CommandEnv, viewer: Viewer, req: { id?: string | undefined; relocationId: string; reason: string }) {
-  const { tx } = env;
-  const first = await findRelocation(tx, viewer, req.relocationId);
-  await findAccount(tx, viewer, { id: first.accountId }, true);
-  const before = await findRelocation(tx, viewer, req.relocationId, true);
+export function cancelRelocation(env: CommandEnv, viewer: Viewer, req: { id?: string | undefined; relocationId: string; reason: string }) {
   const fingerprint = fingerprintOfRequest({ kind: "cancelled", ...req });
-  const earlier = await earlierEvent(env, req.id, { relocationId: before.id, kind: "cancelled", fingerprint });
-  if (earlier) return { relocation: toRelocationDto(before), replayed: true };
-  if (!isOpen(before.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${before.status}` });
-  await logEvent(env, before.id, { id: req.id, kind: "cancelled", from: before.status, to: "cancelled", reason: req.reason, fingerprint });
-  const [row] = await tx.update(relocation).set({ status: "cancelled", updatedAt: new Date() }).where(eq(relocation.id, before.id)).returning();
-  await env.audit({ action: "accounts.relocation_cancel", subjectType: "relocation", subjectId: before.id, before: { status: before.status }, after: { status: "cancelled" }, reason: req.reason.trim() });
-  return { relocation: toRelocationDto(row!), replayed: false };
+  return openRelocationStep(env, viewer, req, {
+    kind: "cancelled",
+    fingerprint,
+    async apply(before) {
+      await logEvent(env, before.id, { id: req.id, kind: "cancelled", from: before.status, to: "cancelled", reason: req.reason, fingerprint });
+      const [row] = await env.tx.update(relocation).set({ status: "cancelled", updatedAt: new Date() }).where(eq(relocation.id, before.id)).returning();
+      await env.audit({ action: "accounts.relocation_cancel", subjectType: "relocation", subjectId: before.id, before: { status: before.status }, after: { status: "cancelled" }, reason: req.reason.trim() });
+      return row!;
+    },
+  });
 }

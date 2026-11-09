@@ -4,13 +4,13 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Viewer } from "./access";
-import { earlierChange, fingerprintOfChange, logChange, reload } from "./account-changes";
-import { runCommand, toCommandDto, type CommandEnv } from "./commands";
+import { logChange, reload } from "./account-changes";
+import { commandLog, fingerprintOfRequest, runCommand, toCommandDto, type CommandEnv } from "./commands";
 import { createCustomer, type NewCustomer } from "./customers";
 import { accountSucceeded } from "./events";
 import { localToday } from "./holders";
 import { openAccount } from "./open-account";
-import { findAccount, findCustomer, presentAccounts } from "./service";
+import { findAccount, findCustomer, presentAccount, type AccountRow } from "./service";
 import { handOverReadings, transferBalance } from "./sources";
 
 /*
@@ -51,17 +51,27 @@ export interface SucceedRequest {
 }
 
 export async function succeedAccount(env: CommandEnv, viewer: Viewer, req: SucceedRequest) {
+  const { tx } = env;
+  const old = await findAccount(tx, viewer, { id: req.accountId }, true);
+  const fingerprint = fingerprintOfRequest({ kind: "succeed", ...req });
+  return commandLog.once(
+    env,
+    req.id,
+    { parentId: old.id, kind: "succeed", fingerprint },
+    {
+      replay: async (earlier) => {
+        const { successorAccountId } = earlier.payload as { successorAccountId: string };
+        const [successor] = await tx.select().from(account).where(eq(account.id, successorAccountId));
+        return { command: toCommandDto(earlier), predecessor: await presentAccount(tx, old), successor: await presentAccount(tx, successor!) };
+      },
+      run: () => applySuccession(env, viewer, old, req, fingerprint),
+    },
+  );
+}
+
+async function applySuccession(env: CommandEnv, viewer: Viewer, old: AccountRow, req: SucceedRequest, fingerprint: string) {
   const { tx, organizationId } = env;
   const userId = env.actor.userId!;
-  const old = await findAccount(tx, viewer, { id: req.accountId }, true);
-  const fingerprint = fingerprintOfChange({ kind: "succeed", ...req });
-  const earlier = await earlierChange(env, req.id, { accountId: old.id, kind: "succeed", fingerprint });
-  if (earlier) {
-    const payload = earlier.payload as { successorAccountId: string };
-    const [successor] = await tx.select().from(account).where(eq(account.id, payload.successorAccountId));
-    return { command: toCommandDto(earlier), predecessor: (await presentAccounts(tx, [old]))[0]!, successor: (await presentAccounts(tx, [successor!]))[0]!, replayed: true };
-  }
-
   if (old.commercialStatus !== "ACTIVE" && old.commercialStatus !== "DORMANT") {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Only an active or dormant account has a successor; this one is ${old.commercialStatus.toLowerCase().replace("_", " ")}` });
   }
@@ -94,7 +104,7 @@ export async function succeedAccount(env: CommandEnv, viewer: Viewer, req: Succe
     kind: "succeed",
     reason: req.reason,
     payload: { role: "successor", predecessorAccountId: old.id, predecessorNumber: old.number, basis: req.basis },
-    fingerprint: fingerprintOfChange({ kind: "succeed", role: "successor", predecessorAccountId: old.id }),
+    fingerprint: fingerprintOfRequest({ kind: "succeed", role: "successor", predecessorAccountId: old.id }),
   });
   await env.tx.update(account).set({ statusCommandId: arrival.id }).where(eq(account.id, successor.id));
 
@@ -168,12 +178,9 @@ export async function succeedAccount(env: CommandEnv, viewer: Viewer, req: Succe
     occurredAt: command.occurredAt.toISOString(),
   });
 
-  const [predecessorNow] = await tx.select().from(account).where(eq(account.id, old.id));
-  const [successorNow] = await tx.select().from(account).where(eq(account.id, successor.id));
   return {
     command: toCommandDto(command),
-    predecessor: (await presentAccounts(tx, [predecessorNow!]))[0]!,
-    successor: (await presentAccounts(tx, [successorNow!]))[0]!,
-    replayed: false,
+    predecessor: await presentAccount(tx, await reload(env, old.id)),
+    successor: await presentAccount(tx, await reload(env, successor.id)),
   };
 }

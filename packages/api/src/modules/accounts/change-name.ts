@@ -3,12 +3,12 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Viewer } from "./access";
-import { earlierChange, fingerprintOfChange, logChange, reload } from "./account-changes";
-import { toCommandDto, type CommandEnv } from "./commands";
+import { logChange, reload } from "./account-changes";
+import { commandLog, fingerprintOfRequest, toCommandDto, type CommandEnv } from "./commands";
 import { createCustomer, type NewCustomer } from "./customers";
 import { holderChanged } from "./events";
 import { currentHolder, holdersOf, insertHolder, localToday } from "./holders";
-import { findAccount, findCustomer, presentAccounts } from "./service";
+import { findAccount, findCustomer, presentAccount, type AccountRow } from "./service";
 import { handOverReadings } from "./sources";
 
 /*
@@ -40,13 +40,22 @@ export interface ChangeNameRequest {
 }
 
 export async function changeName(env: CommandEnv, viewer: Viewer, req: ChangeNameRequest) {
+  const acct = await findAccount(env.tx, viewer, { id: req.accountId }, true);
+  const fingerprint = fingerprintOfRequest({ kind: "change_name", ...req });
+  return commandLog.once(
+    env,
+    req.id,
+    { parentId: acct.id, kind: "change_name", fingerprint },
+    {
+      replay: async (earlier) => ({ command: toCommandDto(earlier), account: await presentAccount(env.tx, acct) }),
+      run: () => applyChangeName(env, viewer, acct, req, fingerprint),
+    },
+  );
+}
+
+async function applyChangeName(env: CommandEnv, viewer: Viewer, acct: AccountRow, req: ChangeNameRequest, fingerprint: string) {
   const { tx, organizationId } = env;
   const userId = env.actor.userId!;
-  const acct = await findAccount(tx, viewer, { id: req.accountId }, true);
-  const fingerprint = fingerprintOfChange({ kind: "change_name", ...req });
-  const earlier = await earlierChange(env, req.id, { accountId: acct.id, kind: "change_name", fingerprint });
-  if (earlier) return { command: toCommandDto(earlier), account: (await presentAccounts(tx, [acct]))[0]!, replayed: true };
-
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   if ((req.customerId === undefined) === (req.newCustomer === undefined)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Name the new holder: an existing customer or new customer details" });
@@ -113,7 +122,7 @@ export async function changeName(env: CommandEnv, viewer: Viewer, req: ChangeNam
     actorUserId: userId,
     occurredAt: command.occurredAt.toISOString(),
   });
-  return { command: toCommandDto(command), account: (await presentAccounts(tx, [await reload(env, acct.id)]))[0]!, replayed: false };
+  return { command: toCommandDto(command), account: await presentAccount(tx, await reload(env, acct.id)) };
 }
 
 /** The account's holders over time, oldest first. */
