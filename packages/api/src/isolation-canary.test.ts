@@ -1,6 +1,6 @@
 import { approvalRequest, enqueueEvent, file, job, withTenant } from "@flowless/db";
 import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/testing";
-import { MODULE_KEYS } from "@flowless/shared-types";
+import { DATA_QUALITY_RULE_KEYS, MODULE_KEYS } from "@flowless/shared-types";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import superjson from "superjson";
@@ -691,6 +691,14 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "accounts.relocations.cancel": (b) => [{ relocationId: b.accounts.relocation, reason: "A tries" }],
   "accounts.relocations.get": (b) => [{ id: b.accounts.relocation }],
   "accounts.relocations.list": (b) => [undefined, { accountId: b.accounts.account }, { after: b.accounts.relocation }, { status: "requested" }],
+  "accounts.dataQuality.rules": () => [undefined],
+  "accounts.dataQuality.summary": () => [undefined],
+  "accounts.dataQuality.findings": (b) => [
+    ...DATA_QUALITY_RULE_KEYS.map((rule) => ({ rule, limit: 200 })),
+    { rule: "account_no_phone", after: b.accounts.accountNumber },
+    { rule: "zone_equals_route", after: b.accounts.accountNumber, limit: 1 },
+  ],
+  "accounts.dataQuality.customerDuplicates": (b) => [undefined, { limit: 100 }, { after: { matchedOn: "phone", key: b.accounts.accountNumber } }],
   "tariffs.list": () => [undefined, { active: true }, { type: "increasing_block" }],
   "tariffs.get": (b) => [{ id: b.tariffs.tariff }],
   "tariffs.create": () => [
@@ -818,7 +826,12 @@ describe("isolation canary", () => {
     ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
+    // The data-quality findings are tenant data too: as B they do name B's own account and customer.
+    for (const rule of DATA_QUALITY_RULE_KEYS.filter((r) => r !== "active_metered_no_meter")) {
+      for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, "accounts.dataQuality.findings", { rule, limit: 200 })).json), null)) seen.add(id);
+    }
     expect(seen).toContain(MARK);
+    expect(seen).toContain(b.accounts.customer);
     expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });

@@ -1,5 +1,5 @@
 import { startTestDatabase, tenants, type TestDatabase } from "@flowless/db/testing";
-import { MODULE_KEYS, moduleMatrix, type ModuleKey } from "@flowless/shared-types";
+import { DATA_QUALITY_RULE_KEYS, MODULE_KEYS, moduleMatrix, type ModuleKey } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { escalateApprovals } from "./kernel/approval-store";
@@ -8,7 +8,7 @@ import { setEntitlements } from "./kernel/entitlement-store";
 import { dispatchOutbox } from "./kernel/events";
 import { jobs } from "./kernel/job-registry";
 import { runJobs } from "./kernel/jobs";
-import { sweepStaleAccounts } from "./modules/accounts";
+import { sweepDataQuality, sweepStaleAccounts } from "./modules/accounts";
 import { sweepOverdueWorkOrders } from "./modules/work-orders";
 import { addMember, callerFor, callPath, procedures, type Member } from "./test-support";
 
@@ -45,6 +45,14 @@ let owner: Member;
 beforeAll(async () => {
   t = await startTestDatabase();
   owner = await addMember(t, tenants.a.id, "owner");
+  // Something for the data-quality sweep to find in every combination where Accounts is licensed: an account with no phone,
+  // no service point and no category, with every rule raising exceptions.
+  await setEntitlements(t.app, tenants.a.id, ["accounts"]);
+  const caller = callerFor(t, owner);
+  const customer = await caller.accounts.customers.create({ type: "person", name: "Matrix customer" });
+  await caller.accounts.create({ customerId: customer.id });
+  const rules = Object.fromEntries(DATA_QUALITY_RULE_KEYS.map((rule) => [rule, { raiseExceptions: true }]));
+  await caller.config.set({ key: "accounts.data_quality", value: { rules }, expectedVersion: 0 });
 });
 afterAll(() => t?.stop());
 
@@ -86,6 +94,7 @@ describe("module combination matrix", () => {
       await expect(escalateApprovals(t.app)).resolves.toBeTypeOf("number");
       await expect(sweepOverdueWorkOrders(t.app)).resolves.toBeTypeOf("number");
       await expect(sweepStaleAccounts(t.app)).resolves.toBeTypeOf("number");
+      await expect(sweepDataQuality(t.app)).resolves.toBeTypeOf("number");
     });
   }
 });
