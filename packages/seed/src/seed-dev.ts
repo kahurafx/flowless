@@ -5,7 +5,8 @@ import { consumers, createCaller, drainOutbox, setEntitlements } from "@flowless
 import { connectAuth } from "@flowless/auth";
 import { DEV_ORGANIZATIONS, DEV_PASSWORD, seedDevIdentities } from "@flowless/auth/dev-seed";
 import { createDatabase } from "@flowless/db";
-import { ORGANIZATION_CODE_HEADER, type AreaLevel, type ModuleKey } from "@flowless/shared-types";
+import { ORGANIZATION_CODE_HEADER, qualifiedUsername, type AreaLevel, type ModuleKey } from "@flowless/shared-types";
+import { seedAccountsData } from "./seed-accounts";
 import { seedJobs, seedRuiruNetwork } from "./seed-network";
 
 const authUrl = process.env.DATABASE_AUTH_URL;
@@ -77,6 +78,22 @@ await seedDevIdentities(authUrl);
 
 const identity = connectAuth(authUrl);
 const database = createDatabase(appUrl);
+// Only to backdate the stale accounts in seed-accounts.ts; without it that one step is skipped.
+const adminUrl = process.env.DATABASE_ADMIN_URL;
+const admin = adminUrl ? createDatabase(adminUrl) : null;
+
+/** Signs in the way the app does (organization code header, then email or the code-qualified username). */
+async function signIn(code: string, who: { email: string } | { username: string }) {
+  const orgHeader = new Headers({ [ORGANIZATION_CODE_HEADER]: code });
+  const { headers: signedIn } =
+    "email" in who
+      ? await identity.auth.api.signInEmail({ body: { email: who.email, password: DEV_PASSWORD }, headers: orgHeader, returnHeaders: true })
+      : await identity.auth.api.signInUsername({ body: { username: qualifiedUsername(code, who.username), password: DEV_PASSWORD }, headers: orgHeader, returnHeaders: true });
+  const headers = new Headers({ cookie: signedIn.getSetCookie().map((c) => c.split(";")[0]).join("; ") });
+  const caller = await identity.getCaller(headers);
+  if (!caller?.member) throw new Error(`Could not sign in as ${"email" in who ? who.email : who.username}`);
+  return { headers, caller };
+}
 try {
   // Onboarding publishes organization.created; deliver it now (the worker would) so new
   // organizations get their settings before the API is used.
@@ -87,15 +104,8 @@ try {
     if (!plan) continue;
 
     // Act as the owner, signed in the way the app signs in.
-    const { headers: signedIn } = await identity.auth.api.signInEmail({
-      body: { email: org.owner.email, password: DEV_PASSWORD },
-      headers: new Headers({ [ORGANIZATION_CODE_HEADER]: org.code }),
-      returnHeaders: true,
-    });
-    const headers = new Headers({ cookie: signedIn.getSetCookie().map((c) => c.split(";")[0]).join("; ") });
-    const caller = await identity.getCaller(headers);
-    if (!caller?.member) throw new Error(`Could not sign in as ${org.owner.email}`);
-    const organizationId = caller.member.organizationId;
+    const { headers, caller } = await signIn(org.code, { email: org.owner.email });
+    const organizationId = caller.member!.organizationId;
     const api = createCaller({ db: database.db, session: caller });
 
     // Licences are set by Flowless, never by the tenant, so there is no procedure for this.
@@ -144,6 +154,25 @@ try {
       await seedRuiruNetwork(api, areas);
       await seedJobs(api, areas, members.map((m) => ({ id: m.userId, who: m.user.email.split("@")[0] === "wanjiru" ? m.user.email : m.user.email.split("@")[0]! })));
     }
+
+    // Tariffs and Accounts (Phase 3), after the network so service points can name its connections.
+    if (plan.modules.includes("accounts") && plan.modules.includes("tariffs") && org.code === "majisafi") {
+      await drainOutbox(database.db, consumers);
+      const clerk = await signIn(org.code, { username: "baraka" });
+      const outcome = await seedAccountsData({
+        api,
+        clerk: createCaller({ db: database.db, session: clerk.caller }),
+        technicianId: members.find((m) => m.user.email.startsWith("juma@"))?.userId ?? null,
+        areas,
+        routes,
+        db: database.db,
+        drain: () => drainOutbox(database.db, consumers),
+        admin: admin?.db ?? null,
+      });
+      console.log("Accounts seed: %d stale and %d data-quality exceptions raised this run", outcome.staleRaised, outcome.dataQualityRaised);
+    }
+    // Let whatever the seed published (approvals, status changes) settle, as the worker would.
+    await drainOutbox(database.db, consumers);
   }
 
   console.log("Dev sign-in (password: %s):", DEV_PASSWORD);
@@ -159,5 +188,6 @@ try {
   }
 } finally {
   await identity.close();
+  await admin?.close();
   await database.close();
 }
