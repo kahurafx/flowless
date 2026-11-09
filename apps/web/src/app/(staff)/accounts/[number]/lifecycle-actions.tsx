@@ -7,6 +7,7 @@ import { useState } from "react";
 import { ActionDialog } from "@/components/action-dialog";
 import { CustomerChooser } from "@/components/accounts/customer-chooser";
 import { PlaceFields } from "@/components/accounts/place-fields";
+import { NoteField, ReasonField, ReasonFields, useReasonForm } from "@/components/accounts/reason-form";
 import { FieldSelect } from "@/components/field-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -16,31 +17,10 @@ import type { AccountPage } from "@/data/accounts";
 import { customerChoiceInput, customerChoiceProblem, emptyPlace, nextDay, placeFromState, type CustomerChoice, type PlaceState } from "@/lib/account-forms";
 import { DISCONNECT_REASONS, successionBasisLabel, WRITE_OFF_REASONS } from "@/lib/account-labels";
 import { lifecycleActionsFor, type LifecycleAction } from "@/lib/account-lifecycle";
+import { optionalText } from "@/lib/optional-text";
 import { changeNameAction, requestRelocationAction, requestWriteOffAction, runLifecycle, succeedAction } from "../actions";
 
-/** A client-minted id, fresh for each opening of a dialog: a retried submit replays, a new attempt acts. */
-function useMintedId() {
-  const [id, setId] = useState(() => crypto.randomUUID());
-  return [id, () => setId(crypto.randomUUID())] as const;
-}
-
 const outcome = (result: { error: string | null }) => ({ error: result.error });
-
-/** Reason, and an optional note: every status change records both (C-03). */
-function ReasonFields({ idPrefix, reason, setReason, note, setNote, label = "Reason" }: { idPrefix: string; reason: string; setReason: (v: string) => void; note: string; setNote: (v: string) => void; label?: string }) {
-  return (
-    <>
-      <div className="grid gap-2">
-        <Label htmlFor={`${idPrefix}-reason`}>{label}</Label>
-        <Textarea id={`${idPrefix}-reason`} value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} required />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor={`${idPrefix}-note`}>Note (optional)</Label>
-        <Textarea id={`${idPrefix}-note`} value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={2000} />
-      </div>
-    </>
-  );
-}
 
 const SIMPLE = {
   mark_pending_payment: { label: "Mark pending payment", icon: <ReceiptTextIcon />, title: "Mark as pending payment", description: "The new-connection invoice is out and payment is awaited.", success: "Marked pending payment" },
@@ -50,9 +30,7 @@ const SIMPLE = {
 } as const;
 
 function SimpleCommand({ kind, accountId }: { kind: keyof typeof SIMPLE; accountId: string }) {
-  const [id, mint] = useMintedId();
-  const [reason, setReason] = useState("");
-  const [note, setNote] = useState("");
+  const form = useReasonForm();
   const c = SIMPLE[kind];
   return (
     <ActionDialog
@@ -62,11 +40,11 @@ function SimpleCommand({ kind, accountId }: { kind: keyof typeof SIMPLE; account
       description={c.description}
       submitLabel={c.label}
       success={c.success}
-      onOpen={mint}
-      canSubmit={reason.trim() !== ""}
-      onSubmit={async () => outcome(await runLifecycle({ kind, id, accountId, reason: reason.trim(), ...(note.trim() ? { note: note.trim() } : {}) }))}
+      onOpen={form.mint}
+      canSubmit={form.reason.trim() !== ""}
+      onSubmit={async () => outcome(await runLifecycle({ kind, accountId, ...form.payload() }))}
     >
-      <ReasonFields idPrefix={kind} reason={reason} setReason={setReason} note={note} setNote={setNote} />
+      <ReasonFields idPrefix={kind} form={form} />
     </ActionDialog>
   );
 }
@@ -74,10 +52,9 @@ function SimpleCommand({ kind, accountId }: { kind: keyof typeof SIMPLE; account
 const OTHER = "__other";
 
 function Disconnect({ accountId }: { accountId: string }) {
-  const [id, mint] = useMintedId();
+  const form = useReasonForm();
   const [choice, setChoice] = useState<string>(DISCONNECT_REASONS[0]);
   const [other, setOther] = useState("");
-  const [note, setNote] = useState("");
   const reason = choice === OTHER ? other.trim() : choice;
   return (
     <ActionDialog
@@ -88,27 +65,22 @@ function Disconnect({ accountId }: { accountId: string }) {
       submitLabel="Disconnect"
       success="Service disconnected"
       variant="outline"
-      onOpen={mint}
+      onOpen={form.mint}
       canSubmit={reason !== ""}
-      onSubmit={async () => outcome(await runLifecycle({ kind: "disconnect_service", id, accountId, reason, ...(note.trim() ? { note: note.trim() } : {}) }))}
+      onSubmit={async () => outcome(await runLifecycle({ kind: "disconnect_service", accountId, ...form.payload(), reason }))}
     >
       <div className="grid gap-2">
         <Label htmlFor="disconnect-reason">Reason</Label>
         <FieldSelect id="disconnect-reason" value={choice} onChange={setChoice} options={[...DISCONNECT_REASONS.map((r) => ({ value: r, label: r })), { value: OTHER, label: "Other" }]} placeholder="Choose a reason" />
         {choice === OTHER && <Input value={other} onChange={(e) => setOther(e.target.value)} maxLength={500} aria-label="Other reason" placeholder="Say why" required />}
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="disconnect-note">Note (optional)</Label>
-        <Textarea id="disconnect-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={2000} />
-      </div>
+      <NoteField idPrefix="disconnect" form={form} />
     </ActionDialog>
   );
 }
 
 function Terminate({ page }: { page: AccountPage }) {
-  const [id, mint] = useMintedId();
-  const [reason, setReason] = useState("");
-  const [note, setNote] = useState("");
+  const form = useReasonForm();
   const [noLedger, setNoLedger] = useState(false);
   const [approvalId, setApprovalId] = useState("");
   const approved = page.writeOffs.filter((w) => w.status === "approved");
@@ -121,23 +93,21 @@ function Terminate({ page }: { page: AccountPage }) {
       description="Termination is final: the account can never change status again. Its history stays."
       submitLabel="Terminate account"
       success="Account terminated"
-      onOpen={mint}
-      canSubmit={reason.trim() !== "" && (noLedger || approvalId !== "")}
+      onOpen={form.mint}
+      canSubmit={form.reason.trim() !== "" && (noLedger || approvalId !== "")}
       onSubmit={async () =>
         outcome(
           await runLifecycle({
             kind: "terminate",
-            id,
             accountId: page.account.id,
-            reason: reason.trim(),
-            ...(note.trim() ? { note: note.trim() } : {}),
+            ...form.payload(),
             ...(approvalId ? { approvalId } : {}),
             ...(noLedger ? { acknowledgeNoLedger: true } : {}),
           }),
         )
       }
     >
-      <ReasonFields idPrefix="terminate" reason={reason} setReason={setReason} note={note} setNote={setNote} />
+      <ReasonFields idPrefix="terminate" form={form} />
       <div className="grid gap-3 rounded-xl border p-3">
         <p className="text-sm font-medium">Balance</p>
         <p className="text-sm text-muted-foreground">There is no ledger yet (billing arrives in a later phase), so Flowless cannot check what this account owes. Terminating means taking your word for it.</p>
@@ -190,14 +160,13 @@ function WriteOff({ page }: { page: AccountPage }) {
 }
 
 function Succeed({ page }: { page: AccountPage }) {
-  const [id, mint] = useMintedId();
+  const form = useReasonForm();
   const isChild = page.account.parent !== null;
   const bases = SUCCESSION_BASES.filter((b) => b !== "full_membership" || isChild);
   const [basis, setBasis] = useState<SuccessionBasis>(bases[0] ?? "change_of_name");
   const [sameCustomer, setSameCustomer] = useState(true);
   const [customer, setCustomer] = useState<CustomerChoice>({ mode: "existing", customer: null });
   const [servicePoints, setServicePoints] = useState<"move" | "leave">("move");
-  const [reason, setReason] = useState("");
   const chosen = customerChoiceInput(customer);
   return (
     <ActionDialog
@@ -207,16 +176,16 @@ function Succeed({ page }: { page: AccountPage }) {
       description="Creates a new account with its own number and makes this one dormant, pointing to it. The balance and the closing reading move once billing and metering exist."
       submitLabel="Create successor"
       success="Successor account opened"
-      onOpen={mint}
-      canSubmit={reason.trim() !== "" && (sameCustomer || customerChoiceProblem(customer) === null)}
+      onOpen={form.mint}
+      canSubmit={form.reason.trim() !== "" && (sameCustomer || customerChoiceProblem(customer) === null)}
       onSubmit={async () =>
         outcome(
           await succeedAction({
-            id,
+            id: form.id,
             accountId: page.account.id,
             basis,
             servicePoints,
-            reason: reason.trim(),
+            reason: form.reason.trim(),
             ...(sameCustomer ? {} : (chosen ?? {})),
           }),
         )
@@ -237,20 +206,16 @@ function Succeed({ page }: { page: AccountPage }) {
         <Label htmlFor="succeed-sp">Service points</Label>
         <FieldSelect id="succeed-sp" value={servicePoints} onChange={(v) => setServicePoints(v as "move" | "leave")} options={[{ value: "move", label: "Move to the successor" }, { value: "leave", label: "Leave on this account" }]} placeholder="Choose" />
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="succeed-reason">Reason</Label>
-        <Textarea id="succeed-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} required />
-      </div>
+      <ReasonField idPrefix="succeed" form={form} />
     </ActionDialog>
   );
 }
 
 function ChangeName({ page }: { page: AccountPage }) {
-  const [id, mint] = useMintedId();
+  const form = useReasonForm();
   const [customer, setCustomer] = useState<CustomerChoice>({ mode: "existing", customer: null });
   const [date, setDate] = useState(page.today);
   const [closing, setClosing] = useState("");
-  const [reason, setReason] = useState("");
   const chosen = customerChoiceInput(customer);
   // The new holder takes over after the current one did, and not in the future.
   const current = page.holders.at(-1)?.validFrom;
@@ -269,20 +234,20 @@ function ChangeName({ page }: { page: AccountPage }) {
       submitLabel="Change holder"
       success="Holder changed"
       onOpen={() => {
-        mint();
+        form.mint();
         setDate(page.today);
       }}
-      canSubmit={!tooSoon && chosen !== null && date !== "" && reason.trim() !== ""}
+      canSubmit={!tooSoon && chosen !== null && date !== "" && form.reason.trim() !== ""}
       onSubmit={async () =>
         chosen === null
           ? { error: "Choose the new holder" }
           : outcome(
               await changeNameAction({
-                id,
+                id: form.id,
                 accountId: page.account.id,
                 effectiveDate: date,
-                reason: reason.trim(),
-                ...(closing.trim() ? { closingReadingRef: closing.trim() } : {}),
+                reason: form.reason.trim(),
+                ...optionalText("closingReadingRef", closing),
                 ...chosen,
               }),
             )
@@ -299,20 +264,16 @@ function ChangeName({ page }: { page: AccountPage }) {
           <Input id="rename-closing" value={closing} onChange={(e) => setClosing(e.target.value)} maxLength={100} placeholder="Reference or value" />
         </div>
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="rename-reason">Reason</Label>
-        <Textarea id="rename-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} required />
-      </div>
+      <ReasonField idPrefix="rename" form={form} />
     </ActionDialog>
   );
 }
 
 function StartRelocation({ page }: { page: AccountPage }) {
-  const [id, mint] = useMintedId();
+  const form = useReasonForm();
   const live = page.account.servicePoints.filter((s) => s.connectionStatus !== "DECOMMISSIONED");
   const [from, setFrom] = useState(live[0]?.id ?? "");
   const [place, setPlace] = useState<PlaceState>(emptyPlace);
-  const [reason, setReason] = useState("");
   const parsed = placeFromState(place);
   return (
     <ActionDialog
@@ -322,12 +283,12 @@ function StartRelocation({ page }: { page: AccountPage }) {
       description="Moves the connection to a new place. The account keeps its number and status."
       submitLabel="Request relocation"
       success="Relocation requested"
-      onOpen={mint}
-      canSubmit={from !== "" && parsed.ok && reason.trim() !== ""}
+      onOpen={form.mint}
+      canSubmit={from !== "" && parsed.ok && form.reason.trim() !== ""}
       onSubmit={async () =>
         !parsed.ok
           ? { error: parsed.problem }
-          : outcome(await requestRelocationAction({ id, accountId: page.account.id, fromServicePointId: from, to: parsed.value, reason: reason.trim() }))
+          : outcome(await requestRelocationAction({ id: form.id, accountId: page.account.id, fromServicePointId: from, to: parsed.value, reason: form.reason.trim() }))
       }
     >
       {live.length > 1 && (
@@ -338,10 +299,7 @@ function StartRelocation({ page }: { page: AccountPage }) {
       )}
       <p className="text-sm font-medium">New place</p>
       <PlaceFields idPrefix="relocate" options={page.placeOptions} value={place} onChange={setPlace} />
-      <div className="grid gap-2">
-        <Label htmlFor="relocate-reason">Reason</Label>
-        <Textarea id="relocate-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} required />
-      </div>
+      <ReasonField idPrefix="relocate" form={form} />
     </ActionDialog>
   );
 }
