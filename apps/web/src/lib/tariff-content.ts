@@ -1,40 +1,17 @@
-import type { FlatBasis, TariffType } from "@flowless/shared-types";
+import { MAX_BANDS, MAX_FLAT_AMOUNTS, MAX_UNITS, bandProblems, flatProblems, type Band, type FlatAmount, type TariffContent, type TariffShape } from "@flowless/shared-types";
 import { amountText, parseAmount } from "./money-input";
 
 /*
  * A tariff version's content as a form holds it, and the checks that run while it is
- * typed. `bandProblems` and `flatProblems` mirror the Tariffs module's pure rules
- * (`packages/api/src/modules/tariffs/content.ts`, which the web may not import into the
- * browser: that package is server code). The API's `validateTariffContent` stays the
- * authority; `tariff-content.test.ts` checks both agree on the same inputs.
+ * typed. The content shape and its rules (`bandProblems`, `flatProblems`, `chargeForUnits`,
+ * `validateTariffContent`) are shared through `@flowless/shared-types` with the Tariffs
+ * module, so the form and the API cannot disagree; the API still validates every save and
+ * its refusal is shown as is.
  *
  * Bands are cumulative thresholds in whole units per billing month: a band covers the units
  * after `from` up to and including `to`. The editor only asks for each band's `to` and rate:
  * a band starts where the one before ended, so bands meet exactly by construction.
  */
-
-export const MAX_BANDS = 20;
-export const MAX_FLAT_AMOUNTS = 200;
-const MAX_UNITS = 10_000_000;
-
-export interface Band {
-  from: number;
-  to: number | null;
-  rate: bigint;
-}
-export interface FlatAmount {
-  key: string | null;
-  amount: bigint;
-}
-export type Content =
-  | { type: "increasing_block" | "decreasing_block"; bands: Band[] }
-  | { type: "uniform"; rate: bigint }
-  | { type: "flat_rate"; amounts: FlatAmount[] };
-
-export interface TariffShape {
-  type: TariffType;
-  flatBasis: FlatBasis;
-}
 
 /** One band as typed: where it ends ("" for the open top band) and its rate per unit. */
 export interface BandDraft {
@@ -50,7 +27,7 @@ export type ContentDraft =
   | { type: "uniform"; rate: string }
   | { type: "flat_rate"; amounts: FlatDraft[] };
 
-export type DraftCheck = { ok: true; content: Content } | { ok: false; problems: string[] };
+export type DraftCheck = { ok: true; content: TariffContent } | { ok: false; problems: string[] };
 
 /** A starting draft for a new tariff of this shape. */
 export function emptyDraft(shape: TariffShape): ContentDraft {
@@ -66,7 +43,7 @@ export function emptyDraft(shape: TariffShape): ContentDraft {
 }
 
 /** The draft that reproduces a stored content (the form for "new version" starts from the one in force). */
-export function draftFromContent(content: Content, currency: string): ContentDraft {
+export function draftFromContent(content: TariffContent, currency: string): ContentDraft {
   switch (content.type) {
     case "increasing_block":
     case "decreasing_block":
@@ -93,50 +70,6 @@ export function removeBand(bands: readonly BandDraft[], index: number): BandDraf
   const next = bands.filter((_, i) => i !== index);
   const last = next.at(-1)!;
   return [...next.slice(0, -1), { ...last, to: "" }];
-}
-
-/** Problems with a block tariff's bands, in the order a person would fix them. Mirror of the API rule. */
-export function bandProblems(bands: readonly Band[], direction: "increasing" | "decreasing"): string[] {
-  const problems: string[] = [];
-  if (bands.length === 0) return ["A block tariff needs at least one band"];
-  if (bands[0]!.from !== 0) problems.push("The first band must start at 0 units");
-  bands.forEach((band, i) => {
-    const n = i + 1;
-    const last = i === bands.length - 1;
-    if (band.to === null && !last) problems.push(`Band ${n} is open-ended but is not the last band`);
-    if (band.to !== null && band.to <= band.from) problems.push(`Band ${n} must end after it starts (${band.from} to ${band.to})`);
-    if (band.to !== null && last) problems.push(`The last band (${n}) must be open-ended, so every consumption is priced`);
-    const next = bands[i + 1];
-    if (next && band.to !== null) {
-      if (next.from > band.to) problems.push(`Gap between bands ${n} and ${n + 1}: ${band.to} to ${next.from} units is not priced`);
-      if (next.from < band.to) problems.push(`Bands ${n} and ${n + 1} overlap: ${next.from} to ${band.to} units is priced twice`);
-      if (direction === "increasing" ? next.rate < band.rate : next.rate > band.rate) {
-        problems.push(`Rates must not ${direction === "increasing" ? "fall" : "rise"} from band ${n} to band ${n + 1} in a${direction === "increasing" ? "n increasing" : " decreasing"} block tariff`);
-      }
-    }
-  });
-  return problems;
-}
-
-/** Problems with a flat-rate tariff's amounts for its basis. Mirror of the API rule. */
-export function flatProblems(amounts: readonly FlatAmount[], basis: FlatBasis): string[] {
-  const problems: string[] = [];
-  if (basis === "none") {
-    if (amounts.length !== 1 || amounts[0]!.key !== null) problems.push("A flat rate with no basis has exactly one amount and no key");
-    return problems;
-  }
-  const seen = new Set<string>();
-  for (const { key } of amounts) {
-    if (key === null) {
-      problems.push(`Every amount needs a ${basis.replace("_", " ")} to apply to`);
-      continue;
-    }
-    const folded = key.toLowerCase();
-    if (seen.has(folded)) problems.push(`"${key}" appears twice`);
-    seen.add(folded);
-    if (basis === "taps" && !/^[1-9][0-9]{0,2}$/.test(key)) problems.push(`"${key}" is not a number of taps`);
-  }
-  return problems;
 }
 
 /**
@@ -195,16 +128,4 @@ export function parseDraft(draft: ContentDraft, shape: TariffShape, currency: st
   });
   problems.push(...bandProblems(bands, draft.type === "increasing_block" ? "increasing" : "decreasing"));
   return problems.length ? { ok: false, problems } : { ok: true, content: { type: draft.type, bands } };
-}
-
-/** The charge for a whole number of units in one billing month, in minor units (mirror of the API's `chargeForUnits`). */
-export function chargeForUnits(bands: readonly Band[], consumed: number): bigint {
-  let charge = 0n;
-  for (const band of bands) {
-    const upper = band.to ?? Infinity;
-    const inBand = Math.min(consumed, upper) - band.from;
-    if (inBand > 0) charge += BigInt(inBand) * band.rate;
-    if (consumed <= upper) break;
-  }
-  return charge;
 }

@@ -1,5 +1,6 @@
+import type { TariffContent } from "@flowless/shared-types";
 import { notFound } from "next/navigation";
-import { draftFromContent, type Content } from "@/lib/tariff-content";
+import { draftFromContent } from "@/lib/tariff-content";
 import { orNull } from "./accounts";
 import { listPeople, nameOf } from "./people";
 import { getApi, requireModule } from "./session";
@@ -58,7 +59,7 @@ export async function getTariffPage(id: string) {
     next,
     versions: tariff.versions.map((v) => ({ ...v, by: nameOf(people, v.createdByUserId) ?? "A colleague" })),
     /** The form for a new version starts from the content in force (or the latest), as typed text. */
-    seedDraft: latest ? draftFromContent(latest.content as Content, fmt.currency) : null,
+    seedDraft: latest ? draftFromContent(latest.content as TariffContent, fmt.currency) : null,
     existingDates: tariff.versions.map((v) => v.effectiveFrom),
     canManage: canManage(session),
     ...fmt,

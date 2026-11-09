@@ -1,6 +1,6 @@
 "use client";
 
-import { money, type FlatBasis, type TariffType } from "@flowless/shared-types";
+import { chargeForUnits, money, type FlatBasis, type TariffType } from "@flowless/shared-types";
 import { CircleAlertIcon, CircleCheckIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useId, useState } from "react";
 import { MoneyText } from "@/components/money-text";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { flatKeyLabel } from "@/lib/tariff-labels";
-import { addBand, chargeForUnits, parseDraft, removeBand, type ContentDraft } from "@/lib/tariff-content";
+import { addBand, parseDraft, removeBand, type ContentDraft } from "@/lib/tariff-content";
 
 /**
  * The editor for a tariff version's content: bands (each band starts where the one before

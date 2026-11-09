@@ -1,5 +1,4 @@
-import type { FlatBasis } from "@flowless/shared-types";
-import type { Band, Content, FlatAmount } from "./tariff-content";
+import type { Band, FlatAmount, FlatBasis, TariffContent } from "@flowless/shared-types";
 
 /*
  * View models for the Tariffs screens: where a version stands in time, a tariff's content as
@@ -92,7 +91,7 @@ export function flatRows(amounts: readonly FlatAmount[], basis: FlatBasis): Flat
 /** What the table shows for a content: the rows and which kind of table it is. */
 export type ContentTable = { kind: "bands"; rows: BandRow[] } | { kind: "uniform"; rate: bigint } | { kind: "flat"; rows: FlatRow[] };
 
-export function contentTable(content: Content, basis: FlatBasis): ContentTable {
+export function contentTable(content: TariffContent, basis: FlatBasis): ContentTable {
   switch (content.type) {
     case "increasing_block":
     case "decreasing_block":

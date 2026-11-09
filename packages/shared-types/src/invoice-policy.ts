@@ -1,4 +1,4 @@
-import { INVOICE_APPLIES_TO, OVERDUE_ACTIONS, type InvoiceAppliesTo, type OverdueAction } from "@flowless/shared-types";
+import { INVOICE_APPLIES_TO, OVERDUE_ACTIONS, type InvoiceAppliesTo, type OverdueAction } from "./tariffs";
 import { z } from "zod";
 
 /*
@@ -35,7 +35,7 @@ export type OverduePolicy = z.infer<typeof overdueSchema>;
 
 /** The overdue actions an invoice type that bills `appliesTo` may use (T-09). */
 export function allowedOverdueActions(appliesTo: InvoiceAppliesTo): readonly OverdueAction[] {
-  return appliesTo === "application" ? ["pause_application", "cancel_application", "none"] : ["disconnect", "none"];
+  return appliesTo === "application" ? ["none", "pause_application", "cancel_application"] : ["none", "disconnect"];
 }
 
 /** Why these terms and overdue policy do not fit an invoice type, or an empty list. */

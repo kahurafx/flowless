@@ -1,6 +1,6 @@
 "use client";
 
-import { PAYMENT_TERMS_KINDS, type InvoiceAppliesTo, type OverdueAction } from "@flowless/shared-types";
+import { PAYMENT_TERMS_KINDS, allowedOverdueActions, type InvoiceAppliesTo, type OverdueAction } from "@flowless/shared-types";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { FieldSelect } from "@/components/field-select";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { allowedOverdueActions, formFromType, numberSample, updateFromForm, type InvoiceTypeForm, type InvoiceTypeView } from "@/lib/invoice-type-form";
+import { formFromType, numberSample, updateFromForm, type InvoiceTypeForm, type InvoiceTypeView } from "@/lib/invoice-type-form";
 import { appliesToLabel, overdueActionLabel, termsKindLabel } from "@/lib/tariff-labels";
 import { updateInvoiceTypeAction } from "../../actions";
 

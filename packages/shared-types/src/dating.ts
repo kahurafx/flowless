@@ -38,6 +38,24 @@ export function todayIn(timeZone: string, now: Date = new Date()): IsoDate {
 }
 
 /**
+ * Midnight at the start of a calendar date in an IANA time zone, as an instant: the inverse
+ * of `todayIn` (a scheduled change that starts on the organization's local date starts here).
+ */
+export function startOfDayIn(date: IsoDate, timeZone: string): Date {
+  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+  const wanted = Date.UTC(y, m - 1, d);
+  const offsetAt = (instant: number) => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" }).formatToParts(new Date(instant));
+    const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+    return Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")) - Math.floor(instant / 1000) * 1000;
+  };
+  // Two passes settle on the right offset even across a daylight-saving change.
+  let instant = wanted - offsetAt(wanted);
+  instant = wanted - offsetAt(instant);
+  return new Date(instant);
+}
+
+/**
  * The version in force on `on`: the latest `effectiveFrom` on or before it, the highest
  * `versionNo` among versions sharing that date. Null before the first version starts.
  * Billing uses it per reading date (the optional T-03 rule) or per sub-period (section 6).

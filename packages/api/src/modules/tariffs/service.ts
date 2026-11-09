@@ -12,7 +12,7 @@ import {
   tariffVersion,
   tariffVersionLine,
 } from "@flowless/db/schema/tariffs";
-import { revenueKindOf } from "@flowless/shared-types";
+import { formatInvoiceNumber, planEffectiveDate, revenueKindOf, todayIn, versionInForce, versionSpans, type IsoDate, type LateFeeRule, type OverduePolicy, type Terms, type TariffContent } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { AuditNote } from "../../trpc";
@@ -21,10 +21,7 @@ import { notFound } from "../../kernel/errors";
 import type { EventDef } from "../../kernel/events";
 import { regionalSetting } from "../../kernel/regional";
 import { closedThrough } from "./closed-period";
-import { type TariffContent, fromLineRows } from "./content";
-import { type IsoDate, planEffectiveDate, todayIn, versionInForce, versionSpans } from "./dating";
-import { formatInvoiceNumber, type OverduePolicy, type Terms } from "./invoice-policy";
-import type { LateFeeRule } from "./late-fee";
+import { fromLineRows } from "./content";
 import { tariffPolicySetting } from "./settings";
 
 /*

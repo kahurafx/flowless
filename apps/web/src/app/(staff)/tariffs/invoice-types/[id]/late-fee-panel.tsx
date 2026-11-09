@@ -1,6 +1,6 @@
 "use client";
 
-import { LATE_FEE_BASES, LATE_FEE_FREQUENCIES, money, type LateFeeBase, type LateFeeFrequency } from "@flowless/shared-types";
+import { LATE_FEE_BASES, LATE_FEE_FREQUENCIES, money, type LateFeeBase, type LateFeeFrequency, type LateFeeRule } from "@flowless/shared-types";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { FieldSelect } from "@/components/field-select";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { lateFeeDraft, lateFeeFromDraft, lateFeeReasonLabel, type LateFeeDraft, type LateFeeRuleView } from "@/lib/invoice-type-form";
+import { lateFeeDraft, lateFeeFromDraft, lateFeeReasonLabel, type LateFeeDraft } from "@/lib/invoice-type-form";
 import { lateFeeBaseLabel, lateFeeFrequencyLabel } from "@/lib/tariff-labels";
 import { setLateFeeRuleAction, simulateLateFeeAction } from "../../actions";
 
@@ -22,7 +22,7 @@ interface Simulated {
 }
 
 /** The late-fee rule of an invoice type (T-10) with a live simulation: what it would charge for an example invoice. */
-export function LateFeePanel({ id, rule, currency, locale, canManage }: { id: string; rule: LateFeeRuleView | null; currency: string; locale: string; canManage: boolean }) {
+export function LateFeePanel({ id, rule, currency, locale, canManage }: { id: string; rule: LateFeeRule | null; currency: string; locale: string; canManage: boolean }) {
   const initial = lateFeeDraft(rule, currency);
   const [draft, setDraft] = useState<LateFeeDraft>(initial);
   const [error, setError] = useState<string | null>(null);

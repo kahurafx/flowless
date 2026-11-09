@@ -11,6 +11,9 @@
     "check-types": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
   "devDependencies": {
     "@flowless/eslint-config": "workspace:*",
     "@flowless/typescript-config": "workspace:*",

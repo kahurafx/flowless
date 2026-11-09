@@ -1,16 +1,14 @@
-import type { FlatBasis } from "@flowless/shared-types";
-import { money } from "@flowless/shared-types";
+import { money, type FlatBasis, type TariffContent } from "@flowless/shared-types";
 import { MoneyText } from "@/components/money-text";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { flatKeyLabel } from "@/lib/tariff-labels";
-import type { Content } from "@/lib/tariff-content";
 import { contentTable } from "@/lib/tariff-view";
 
 /**
  * A tariff version's content as a table: bands with the units each covers and the rate per
  * unit, a single uniform rate, or the flat amounts per basis value. Money stays bigint.
  */
-export function ContentTable({ content, basis, currency, locale, unit = "per unit" }: { content: Content; basis: FlatBasis; currency: string; locale: string; unit?: string }) {
+export function ContentTable({ content, basis, currency, locale, unit = "per unit" }: { content: TariffContent; basis: FlatBasis; currency: string; locale: string; unit?: string }) {
   const table = contentTable(content, basis);
   if (table.kind === "uniform") {
     return (

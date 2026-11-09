@@ -2,7 +2,7 @@ import { withTenant } from "@flowless/db";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { registerClosedPeriodSource } from "../closed-period";
-import { nextPeriodStartIso } from "../dating";
+import { nextPeriodStartIso } from "@flowless/shared-types";
 import { categoriesById, categoryExists, categoryPricing, chargeItemByCode } from "../index";
 import { expectCode, setupTariffsEnv, uniformContent, type TariffsEnv } from "./test-support";
 

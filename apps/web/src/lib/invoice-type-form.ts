@@ -1,17 +1,22 @@
-import type { InvoiceAppliesTo, LateFeeBase, LateFeeFrequency, OverdueAction, PaymentTermsKind } from "@flowless/shared-types";
+import {
+  allowedOverdueActions,
+  type InvoiceAppliesTo,
+  type LateFeeBase,
+  type LateFeeFrequency,
+  type LateFeeRule,
+  type OverdueAction,
+  type PaymentTermsKind,
+  type Terms,
+} from "@flowless/shared-types";
 import { amountText, parseAmount } from "./money-input";
 
 /*
  * Invoice type forms (T-08 to T-10) as pure mappers between what the API stores and the text
- * fields a person edits. `allowedOverdueActions` mirrors the Tariffs module's rule so the
- * form never offers what the API refuses (an application's invoice never disconnects); the
- * API validates again.
+ * fields a person edits. The terms, overdue and late-fee shapes and `allowedOverdueActions`
+ * are the Tariffs module's own, shared through `@flowless/shared-types`, so the form never
+ * offers what the API refuses (an application's invoice never disconnects); the API
+ * validates again.
  */
-
-/** The overdue actions an invoice type that bills `appliesTo` may use (T-09). */
-export function allowedOverdueActions(appliesTo: InvoiceAppliesTo): readonly OverdueAction[] {
-  return appliesTo === "application" ? ["none", "pause_application", "cancel_application"] : ["none", "disconnect"];
-}
 
 /** A percentage typed as "25" or "12.5" as basis points (2500, 1250), or null. At most two decimals. */
 export function parsePercentBp(text: string): number | null {
@@ -36,11 +41,6 @@ const wholeNumber = (text: string, min: number, max: number): number | null => {
 };
 
 /* ---------- the invoice type ---------- */
-
-export type Terms =
-  | { kind: "full" }
-  | { kind: "minimum_deposit"; percentBp?: number; amount?: bigint }
-  | { kind: "installments"; count: number; intervalDays: number };
 
 export interface InvoiceTypeView {
   name: string;
@@ -204,18 +204,10 @@ export interface LateFeeDraft {
   frequency: LateFeeFrequency;
 }
 
-export interface LateFeeRuleView {
-  triggerDays: number;
-  base: LateFeeBase;
-  rateBp: number | null;
-  flatAmount: bigint | null;
-  cap: bigint | null;
-  frequency: LateFeeFrequency;
-}
 
 export const emptyLateFee: LateFeeDraft = { enabled: false, triggerDays: "7", base: "overdue_balance", mode: "rate", percent: "5", flatAmount: "", cap: "", frequency: "once" };
 
-export function lateFeeDraft(rule: LateFeeRuleView | null, currency: string): LateFeeDraft {
+export function lateFeeDraft(rule: LateFeeRule | null, currency: string): LateFeeDraft {
   if (!rule) return emptyLateFee;
   return {
     enabled: true,
@@ -230,7 +222,7 @@ export function lateFeeDraft(rule: LateFeeRuleView | null, currency: string): La
 }
 
 /** `rule: null` means no rule (the switch is off); a rule is the API's shape. */
-export function lateFeeFromDraft(draft: LateFeeDraft, currency: string): FormResult<{ rule: LateFeeRuleView | null }> {
+export function lateFeeFromDraft(draft: LateFeeDraft, currency: string): FormResult<{ rule: LateFeeRule | null }> {
   if (!draft.enabled) return { ok: true, input: { rule: null } };
   const problems: string[] = [];
   const triggerDays = wholeNumber(draft.triggerDays, 0, 365);
@@ -280,7 +272,7 @@ export function overdueText(overdue: { action: OverdueAction; afterDays: number 
   return `${what} ${overdue.afterDays === 0 ? "on the due date" : `${overdue.afterDays} day${overdue.afterDays === 1 ? "" : "s"} after it`}`;
 }
 
-export function lateFeeText(rule: LateFeeRuleView | null, currency: string): string {
+export function lateFeeText(rule: LateFeeRule | null, currency: string): string {
   if (!rule) return "No late fee";
   const amount = rule.flatAmount !== null ? `${currency} ${amountText(rule.flatAmount, currency)}` : `${percentText(rule.rateBp ?? 0)}% of the ${rule.base === "invoice_total" ? "invoice total" : "overdue balance"}`;
   const when = rule.frequency === "monthly" ? "every 30 days" : rule.frequency === "once" ? "once" : "when staff apply it";

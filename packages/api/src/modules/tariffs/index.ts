@@ -34,20 +34,27 @@ export {
 export { closedThrough, registerClosedPeriodSource, type ClosedPeriodSource } from "./closed-period";
 
 // Pure rules shared with Billing and the clients.
+export { fromLineRows, toLineRows } from "./content";
 export {
   bandProblems,
   bandsFor,
   chargeForUnits,
-  fromLineRows,
+  formatInvoiceNumber,
+  installmentAmounts,
+  lateFee,
+  lateFeeRuleSchema,
+  minimumDeposit,
+  nextPeriodStart,
+  planEffectiveDate,
   tariffContentSchema,
-  toLineRows,
   validateTariffContent,
+  versionInForce,
+  versionSpans,
   type Band,
+  type LateFeeResult,
+  type LateFeeRule,
   type TariffContent,
-} from "./content";
-export { nextPeriodStart, planEffectiveDate, versionInForce, versionSpans } from "./dating";
-export { installmentAmounts, minimumDeposit, formatInvoiceNumber } from "./invoice-policy";
-export { lateFee, lateFeeRuleSchema, type LateFeeResult, type LateFeeRule } from "./late-fee";
+} from "@flowless/shared-types";
 
 /** Adds Tariffs' setting and default-seeding consumers to the kernel's registries; called in `wiring.ts`. */
 export function registerKernel(kernel: KernelRegistrar) {

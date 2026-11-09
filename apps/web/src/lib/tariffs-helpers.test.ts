@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-// The API's pure Tariffs files, imported by path only to check that the form mirrors agree with them.
-import { planEffectiveDate } from "../../../../packages/api/src/modules/tariffs/dating";
-import { validateTariffContent } from "../../../../packages/api/src/modules/tariffs/content";
-import { allowedOverdueActions as apiAllowed } from "../../../../packages/api/src/modules/tariffs/invoice-policy";
+// The Tariffs module's pure rules, shared through shared-types, checked against what the form builds from the same inputs.
+import { OVERDUE_ACTIONS, allowedOverdueActions, chargeForUnits, invoicePolicyProblems, planEffectiveDate, validateTariffContent } from "@flowless/shared-types";
 import { previewEffectiveDate, plainDate, ordinal } from "./effective-date";
-import { formFromType, lateFeeDraft, lateFeeText, overdueText, termsText, lateFeeFromDraft, linesFromDrafts, parsePercentBp, percentText, updateFromForm, allowedOverdueActions, type InvoiceTypeView } from "./invoice-type-form";
+import { formFromType, lateFeeDraft, lateFeeText, overdueText, termsText, lateFeeFromDraft, linesFromDrafts, parsePercentBp, percentText, updateFromForm, type InvoiceTypeView } from "./invoice-type-form";
 import { amountText, parseAmount } from "./money-input";
-import { addBand, chargeForUnits, draftFromContent, emptyDraft, parseDraft, removeBand, type ContentDraft } from "./tariff-content";
+import { addBand, draftFromContent, emptyDraft, parseDraft, removeBand, type ContentDraft } from "./tariff-content";
 import {
   KEEP,
   assignmentChanged,
@@ -176,7 +174,12 @@ describe("the form mirrors agree with the API's rules", () => {
   });
 
   it("offers the overdue actions the API allows", () => {
-    for (const appliesTo of ["application", "account"] as const) expect([...allowedOverdueActions(appliesTo)].sort()).toEqual([...apiAllowed(appliesTo)].sort());
+    for (const appliesTo of ["application", "account"] as const) {
+      for (const action of OVERDUE_ACTIONS) {
+        const refused = invoicePolicyProblems({ appliesTo, terms: { kind: "full" }, overdue: { action, afterDays: 0 } }).length > 0;
+        expect(allowedOverdueActions(appliesTo).includes(action)).toBe(!refused);
+      }
+    }
     expect(allowedOverdueActions("application")).not.toContain("disconnect");
   });
 });

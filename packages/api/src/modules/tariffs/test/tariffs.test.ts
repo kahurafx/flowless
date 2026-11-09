@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { registerClosedPeriodSource } from "../closed-period";
-import { nextPeriodStartIso } from "../dating";
+import { nextPeriodStartIso } from "@flowless/shared-types";
 import { tariffPolicySetting } from "../settings";
 import { REFERENCE_BANDS, expectCode, increasingContent, setupTariffsEnv, uniformContent, type TariffsEnv } from "./test-support";
 

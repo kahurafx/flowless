@@ -1,4 +1,4 @@
-import { LATE_FEE_BASES, LATE_FEE_FREQUENCIES, type LateFeeBase } from "@flowless/shared-types";
+import { LATE_FEE_BASES, LATE_FEE_FREQUENCIES, type LateFeeBase } from "./tariffs";
 import { z } from "zod";
 
 /*

@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { addDays, daysBetween, fromIsoDate, nextPeriodStart, nextPeriodStartIso, planEffectiveDate, todayIn, versionInForce, versionSpans, type Dated } from "./dating";
+import { addDays, daysBetween, fromIsoDate, nextPeriodStart, nextPeriodStartIso, planEffectiveDate, startOfDayIn, todayIn, versionInForce, versionSpans, type Dated } from "./dating";
 
 const v = (effectiveFrom: string, versionNo: number): Dated & { name: string } => ({ effectiveFrom, versionNo, name: `v${versionNo}` });
 
@@ -141,5 +141,21 @@ describe("planEffectiveDate", () => {
     expect(planEffectiveDate({ ...base, requested: "2026-10-01", existing: ["2026-10-01"] })).toMatchObject({ ok: false, reason: "already_in_force" });
     expect(planEffectiveDate({ ...base, requested: "2026-11-09", existing: ["2026-11-09"] })).toMatchObject({ ok: false, reason: "already_in_force" });
     expect(planEffectiveDate({ ...base, requested: "2026-12-01", existing: ["2026-12-01"] })).toMatchObject({ ok: true });
+  });
+});
+
+// A scheduled change starts at midnight of the organization's local date; it is the inverse of todayIn.
+describe("startOfDayIn", () => {
+  it("is midnight of the date in the zone, across offsets and daylight saving", () => {
+    expect(startOfDayIn("2027-02-01", "Africa/Nairobi").toISOString()).toBe("2027-01-31T21:00:00.000Z");
+    expect(startOfDayIn("2027-02-01", "UTC").toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    expect(startOfDayIn("2027-07-01", "America/New_York").toISOString()).toBe("2027-07-01T04:00:00.000Z");
+    expect(startOfDayIn("2027-12-01", "America/New_York").toISOString()).toBe("2027-12-01T05:00:00.000Z");
+  });
+
+  it("round-trips with todayIn", () => {
+    for (const zone of ["Africa/Nairobi", "UTC", "America/New_York", "Pacific/Auckland"]) {
+      for (const day of ["2027-01-01", "2027-03-14", "2027-11-07"]) expect(todayIn(zone, startOfDayIn(day, zone))).toBe(day);
+    }
   });
 });

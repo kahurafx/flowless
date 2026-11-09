@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 import { setEntitlements } from "../../../kernel/entitlement-store";
 import { createCaller } from "../../../root";
 import { addMember, sessionOf, type Member } from "../../../test-support";
-import { addDays, todayIn } from "../dating";
+import { addDays, todayIn } from "@flowless/shared-types";
 
 /** Assert a call fails with a specific tRPC error code, and say what it did instead if it doesn't. */
 export async function expectCode(promise: Promise<unknown>, code: TRPCError["code"], message?: RegExp) {

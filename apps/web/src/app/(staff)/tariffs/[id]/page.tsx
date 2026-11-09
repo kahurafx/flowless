@@ -1,4 +1,4 @@
-import type { FlatBasis } from "@flowless/shared-types";
+import type { FlatBasis, TariffContent } from "@flowless/shared-types";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -11,7 +11,6 @@ import { getTariffPage } from "@/data/tariffs";
 import { plainDate } from "@/lib/effective-date";
 import { formatWhen } from "@/lib/dates";
 import { flatBasisLabel, tariffTypeLabel } from "@/lib/tariff-labels";
-import type { Content } from "@/lib/tariff-content";
 import { versionStatusLabel, versionTimeline, type VersionStatus } from "@/lib/tariff-view";
 import { NewVersion } from "./new-version";
 import { TariffActions } from "./tariff-actions";
@@ -72,7 +71,7 @@ async function Tariff({ params }: { params: PageProps<"/tariffs/[id]">["params"]
                 Version {timeline.inForce.version.versionNo}, from {plainDate(timeline.inForce.version.effectiveFrom, locale)}
                 {timeline.inForce.version.until ? ` until ${plainDate(timeline.inForce.version.until, locale)}` : ""}.
               </p>
-              <ContentTable content={timeline.inForce.version.content as Content} basis={flatBasis} currency={currency} locale={locale} />
+              <ContentTable content={timeline.inForce.version.content as TariffContent} basis={flatBasis} currency={currency} locale={locale} />
             </>
           ) : (
             <p className="text-sm text-muted-foreground">No version has started yet.{timeline.next ? ` Version ${timeline.next.version.versionNo} starts on ${plainDate(timeline.next.version.effectiveFrom, locale)}.` : ""}</p>
@@ -87,7 +86,7 @@ async function Tariff({ params }: { params: PageProps<"/tariffs/[id]">["params"]
             <p className="mb-3 text-sm text-muted-foreground">
               Version {timeline.next.version.versionNo} takes effect on {plainDate(timeline.next.version.effectiveFrom, locale)}. Until then billing keeps using the version above.
             </p>
-            <ContentTable content={timeline.next.version.content as Content} basis={flatBasis} currency={currency} locale={locale} />
+            <ContentTable content={timeline.next.version.content as TariffContent} basis={flatBasis} currency={currency} locale={locale} />
           </section>
         )}
 
@@ -115,7 +114,7 @@ async function Tariff({ params }: { params: PageProps<"/tariffs/[id]">["params"]
                     <span className="ml-auto text-xs text-muted-foreground group-open:hidden">Show content</span>
                   </summary>
                   <div className="mt-3 grid gap-3">
-                    <ContentTable content={version.content as Content} basis={flatBasis} currency={currency} locale={locale} />
+                    <ContentTable content={version.content as TariffContent} basis={flatBasis} currency={currency} locale={locale} />
                     <p className="text-xs text-muted-foreground">
                       Added by {version.by} on {formatWhen(version.createdAt, locale, timeZone)}
                       {version.note ? ` · ${version.note}` : ""}
