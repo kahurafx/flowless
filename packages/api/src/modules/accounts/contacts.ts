@@ -115,9 +115,12 @@ export interface ContactPatch {
 
 /** The contact, after its customer is locked (the customer must be visible to the viewer, else NOT_FOUND). */
 async function contactOfLockedCustomer(env: UserActionEnv, viewer: Viewer, id: string): Promise<ContactRow> {
+  const [found] = await env.tx.select().from(customerContact).where(eq(customerContact.id, id));
+  if (!found) throw notFound("Contact");
+  await findCustomer(env.tx, viewer, found.customerId, true);
+  // Read again under the customer's lock: a concurrent change may have landed in between.
   const [row] = await env.tx.select().from(customerContact).where(eq(customerContact.id, id));
   if (!row) throw notFound("Contact");
-  await findCustomer(env.tx, viewer, row.customerId, true);
   return row;
 }
 
