@@ -54,6 +54,16 @@ describe("permissions", () => {
     expect(technician.has("work_orders:execute") && !technician.has("work_orders:read")).toBe(true);
   });
 
+  // C-03: changing an account's status (activate, dormant, disconnect, terminate) is for managers and above.
+  it("only owners, admins and managers change an account's status; every other role needs an extra grant", () => {
+    const holders = Object.keys(DEFAULT_ROLES).filter((role) => effectivePermissions(role).has("accounts:change_status"));
+    expect(holders.sort()).toEqual(["admin", "manager", "owner"]);
+    // The accountant decides write-offs (billing:adjust) but does not run the lifecycle.
+    const accountant = effectivePermissions("accountant");
+    expect(accountant.has("billing:adjust") && !accountant.has("accounts:change_status")).toBe(true);
+    expect(effectivePermissions("clerk", ["accounts:change_status"]).has("accounts:change_status")).toBe(true);
+  });
+
   it("managers pick up the new GIS and work-order permissions", () => {
     const manager = effectivePermissions("manager");
     expect(manager.has("gis:configure") && manager.has("work_orders:cancel")).toBe(true);

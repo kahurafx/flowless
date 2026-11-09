@@ -22,7 +22,7 @@ export async function expectCode(promise: Promise<unknown>, code: TRPCError["cod
 
 /**
  * The Accounts tests' environment, on a private database cloned from the test template.
- *  - A (tenants.a): Accounts. owner ("admin"), clerk, cashier (read only), supervisor.
+ *  - A (tenants.a): Accounts. owner ("admin"), clerk, cashier (read only), supervisor, manager (changes status), accountant.
  *  - B (tenants.b): Accounts. One owner ("outsider").
  *  - C: no modules. One owner ("bare").
  * Callers use the RLS-bound app role through a small pool, so racing calls really race.
@@ -41,6 +41,8 @@ export async function setupAccountsEnv() {
     clerk: await addMember(t, tenants.a.id, "clerk"),
     cashier: await addMember(t, tenants.a.id, "cashier"),
     supervisor: await addMember(t, tenants.a.id, "supervisor"),
+    manager: await addMember(t, tenants.a.id, "manager"),
+    accountant: await addMember(t, tenants.a.id, "accountant"),
     outsider: await addMember(t, tenants.b.id, "owner"),
     bare: await addMember(t, orgC, "owner"),
   };
@@ -68,6 +70,8 @@ export async function setupAccountsEnv() {
     clerk: () => as(members.clerk),
     cashier: () => as(members.cashier),
     supervisor: () => as(members.supervisor),
+    manager: () => as(members.manager),
+    accountant: () => as(members.accountant),
     outsider: () => as(members.outsider),
     bare: () => as(members.bare),
     areas: { scheme: scheme.id, zone: zone.id, otherZone: otherZone.id, dma: dma.id, otherScheme: otherScheme.id },

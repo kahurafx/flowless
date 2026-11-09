@@ -8,6 +8,7 @@ import { setEntitlements } from "./kernel/entitlement-store";
 import { dispatchOutbox } from "./kernel/events";
 import { jobs } from "./kernel/job-registry";
 import { runJobs } from "./kernel/jobs";
+import { sweepStaleAccounts } from "./modules/accounts";
 import { sweepOverdueWorkOrders } from "./modules/work-orders";
 import { addMember, callerFor, callPath, procedures, type Member } from "./test-support";
 
@@ -84,6 +85,7 @@ describe("module combination matrix", () => {
       await expect(runJobs(t.app, jobs)).resolves.toMatchObject({ failed: 0 });
       await expect(escalateApprovals(t.app)).resolves.toBeTypeOf("number");
       await expect(sweepOverdueWorkOrders(t.app)).resolves.toBeTypeOf("number");
+      await expect(sweepStaleAccounts(t.app)).resolves.toBeTypeOf("number");
     });
   }
 });

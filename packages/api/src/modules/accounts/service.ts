@@ -327,6 +327,17 @@ export async function findAccount(tx: Transaction, viewer: Viewer, by: { id: str
   return row;
 }
 
+/** Where an account sits for queues and approvals that scoped members see: its oldest service point's lowest area and route. */
+export async function firstPlacement(tx: Transaction, accountId: string): Promise<{ areaId: string | null; routeId: string | null }> {
+  const [point] = await tx
+    .select({ schemeId: servicePoint.schemeId, zoneId: servicePoint.zoneId, dmaId: servicePoint.dmaId, routeId: servicePoint.routeId })
+    .from(servicePoint)
+    .where(eq(servicePoint.accountId, accountId))
+    .orderBy(asc(servicePoint.createdAt), asc(servicePoint.id))
+    .limit(1);
+  return { areaId: point ? (point.dmaId ?? point.zoneId ?? point.schemeId) : null, routeId: point?.routeId ?? null };
+}
+
 export function toAccountDto(a: AccountRow, customerInfo: { name: string; type: CustomerRow["type"] }, phone: string | null) {
   return {
     id: a.id,

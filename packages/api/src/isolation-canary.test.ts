@@ -54,6 +54,9 @@ interface AccountsCanary {
   accountNumber: string;
   child: string;
   servicePoint: string;
+  /** A status command on B's account, the checklist tick beside it, and a write-off request (Phase 3 F3a). */
+  command: string;
+  writeOff: string;
 }
 
 interface GisCanary {
@@ -235,6 +238,11 @@ async function seedAccounts(
     routeId: at.routeId,
     gisConnectionId: at.connectionId,
   });
+  // The lifecycle (F3a): a command with its client-minted id, a checklist tick, and a write-off request.
+  const command = randomUUID();
+  await asB.accounts.markPendingPayment({ id: command, accountId: account.id, reason: `${MARK} invoice issued`, note: `${MARK} note` });
+  await asB.accounts.activation.tick({ accountId: account.id, gateKey: "payment_threshold", note: `${MARK} receipt` });
+  const writeOff = await asB.accounts.requestWriteOff({ accountId: child.id, amount: 55_000n, reasonCode: "OTHER", note: `${MARK} write-off` });
   return {
     customer: customer.id,
     contact: customer.contacts[0]!.id,
@@ -242,6 +250,8 @@ async function seedAccounts(
     accountNumber: account.number,
     child: child.id,
     servicePoint: servicePoint.id,
+    command,
+    writeOff: writeOff.approvalId,
   };
 }
 
@@ -578,6 +588,30 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "accounts.servicePoints.get": (b) => [{ id: b.accounts.servicePoint }],
   "accounts.servicePoints.list": (b) => [undefined, { accountId: b.accounts.account }, { areaId: b.scheme }, { routeId: b.route }, { after: b.accounts.servicePoint }],
   // Tariffs (Phase 3 F2): A's own calls, and calls aimed at B's category, tariff, charge items and invoice type.
+  // The account lifecycle (Phase 3 F3a): every command aimed at B's account, B's command id, B's write-off request.
+  "accounts.markPendingPayment": (b) => [
+    { accountId: b.accounts.account, reason: "A tries" },
+    { id: b.accounts.command, accountId: b.accounts.account, reason: "A replays B's id" },
+  ],
+  "accounts.activate": (b) => [
+    { accountId: b.accounts.account, reason: "A tries", override: true },
+    { id: b.accounts.command, accountId: b.accounts.account, reason: "A replays B's id", connect: false, serviceReason: "x" },
+  ],
+  "accounts.makeDormant": (b) => [{ accountId: b.accounts.account, reason: "A tries" }],
+  "accounts.reactivate": (b) => [{ accountId: b.accounts.account, reason: "A tries" }],
+  "accounts.terminate": (b) => [
+    { accountId: b.accounts.account, reason: "A tries", acknowledgeNoLedger: true },
+    { accountId: b.accounts.child, reason: "A tries", approvalId: b.accounts.writeOff },
+  ],
+  "accounts.disconnectService": (b) => [{ accountId: b.accounts.account, reason: "A tries" }],
+  "accounts.reconnectService": (b) => [{ accountId: b.accounts.account, reason: "A tries" }],
+  "accounts.requestWriteOff": (b) => [{ accountId: b.accounts.account, amount: 1n, reasonCode: "OTHER", note: "A tries" }],
+  "accounts.commands.list": (b) => [{ accountId: b.accounts.account }, { accountId: b.accounts.account, before: new Date() }],
+  "accounts.statusRules": () => [undefined, { at: new Date(Date.now() + 86_400_000) }],
+  "accounts.activation.status": (b) => [{ accountId: b.accounts.account }],
+  "accounts.activation.tick": (b) => [{ accountId: b.accounts.account, gateKey: "payment_threshold", note: "A tries" }],
+  "accounts.activation.untick": (b) => [{ accountId: b.accounts.account, gateKey: "payment_threshold" }],
+  "accounts.activation.activate": (b) => [{ accountId: b.accounts.account, reason: "A tries", override: true }],
   "tariffs.list": () => [undefined, { active: true }, { type: "increasing_block" }],
   "tariffs.get": (b) => [{ id: b.tariffs.tariff }],
   "tariffs.create": () => [
@@ -656,8 +690,8 @@ describe("isolation canary", () => {
     const empty = Object.entries(await snapshotB()).filter(([, rows]) => rows.length === 0).map(([table]) => table);
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
-    // Every gis, work_orders, accounts and tariffs table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(38);
+    // Every gis, work_orders, accounts (including the command log and the checklist) and tariffs table is covered ("the canary covers every table").
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(40);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {

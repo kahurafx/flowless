@@ -8,7 +8,8 @@ import { moduleProcedure } from "../../trpc";
  * - `read` (`accounts:read`): customers, accounts, service points, searches, previews.
  * - `create` (`accounts:create`): new customers, accounts and service points.
  * - `update` (`accounts:update`): changes to customers, their contacts and service points.
- * `accounts:change_status` belongs to the account lifecycle (Phase 3 F3).
+ * - `status` (`accounts:change_status`): the account lifecycle (C-03, C-06, C-11): status
+ *   commands, the activation checklist and write-off requests.
  */
 function withViewer<T extends ReturnType<typeof moduleProcedure>>(procedure: T) {
   return procedure.use(async ({ ctx, next }) => next({ ctx: { viewer: { userId: ctx.session.user.id, scope: await ctx.scope() } } }));
@@ -18,6 +19,7 @@ export const accountsProcedures = {
   read: withViewer(moduleProcedure("accounts", "accounts:read")),
   create: withViewer(moduleProcedure("accounts", "accounts:read", "accounts:create")),
   update: withViewer(moduleProcedure("accounts", "accounts:read", "accounts:update")),
+  status: withViewer(moduleProcedure("accounts", "accounts:read", "accounts:change_status")),
 };
 
 export type AccountsProcedures = typeof accountsProcedures;

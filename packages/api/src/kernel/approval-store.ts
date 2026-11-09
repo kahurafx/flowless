@@ -274,6 +274,26 @@ export async function decide(
   return { status: next.status, level: next.level };
 }
 
+/**
+ * A request as the module that asked sees it (the published read for modules that act on an
+ * outcome later, such as a termination citing an approved write-off): what was asked, for
+ * whom, how much, and where it stands. Under RLS, so only this organization's requests.
+ */
+export async function approvalOutcome(tx: Transaction, id: string) {
+  const [row] = await tx
+    .select({
+      id: approvalRequest.id,
+      kind: approvalRequest.kind,
+      subjectRef: approvalRequest.subjectRef,
+      status: approvalRequest.status,
+      amount: approvalRequest.amount,
+      reasonCode: approvalRequest.reasonCode,
+    })
+    .from(approvalRequest)
+    .where(eq(approvalRequest.id, id));
+  return row ?? null;
+}
+
 /** Withdraws a pending request. */
 export async function cancel(tx: Transaction, row: RequestRow, byUserId: string, note: string | null) {
   if (row.status !== "pending") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This request is already decided" });

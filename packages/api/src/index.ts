@@ -21,6 +21,7 @@ export {
 export { defineFileSubject, type FileSubjectDef } from "./kernel/file-subjects";
 export { fileSubjects } from "./kernel/file-subject-registry";
 export { sweepOverdueWorkOrders } from "./modules/work-orders";
+export { sweepStaleAccounts } from "./modules/accounts";
 export { createMemoryStorage, createS3Storage, storageFromEnv, type Storage } from "./kernel/storage";
 export { notificationRequested, notify, type Notify, type NotifyResult } from "./kernel/notification-store";
 export { supportSession } from "./kernel/support";

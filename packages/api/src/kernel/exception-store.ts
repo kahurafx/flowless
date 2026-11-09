@@ -68,3 +68,16 @@ export async function resolveByDedupeKey(tx: Transaction, dedupeKey: string, not
     .set({ status: "resolved", resolvedAt: new Date(), resolutionNote: note })
     .where(and(eq(exception.dedupeKey, dedupeKey), ne(exception.status, "resolved")));
 }
+
+/**
+ * The dedupe keys of open exceptions that start with `prefix`: lets a sweep raise only what is
+ * not already in the queue (raising again would count another occurrence every pass) and
+ * resolve what has gone away.
+ */
+export async function openDedupeKeys(tx: Transaction, prefix: string): Promise<Set<string>> {
+  const rows = await tx
+    .select({ key: exception.dedupeKey })
+    .from(exception)
+    .where(and(ne(exception.status, "resolved"), sql`${exception.dedupeKey} like ${`${prefix.replace(/[\\%_]/g, "\\$&")}%`}`));
+  return new Set(rows.flatMap((r) => (r.key ? [r.key] : [])));
+}
