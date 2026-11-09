@@ -5,7 +5,8 @@ import { activationConfigSchema } from "../../../../packages/api/src/modules/acc
 import { applicationConfigSchema } from "../../../../packages/api/src/modules/accounts/application-stages";
 import { dataQualityConfigSchema } from "../../../../packages/api/src/modules/accounts/data-quality-config";
 import { membershipConfigSchema } from "../../../../packages/api/src/modules/accounts/membership";
-import { numberingFormatSchema } from "../../../../packages/api/src/modules/accounts/numbering";
+import { formatAccountNumber, numberingFormatSchema } from "../../../../packages/api/src/modules/accounts/numbering";
+import { formatNumber, sampleNumbers } from "./account-number";
 import { statusRulesSchema } from "../../../../packages/api/src/modules/accounts/status-rules";
 import { approvalPolicySchema } from "../../../../packages/api/src/kernel/approval-store";
 import {
@@ -228,5 +229,26 @@ describe("keys and summaries", () => {
     expect(summarize(SETTING_KEYS.membership, { classes: [] })).toBe("0 classes");
     expect(summarize(SETTING_KEYS.activation, defaults.activation)).toBe("Office checklist, stale after 14 days, 0 office items");
     expect(summarize(SETTING_KEYS.statusRules, defaults.statusRules)).toBe("Consumption billed while active");
+  });
+});
+
+describe("number preview mirrors the issuer (C-02)", () => {
+  it("formats every sequence like formatAccountNumber, for each check-digit scheme and separator", () => {
+    for (const checkDigit of ["none", "luhn", "mod11"] as const) {
+      for (const separator of ["", "-", "/", "."] as const) {
+        for (const prefix of ["", "MJ"]) {
+          const format = { prefix, width: 5, start: 1, checkDigit, separator, childSuffix: "letters" as const };
+          for (let sequence = 1; sequence <= 120; sequence++) expect(formatNumber(sequence, format)).toBe(formatAccountNumber(sequence, format));
+        }
+      }
+    }
+  });
+  it("samples the first numbers from the start, skipping sequences mod 11 cannot number", () => {
+    const luhn = { prefix: "MJ", width: 4, start: 1001, checkDigit: "luhn" as const, separator: "-" };
+    expect(sampleNumbers(luhn)).toEqual(["MJ-1001-8", "MJ-1002-6", "MJ-1003-4"].map((n) => formatNumber(Number(n.slice(3, 7)), luhn)!));
+    const mod11 = { ...luhn, checkDigit: "mod11" as const };
+    const samples = sampleNumbers(mod11, 12);
+    expect(samples).toHaveLength(12);
+    expect(new Set(samples).size).toBe(12);
   });
 });
