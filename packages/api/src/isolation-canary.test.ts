@@ -10,6 +10,7 @@ import { raiseException } from "./kernel/exception-store";
 import { notify } from "./kernel/notification-store";
 import { reportPublishProblems } from "./kernel/report-guard";
 import { reports } from "./kernel/report-registry";
+import { allocateInvoiceNumber } from "./modules/tariffs";
 import { addMember, callerFor, callPath, procedures, type Member } from "./test-support";
 
 /** Tenant B's records that A's calls aim at, to prove they never reach them. */
@@ -30,6 +31,20 @@ interface Canary {
   gis: GisCanary;
   /** Tenant B's customer, account, child account and service point, built through the Accounts API (Phase 3 F1). */
   accounts: AccountsCanary;
+  /** Tenant B's category, tariff, charge items and invoice type, built through the Tariffs API (Phase 3 F2). */
+  tariffs: TariffsCanary;
+}
+
+interface TariffsCanary {
+  category: string;
+  assignment: string;
+  tariff: string;
+  tariffVersion: string;
+  chargeItem: string;
+  chargeCode: string;
+  recurringItem: string;
+  invoiceType: string;
+  invoiceTypeCode: string;
 }
 
 interface AccountsCanary {
@@ -77,7 +92,7 @@ let bIdentifiers: Set<string>;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 /** Schemas holding tenant tables: the kernel and every module schema. */
-const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts"];
+const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts", "tariffs"];
 
 async function tenantTables(): Promise<{ schema: string; table: string }[]> {
   const rows = await t.admin.execute<{ table_schema: string; table_name: string }>(sql`
@@ -172,6 +187,7 @@ async function seedB(): Promise<Canary> {
   });
   const gis = await seedNetwork(asB, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
   const accounts = await seedAccounts(asB, { schemeId: scheme.id, zoneId: zone.id, dmaId: dmaArea.id, routeId: route.id, connectionId: gis.connection.id });
+  const tariffs = await seedTariffs(asB);
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -184,6 +200,7 @@ async function seedB(): Promise<Canary> {
     comment,
     gis,
     accounts,
+    tariffs,
     ...seeded,
   };
 }
@@ -225,6 +242,46 @@ async function seedAccounts(
     accountNumber: account.number,
     child: child.id,
     servicePoint: servicePoint.id,
+  };
+}
+
+/**
+ * Tenant B's Tariffs records, through the Tariffs API: a category assigned a tariff (two
+ * versions, one ahead), a recurring and a fee charge item with amounts, and an invoice type
+ * with a line template, a late-fee rule and a number taken from its counter.
+ */
+async function seedTariffs(asB: ReturnType<typeof callerFor>): Promise<TariffsCanary> {
+  const tariff = await asB.tariffs.create({
+    name: `${MARK} tariff`,
+    type: "increasing_block",
+    content: { type: "increasing_block", bands: [{ from: 0, to: 6, rate: 8250n }, { from: 6, to: null, rate: 9600n }] },
+  });
+  await asB.tariffs.addVersion({ tariffId: tariff.id, content: { type: "increasing_block", bands: [{ from: 0, to: null, rate: 9900n }] }, effectiveFrom: "2099-01-01" });
+  const recurring = await asB.tariffs.chargeItems.create({ code: "canary_standing", name: `${MARK} standing charge`, type: "recurring", amount: 15_000n });
+  const fee = await asB.tariffs.chargeItems.create({ code: "canary_fee", name: `${MARK} fee`, type: "fee", amount: 250_000n });
+  await asB.tariffs.chargeItems.addAmountVersion({ chargeItemId: fee.id, amount: 300_000n, effectiveFrom: "2099-01-01" });
+  const category = await asB.tariffs.categories.create({ code: "canary_category", name: `${MARK} category` });
+  const assignment = await asB.tariffs.categories.assignTariff({ categoryId: category.id, tariffId: tariff.id, standingChargeItemId: recurring.id });
+  const invoiceType = await asB.tariffs.invoiceTypes.create({
+    code: "canary_invoice",
+    name: `${MARK} invoice type`,
+    appliesTo: "application",
+    numbering: { prefix: "CB-", width: 5, start: 1 },
+    overdue: { action: "pause_application", afterDays: 3 },
+    lines: [{ chargeItemCode: "canary_fee" }],
+    lateFeeRule: { triggerDays: 7, base: "overdue_balance", rateBp: 500, frequency: "monthly", cap: 100_000n },
+  });
+  await withTenant(t.app, tenants.b.id, (tx) => allocateInvoiceNumber(tx, tenants.b.id, invoiceType.id));
+  return {
+    category: category.id,
+    assignment: assignment.id,
+    tariff: tariff.id,
+    tariffVersion: tariff.firstVersion.id,
+    chargeItem: fee.id,
+    chargeCode: fee.code,
+    recurringItem: recurring.id,
+    invoiceType: invoiceType.id,
+    invoiceTypeCode: invoiceType.code,
   };
 }
 
@@ -520,6 +577,48 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   ],
   "accounts.servicePoints.get": (b) => [{ id: b.accounts.servicePoint }],
   "accounts.servicePoints.list": (b) => [undefined, { accountId: b.accounts.account }, { areaId: b.scheme }, { routeId: b.route }, { after: b.accounts.servicePoint }],
+  // Tariffs (Phase 3 F2): A's own calls, and calls aimed at B's category, tariff, charge items and invoice type.
+  "tariffs.list": () => [undefined, { active: true }, { type: "increasing_block" }],
+  "tariffs.get": (b) => [{ id: b.tariffs.tariff }],
+  "tariffs.create": () => [
+    { name: "A tariff", type: "uniform", content: { type: "uniform", rate: 9500n } },
+    { name: "A flat tariff", type: "flat_rate", flatBasis: "pipe_size", content: { type: "flat_rate", amounts: [{ key: "15mm", amount: 5_000n }] } },
+  ],
+  "tariffs.update": (b) => [{ id: b.tariffs.tariff, name: "Renamed by A", active: false }],
+  "tariffs.addVersion": (b) => [{ tariffId: b.tariffs.tariff, content: { type: "increasing_block", bands: [{ from: 0, to: null, rate: 1n }] } }],
+  "tariffs.versions": (b) => [{ tariffId: b.tariffs.tariff }],
+  "tariffs.inForce": (b) => [{ tariffId: b.tariffs.tariff }, { tariffId: b.tariffs.tariff, date: "2099-06-01" }],
+  "tariffs.nextEffectiveDate": () => [undefined],
+  "tariffs.simulateLateFee": (b) => [
+    { invoiceTypeId: b.tariffs.invoiceType, balance: 100_000n, daysOverdue: 40 },
+    { rule: { triggerDays: 1, base: "overdue_balance", rateBp: 100, frequency: "once" }, balance: 100_000n, daysOverdue: 40 },
+  ],
+  "tariffs.categories.list": () => [undefined, { includeInactive: true }],
+  "tariffs.categories.get": (b) => [{ id: b.tariffs.category }],
+  "tariffs.categories.create": () => [{ code: "a_category", name: "A category" }],
+  "tariffs.categories.update": (b) => [{ id: b.tariffs.category, name: "Renamed by A" }],
+  "tariffs.categories.deactivate": (b) => [{ id: b.tariffs.category }],
+  "tariffs.categories.reactivate": (b) => [{ id: b.tariffs.category }],
+  "tariffs.categories.assignTariff": (b) => [
+    { categoryId: b.tariffs.category, tariffId: b.tariffs.tariff },
+    { categoryId: b.tariffs.category, standingChargeItemId: b.tariffs.recurringItem, meterRentItemId: null },
+  ],
+  "tariffs.chargeItems.list": () => [undefined, { type: "fee" }, { active: false }],
+  "tariffs.chargeItems.get": (b) => [{ id: b.tariffs.chargeItem }, { code: b.tariffs.chargeCode }],
+  "tariffs.chargeItems.create": () => [{ code: "a_fee", name: "A fee", type: "fee", amount: 1_000n }],
+  "tariffs.chargeItems.update": (b) => [{ id: b.tariffs.chargeItem, name: "Renamed by A" }],
+  "tariffs.chargeItems.addAmountVersion": (b) => [{ chargeItemId: b.tariffs.chargeItem, amount: 1n }],
+  "tariffs.chargeItems.deactivate": (b) => [{ id: b.tariffs.chargeItem }],
+  "tariffs.chargeItems.reactivate": (b) => [{ id: b.tariffs.chargeItem }],
+  "tariffs.invoiceTypes.list": () => [undefined, { appliesTo: "application" }],
+  "tariffs.invoiceTypes.get": (b) => [{ id: b.tariffs.invoiceType }, { code: b.tariffs.invoiceTypeCode }],
+  "tariffs.invoiceTypes.create": (b) => [
+    { code: "a_invoice", name: "A invoice type", appliesTo: "account" },
+    { code: "a_invoice_2", name: "A invoice type 2", appliesTo: "account", lines: [{ chargeItemCode: b.tariffs.chargeCode }] },
+  ],
+  "tariffs.invoiceTypes.update": (b) => [{ id: b.tariffs.invoiceType, name: "Renamed by A", dueDays: 1 }],
+  "tariffs.invoiceTypes.setLines": (b) => [{ id: b.tariffs.invoiceType, lines: [] }],
+  "tariffs.invoiceTypes.setLateFeeRule": (b) => [{ id: b.tariffs.invoiceType, rule: null }],
 };
 
 beforeAll(async () => {
@@ -541,7 +640,7 @@ afterAll(() => t?.stop());
 
 /** B identifiers in `text` that the caller did not send itself. */
 function leaks(text: string, input: unknown): string[] {
-  const sent = JSON.stringify(input ?? null);
+  const sent = JSON.stringify(input ?? null, (_key, v: unknown) => (typeof v === "bigint" ? v.toString() : v));
   const found = [...new Set(text.match(UUID) ?? [])].filter((id) => bIdentifiers.has(id) && !sent.includes(id));
   if (text.includes(MARK) && !sent.includes(MARK)) found.push(MARK);
   return found;
@@ -557,8 +656,8 @@ describe("isolation canary", () => {
     const empty = Object.entries(await snapshotB()).filter(([, rows]) => rows.length === 0).map(([table]) => table);
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
-    // Every gis, work_orders and accounts table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(27);
+    // Every gis, work_orders, accounts and tariffs table is covered ("the canary covers every table").
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(38);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {
@@ -597,11 +696,15 @@ describe("isolation canary", () => {
       "accounts.list",
       "accounts.customers.list",
       "accounts.servicePoints.list",
+      "tariffs.list",
+      "tariffs.categories.list",
+      "tariffs.chargeItems.list",
+      "tariffs.invoiceTypes.list",
     ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
     expect(seen).toContain(MARK);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 
