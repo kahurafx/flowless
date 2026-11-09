@@ -6,18 +6,11 @@ import { z } from "zod";
 import { readSetting } from "../../kernel/config-store";
 import { router } from "../../trpc";
 import { applicationVisible } from "./access";
-import {
-  advanceApplication,
-  convertApplication,
-  createApplication,
-  endApplication,
-  eventsOf,
-  findApplication,
-  presentApplication,
-  recordSurvey,
-  toEventDto,
-  type AdvanceRequest,
-} from "./applications";
+import { convertApplication } from "./application-convert";
+import { createApplication } from "./application-create";
+import { findApplication, presentApplication, stepsOf, toStepDto } from "./application-present";
+import { advanceApplication, endApplication, type AdvanceRequest } from "./application-steps";
+import { recordSurvey } from "./application-survey";
 import { activeStages } from "./application-stages";
 import { procedureEnv } from "./commands";
 import { NewCustomerInput } from "./customers";
@@ -83,7 +76,7 @@ export function applicationsRouter(p: AccountsProcedures) {
     /** The application with its history (every stage change, the survey and its decision). */
     get: p.read.input(z.object({ id: applicationId })).query(async ({ ctx, input }) => {
       const row = await findApplication(ctx.tx, ctx.viewer, input.id);
-      return { ...(await presentApplication(ctx.tx, row)), events: (await eventsOf(ctx.tx, row.id)).map(toEventDto) };
+      return { ...(await presentApplication(ctx.tx, row)), events: (await stepsOf(ctx.tx, row.id)).map(toStepDto) };
     }),
 
     /** Oldest first; pass the last id of a page as `after`. */

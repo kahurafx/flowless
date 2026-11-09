@@ -10,17 +10,8 @@ import { procedureEnv } from "./commands";
 import { NewCustomerInput } from "./customers";
 import { holderAt, holdersOf } from "./holders";
 import type { AccountsProcedures } from "./procedures";
-import {
-  cancelRelocation,
-  completeRelocation,
-  findRelocation,
-  recordRelocationSurvey,
-  recordRelocationWork,
-  relocationEventsOf,
-  requestRelocation,
-  toRelocationDto,
-  toRelocationEventDto,
-} from "./relocations";
+import { findRelocation, relocationStepsOf, toRelocationDto, toRelocationStepDto } from "./relocation-present";
+import { cancelRelocation, completeRelocation, recordRelocationSurvey, recordRelocationWork, requestRelocation } from "./relocations";
 import { findAccount } from "./service";
 import { succeedAccount } from "./succession";
 
@@ -141,7 +132,7 @@ export function changesProcedureSet(p: AccountsProcedures) {
 
       get: p.read.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
         const row = await findRelocation(ctx.tx, ctx.viewer, input.id);
-        return { ...toRelocationDto(row), events: (await relocationEventsOf(ctx.tx, row.id)).map(toRelocationEventDto) };
+        return { ...toRelocationDto(row), events: (await relocationStepsOf(ctx.tx, row.id)).map(toRelocationStepDto) };
       }),
 
       list: p.read

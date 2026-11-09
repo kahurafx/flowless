@@ -275,14 +275,17 @@ export const servicePoint = accounts.table(
 );
 
 /**
- * Every change of an account's status, as one append-only row (C-03): who did it, from where,
+ * The account's step log (named `account_command` for its main use): every change of an
+ * account's status, as one append-only row (C-03): who did it, from where,
  * why, and the status on both axes before and after. The account's two status columns are the
  * current state; this table is the history that explains them, and the trigger on
  * `account` allows a change only with a row here that describes exactly that change.
  * `id` is minted by the client when it can, so a retry returns the earlier result;
  * `fingerprint` is the request it came from (a different request under the same id is a
  * conflict). A system actor (automatic activation, an approval's outcome) has no user.
- * `write_off_decided` rows change nothing (from = to). The app role cannot UPDATE, DELETE or
+ * Not every kind moves the status: `write_off_decided` rows, and the `succeed`, `change_name`
+ * and `relocate` rows (C-08 to C-10), change nothing on the status axes (from = to) and exist
+ * for the id, the actor, the reason and the payload. The app role cannot UPDATE, DELETE or
  * TRUNCATE them.
  */
 export const accountCommand = accounts.table(
@@ -463,9 +466,10 @@ export const application = accounts.table(
 );
 
 /**
- * An application's history (C-05), append-only: stage changes, the survey result and the
- * decision on it, each with who (null for the system, which also decides approvals), from
- * where and why. `id` is client-mintable, so a retried call returns the earlier result;
+ * An application's step log (named `application_event` for its main use), append-only: stage
+ * changes, the survey result and the decision on it, each with who (null for the system, which
+ * also decides approvals), from where and why. Only the `created` and `stage_changed` kinds
+ * move the stage; `survey_recorded` and `survey_decided` rows leave it as it was (from = to). `id` is client-mintable, so a retried call returns the earlier result;
  * `fingerprint` identifies the request it came from.
  */
 export const applicationEvent = accounts.table(
@@ -555,7 +559,11 @@ export const relocation = accounts.table(
   ],
 );
 
-/** A relocation's history (C-09), append-only, like `application_event`. */
+/**
+ * A relocation's step log (named `relocation_event` for its main use), append-only, like
+ * `application_event`. `work_recorded` rows never move the status (from = to), and a
+ * `survey_recorded` row may leave it where it was; the other kinds move it.
+ */
 export const relocationEvent = accounts.table(
   "relocation_event",
   {

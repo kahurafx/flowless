@@ -5,7 +5,7 @@ import { z } from "zod";
 import { defineApprovalConsumer } from "../../kernel/approval-store";
 import { defineConsumer } from "../../kernel/events";
 import { defineWorkKind, type AssetRef, type AssetResolver, type WorkKindDef, type WorkRegistry } from "../../kernel/work";
-import { applySurveyDecision, askAs, recordSurvey } from "./applications";
+import { applySurveyDecision, askAs, recordSurvey } from "./application-survey";
 import { systemEnv } from "./commands";
 import { connectionSurveyCompleted, relocationWorkCompleted } from "./events";
 import { applyRelocationJob } from "./relocations";

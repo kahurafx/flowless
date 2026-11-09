@@ -1,19 +1,21 @@
-import type { LatLng, Transaction } from "@flowless/db";
-import { relocation, relocationEvent, servicePoint } from "@flowless/db/schema/accounts";
-import type { RelocationEventKind, RelocationStatus, SurveyFeasibility } from "@flowless/shared-types";
+import type { LatLng } from "@flowless/db";
+import { relocation, servicePoint } from "@flowless/db/schema/accounts";
+import type { RelocationStatus, SurveyFeasibility } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { readSetting } from "../../kernel/config-store";
 import { loadEntitlements } from "../../kernel/entitlement-store";
 import { chargeItemByCode } from "../tariffs";
-import { relocationVisible, type Placement, type Viewer } from "./access";
+import type { Placement, Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
-import { commandLog, fingerprintOfRequest, lockAccount, toCommandDto, type CommandEnv } from "./commands";
+import { commandLog, fingerprintOfRequest, toCommandDto, type CommandEnv } from "./commands";
 import { servicePointRelocated, type JobCompleted } from "./events";
 import { localToday } from "./holders";
-import { claimingId, createdStep, loggedStep } from "./idempotent";
+import { claimingId } from "./idempotent";
+import { isOpen, placeOf, toRelocationDto, type RelocationDto, type RelocationRow } from "./relocation-present";
+import { logStep, lockedRelocation, openRelocationStep, relocationCreation } from "./relocation-steps";
 import { createServicePoint } from "./service-points";
-import { assertPlacementInScope, findAccount, findServicePoint, notFound, toServicePointDto, validatePlacement, type AccountRow } from "./service";
+import { assertPlacementInScope, findAccount, findServicePoint, toServicePointDto, validatePlacement, type AccountRow } from "./service";
 import { applicationSetting } from "./settings";
 
 /*
@@ -29,145 +31,6 @@ import { applicationSetting } from "./settings";
  * relocation moves only with a `relocation_event` (trigger), and completion is a `relocate`
  * row in the account's command log, so it is idempotent by its client-minted id.
  */
-
-export type RelocationRow = typeof relocation.$inferSelect;
-export type RelocationEventRow = typeof relocationEvent.$inferSelect;
-
-export function toRelocationDto(r: RelocationRow) {
-  return {
-    id: r.id,
-    accountId: r.accountId,
-    fromServicePointId: r.fromServicePointId,
-    newServicePointId: r.newServicePointId,
-    to: {
-      address: r.toAddress,
-      location: r.toLocation as LatLng | null,
-      schemeId: r.toSchemeId,
-      zoneId: r.toZoneId,
-      dmaId: r.toDmaId,
-      routeId: r.toRouteId,
-    },
-    status: r.status,
-    reason: r.reason,
-    feeItemCodes: r.feeItemCodes as string[],
-    survey: r.surveyFeasibility ? { feasibility: r.surveyFeasibility, findings: r.surveyFindings ?? "" } : null,
-    finalReading: r.finalReading,
-    initialReading: r.initialReading,
-    workOrderId: r.workOrderId,
-    requestedByUserId: r.requestedByUserId,
-    requestedAt: r.requestedAt,
-    completedAt: r.completedAt,
-    updatedAt: r.updatedAt,
-  };
-}
-export type RelocationDto = ReturnType<typeof toRelocationDto>;
-
-export function toRelocationEventDto(e: RelocationEventRow) {
-  return {
-    id: e.id,
-    relocationId: e.relocationId,
-    kind: e.kind,
-    fromStatus: e.fromStatus,
-    toStatus: e.toStatus,
-    actorUserId: e.actorUserId,
-    source: e.source,
-    reason: e.reason,
-    payload: e.payload as Record<string, unknown>,
-    occurredAt: e.occurredAt,
-  };
-}
-
-export async function findRelocation(tx: Transaction, viewer: Viewer | null, id: string, lock = false): Promise<RelocationRow> {
-  const query = tx
-    .select()
-    .from(relocation)
-    .where(and(eq(relocation.id, id), viewer ? relocationVisible(viewer) : undefined));
-  const [row] = await (lock ? query.for("update") : query);
-  if (!row) throw notFound("Relocation");
-  return row;
-}
-
-export const relocationEventsOf = (tx: Transaction, relocationId: string) =>
-  tx.select().from(relocationEvent).where(eq(relocationEvent.relocationId, relocationId)).orderBy(asc(relocationEvent.occurredAt), asc(relocationEvent.id));
-
-const isOpen = (status: RelocationStatus) => status === "requested" || status === "surveyed";
-
-/** The relocation step log's idempotency (replay for the same relocation, kind, actor and request). */
-const relocationLog = loggedStep<RelocationEventRow>({
-  find: async (tx, id) => (await tx.select().from(relocationEvent).where(eq(relocationEvent.id, id)))[0],
-  parentOf: (e) => e.relocationId,
-});
-
-/** The idempotency of `request`: a repeat of the creator's own id replays. */
-const relocationCreation = createdStep<RelocationRow>({
-  find: async (tx, id) => (await tx.select().from(relocation).where(eq(relocation.id, id)))[0],
-  creatorOf: (r) => r.requestedByUserId,
-});
-
-/** One row of the relocation's step log. Not every kind moves the status: `work_recorded` rows (and a `survey_recorded` that leaves the status where it was) have from = to. */
-async function logEvent(
-  env: CommandEnv,
-  relocationId: string,
-  e: { id?: string | undefined; kind: RelocationEventKind; from: RelocationStatus | null; to: RelocationStatus; reason: string; payload?: Record<string, unknown>; fingerprint?: string | undefined },
-) {
-  const [row] = await claimingId(() =>
-    env.tx
-      .insert(relocationEvent)
-      .values({
-        ...(e.id ? { id: e.id } : {}),
-        organizationId: env.organizationId,
-        relocationId,
-        kind: e.kind,
-        fromStatus: e.from,
-        toStatus: e.to,
-        actorUserId: env.actor.userId,
-        source: env.source,
-        reason: e.reason.trim(),
-        payload: e.payload ?? {},
-        fingerprint: e.fingerprint ?? null,
-      })
-      .returning(),
-  );
-  return row!;
-}
-
-/**
- * Locks the relocation's account, then the relocation, in that order (the order every use
- * case takes, so two of them on one relocation take turns). A hidden relocation or account
- * is NOT_FOUND; the system (`viewer` null) sees everything.
- */
-async function lockedRelocation(env: CommandEnv, viewer: Viewer | null, relocationId: string): Promise<{ row: RelocationRow; account: AccountRow }> {
-  const unlocked = await findRelocation(env.tx, viewer, relocationId);
-  const owner = await lockAccount(env.tx, viewer, unlocked.accountId);
-  return { row: await findRelocation(env.tx, viewer, relocationId, true), account: owner };
-}
-
-/**
- * A step on an open relocation that is logged in `relocation_event` and replays by its id:
- * lock, replay a repeat, refuse a closed relocation, then `apply` changes and audits it.
- */
-async function openRelocationStep(
-  env: CommandEnv,
-  viewer: Viewer | null,
-  req: { id?: string | undefined; relocationId: string },
-  step: { kind: RelocationEventKind; fingerprint: string; apply(row: RelocationRow): Promise<RelocationRow> },
-) {
-  const { row } = await lockedRelocation(env, viewer, req.relocationId);
-  return relocationLog.once(
-    env,
-    req.id,
-    { parentId: row.id, kind: step.kind, fingerprint: step.fingerprint },
-    {
-      replay: () => ({ relocation: toRelocationDto(row) }),
-      run: async () => {
-        if (!isOpen(row.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${row.status}` });
-        return { relocation: toRelocationDto(await step.apply(row)) };
-      },
-    },
-  );
-}
-
-const placeOf = (r: RelocationRow): Placement => ({ schemeId: r.toSchemeId, zoneId: r.toZoneId, dmaId: r.toDmaId, routeId: r.toRouteId });
 
 /* ---------- request ---------- */
 
@@ -232,7 +95,7 @@ async function applyRequest(env: CommandEnv, viewer: Viewer, input: NewRelocatio
         .returning(),
     "This service point already has a relocation under way, or that id is in use",
   );
-  await logEvent(env, row!.id, { kind: "requested", from: null, to: "requested", reason: input.reason, payload: { feeItemCodes: codes } });
+  await logStep(env, row!.id, { kind: "requested", from: null, to: "requested", reason: input.reason, payload: { feeItemCodes: codes } });
   await env.audit({
     action: "accounts.relocation_request",
     subjectType: "relocation",
@@ -256,7 +119,7 @@ export function recordRelocationSurvey(
     fingerprint,
     async apply(before) {
       const to: RelocationStatus = req.feasibility === "feasible" ? "surveyed" : "requested";
-      await logEvent(env, before.id, {
+      await logStep(env, before.id, {
         id: req.id,
         kind: "survey_recorded",
         from: before.status,
@@ -304,7 +167,7 @@ export function recordRelocationWork(
         })
         .where(eq(relocation.id, before.id))
         .returning();
-      await logEvent(env, before.id, {
+      await logStep(env, before.id, {
         id: req.id,
         kind: "work_recorded",
         from: before.status,
@@ -411,7 +274,7 @@ async function applyCompletion(
     reason,
   });
 
-  await logEvent(env, before.id, {
+  await logStep(env, before.id, {
     kind: "completed",
     from: before.status,
     to: "completed",
@@ -458,7 +321,7 @@ export function cancelRelocation(env: CommandEnv, viewer: Viewer, req: { id?: st
     kind: "cancelled",
     fingerprint,
     async apply(before) {
-      await logEvent(env, before.id, { id: req.id, kind: "cancelled", from: before.status, to: "cancelled", reason: req.reason, fingerprint });
+      await logStep(env, before.id, { id: req.id, kind: "cancelled", from: before.status, to: "cancelled", reason: req.reason, fingerprint });
       const [row] = await env.tx.update(relocation).set({ status: "cancelled", updatedAt: new Date() }).where(eq(relocation.id, before.id)).returning();
       await env.audit({ action: "accounts.relocation_cancel", subjectType: "relocation", subjectId: before.id, before: { status: before.status }, after: { status: "cancelled" }, reason: req.reason.trim() });
       return row!;
