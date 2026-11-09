@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Flowless is a pnpm + Turborepo monorepo (early scaffold stage) with a Next.js web app, an Expo mobile app, and shared internal packages under the `@flowless/*` scope.
+Flowless is a pnpm + Turborepo monorepo: a multi-tenant water-utility platform with a Next.js web app, an Expo field app, a worker, and shared internal packages under the `@flowless/*` scope. Phases 0 to 3 are built (kernel, Work Orders, GIS, Accounts, Tariffs); the current status, how to resume and what comes next are at the top of `docs/build-plan.md` ("Status and how to resume"). Read that first in a new session.
 
 ## Commands
 
@@ -30,7 +30,7 @@ Local services and database:
 pnpm bootstrap      # copy .env.example → .env (if missing), docker compose up (Postgres 17 with PostGIS :54320, Redis :63790), migrate, seed
 pnpm db:generate    # drizzle-kit generate after changing packages/db/src/schema
 pnpm db:migrate     # bootstrap roles + apply migrations (uses DATABASE_ADMIN_URL)
-pnpm db:seed        # packages/seed: dev organizations, users, settings, areas, routes and scopes. Code MAJISAFI, wanjiru@majisafi.test (owner) or usernames baraka (clerk) / achieng (cashier, limited to Kahawa West), password flowless-dev-password
+pnpm db:seed        # packages/seed: dev organizations, users, settings, areas, routes, scopes, the Kahawa West network and jobs (Phase 2) and tariffs, accounts, applications and exceptions (Phase 3); idempotent. Code MAJISAFI, wanjiru@majisafi.test (owner) or usernames baraka (clerk) / achieng (cashier, limited to Kahawa West), password flowless-dev-password
 pnpm test           # turbo run test — Vitest; integration tests start their own Postgres via Testcontainers (Docker required)
 ```
 
@@ -42,7 +42,7 @@ Env lives in the root `.env`. `apps/web` loads it with `process.loadEnvFile` in 
 - `apps/mobile` (package name `mobile`): the offline-first technician app, Expo SDK 58 / React Native 0.88 with Expo Router (routes in `src/app/`), ported from Majimap's field app. A tRPC client (`import type { AppRouter }` only) and a Better Auth Expo client; local-first state in sqlite with an ops queue that syncs idempotent, client-minted-id calls; job, map, capture and review screens; photos through the file service. Structure, sync and env vars are in `apps/mobile/CLAUDE.md`.
 - `packages/*` — internal packages, all ESM, **no build step**: each exports raw TypeScript via `"exports": { ".": "./src/index.ts" }` and is consumed directly by the apps' bundlers. Scripts: `lint`, `check-types`, and `test` where a package has tests.
   - `shared-types` — types and constants shared across web and mobile (sign-in identifiers, permissions, enums).
-  - `api` — tRPC: the only place procedures live (`kernel/` plus one folder per module under `modules/`).
+  - `api` — tRPC: the only place procedures live (`kernel/` plus one folder per module under `modules/`: `accounts`, `tariffs`, `work-orders`, `gis` so far). Each module has its own `CLAUDE.md`; start with `packages/api/CLAUDE.md`.
   - `db` — Drizzle schema per module, migrations, runtime roles, RLS policies, `withTenant`.
   - `auth` — Better Auth (organization + twoFactor plugins); owns the `auth` Postgres schema, generated into `packages/db/src/schema/auth.ts` by `pnpm --filter @flowless/auth auth:generate`.
   - `seed` — `pnpm db:seed`: dev data, identities from `@flowless/auth/dev-seed`, everything else through the API as the owner.
@@ -72,4 +72,4 @@ Both apps pin versions newer than typical training data, and each has an `AGENTS
 - Add or update tests with every change. packages/billing-engine must keep its invariant and property tests green.
 - Small commits, conventional messages, no unrelated refactors.
 - A phase is done only when its acceptance checks pass. Tests are off in CI for now, so run `pnpm test` locally before calling a step done. Do not start the next phase on red tests.
-
+- Process (the owner's standing rules): never `git push`; work on local branches, fast-forward into local `main`. Propose a task list, then one agent per step in a git worktree; the lead verifies and merges each step and re-runs lint, types and all tests on `main`. Agents commit small and use a scratch database, never the shared dev database. See `docs/build-plan.md` → "Status and how to resume".

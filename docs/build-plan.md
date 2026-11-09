@@ -81,6 +81,45 @@ These rules turn the CLAUDE.md rules into code. Each one is enforced by a check,
 | Heavy work is enqueued from a procedure and run by `apps/worker` (NF-12). Every failure becomes a row in the exception queue with owner and age (NF-24). | kernel job runner wraps every job; no bare `try/catch` that swallows |
 | `apps/mobile` never imports runtime code from `@flowless/api`; it imports types only. | `flowless/module-boundaries`, applied by `apps/mobile`'s `expo lint` (done in W5) |
 
+## Status and how to resume
+
+**Last updated:** end of Phase 3 (local `main`, nothing pushed). Phases 0 to 3 are done and verified: `pnpm lint`, `pnpm check-types` and `pnpm test` pass (about 1,350 tests: api 952, web 121, db 71, shared-types 76, network 47, mobile 44, auth 21, eslint-config 19). Migrations run 0000 to 0034. The next phase is **Phase 4: Billing engine and sub-ledger**; do not start it without the owner's go-ahead.
+
+| Phase | State |
+| --- | --- |
+| 0 Foundations, 1 Kernel, 2 Work Orders core and GIS, 3 Foundation domain | Done (Phase 2 and 3 acceptance notes are in their sections below) |
+| 4 Billing engine, 5 Metering, 6 Payments (and K-11), 7 Communications, 8 Import, 9 Portal and mobile readings, 10 Collections and Inventory, 11 NRW and Finance | Not started |
+
+**Start of a new session**
+
+1. Read the root `CLAUDE.md`, then this file's Phase 4 section and the reference `docs/billing-engine.html` (requirements section 6 wins where they disagree).
+2. Read `packages/api/CLAUDE.md` and the module notes it points to (`packages/api/src/modules/<module>/CLAUDE.md`), `apps/web/CLAUDE.md`, `apps/mobile/CLAUDE.md`, `packages/seed/CLAUDE.md`.
+3. `git status`, `git log --oneline -15`, `git worktree list` (nothing should be left over), then `pnpm install --frozen-lockfile && pnpm lint && pnpm check-types && pnpm test` to confirm a green start. Docker must be running (`pnpm bootstrap` starts Postgres with PostGIS and Redis).
+4. Dev data: `pnpm db:seed` is idempotent. MAJISAFI (code `majisafi`, owner wanjiru@majisafi.test, clerk `baraka`, cashier `achieng`, technician `juma`, supervisor `njeri`, password `flowless-dev-password`) has the Phase 2 network and jobs and the Phase 3 tariffs, accounts, applications and exceptions. KILIMA has the foundation only.
+
+**How the work is run (the owner's standing process)**
+
+- Never `git push`. Work on local branches and fast-forward them into local `main`.
+- Propose a task list first (steps like F1 to F6), then one agent per step in its own git worktree; the agent commits small and reports; the lead rebases, merges fast-forward only, deletes the worktree and branch, and re-runs lint, types and the whole test suite on `main` before calling the step done. Agents never merge into `main`, never push, and use a scratch database (dropped afterwards) rather than the shared dev database.
+- Agents sometimes die on network errors mid-step. They commit as they go, so resume the same agent (SendMessage) after checking its worktree; do not restart from scratch.
+- Tests are off in CI until Phase 6; run them locally. A step is done only when its acceptance checks pass on `main`.
+
+**What Phase 4 and later phases must plug into (hooks already built)**
+
+- Accounts (`modules/accounts/index.ts`): `registerTerminationCheck(check, { requires: ["billing"] })` (final bill and balance), `registerGateSource("payment_threshold", source, { requires })`, `registerBalanceTransfer` (succession), `registerReadingHandover` (Metering), `registerDataQualitySource("active_metered_no_meter", ...)`, `recheckActivation(tx, orgId, accountId)` when a payment lands, `chargesApplying`/`statusRuleTable` (what each status bills), `membershipFor`, `holderAt`/`holdersOf` (split bills at a change of name). Billing consumes `accounts.application_stage_changed` and calls `markInvoiced`/`markPaid` as the system until then they take opaque references.
+- Tariffs (`modules/tariffs/index.ts`): `registerClosedPeriodSource` (call once at start-up), `allocateInvoiceNumber`, `categoryPricing`, `tariffVersionInForce`/`versionSpans`, `chargeItemByCode`; cite `tariff_version.id` and `charge_item_amount` ids on invoice lines (T-04). Tier scaling (T-05) and the reading-date rule are Billing's.
+- Metering registers the `initial_reading` gate and reading handover; Work Orders with Inventory register `meter_installed` (Phase 10). Registries are in `kernel/port-registry.ts`; a port with `requires` is used only while those modules are licensed (NF-31).
+- Statement section of the account page is a "Phase 4" placeholder in the web.
+
+**Open items for the owner (not code)**
+
+- An S3-compatible bucket in `.env` (`S3_*`): photos cannot upload without it, on web or phone.
+- Run the Phase 2 asset-capture flow on a real phone (build the dev client, set `EXPO_PUBLIC_API_URL`); the offline path is untested on a device.
+- Click through the new web dialogs and forms in a browser (only server actions and the API were exercised) and run `next build` somewhere with network access (the sandbox cannot fetch Google Fonts).
+- Decide whether `account_no_phone` should also treat numbers like `0700000000` as placeholders (today only an all-zero or repeated-digit national part counts).
+
+**Known follow-ups** are listed under Phase 2 (map and mobile gaps) and "Known follow-ups after Phase 3".
+
 ## Phases
 
 Each phase lists the requirement IDs it owns. An ID is owned by exactly one phase; a later phase that extends it says so.
