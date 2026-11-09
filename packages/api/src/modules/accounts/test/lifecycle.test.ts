@@ -597,6 +597,32 @@ describe("termination (C-11)", () => {
     await expect(env.manager().accounts.terminate({ accountId: a.id, reason: "Left", acknowledgeNoLedger: true })).resolves.toBeTruthy();
   });
 
+  it("asks a ledger check that requires Billing only while Billing is licensed (NF-31)", async () => {
+    let asked = 0;
+    registerTerminationCheck(
+      async () => {
+        asked += 1;
+        return { finalBillIssued: false, balance: 0n };
+      },
+      { requires: ["billing"] },
+    );
+    const a = await activeAccount();
+    try {
+      // Without Billing the check is not asked: the organization terminates as if there were no ledger yet.
+      await expect(env.manager().accounts.terminate({ accountId: a.id, reason: "Left" })).rejects.toThrow(/no ledger/i);
+      expect(asked).toBe(0);
+
+      // With Billing licensed the check is enforced.
+      await setEntitlements(env.t.app, env.orgA, ["accounts", "tariffs", "billing"]);
+      await expect(env.manager().accounts.terminate({ accountId: a.id, reason: "Left", acknowledgeNoLedger: true })).rejects.toThrow(/final bill/);
+      expect(asked).toBe(1);
+    } finally {
+      await setEntitlements(env.t.app, env.orgA, ["accounts"]);
+    }
+    const done = await env.manager().accounts.terminate({ accountId: a.id, reason: "Left", acknowledgeNoLedger: true });
+    expect(done.command.payload).toMatchObject({ basis: "no_ledger" });
+  });
+
   it("terminates over a balance only with an approved write-off that covers it", async () => {
     const position = { finalBillIssued: true, balance: 250_000n };
     registerTerminationCheck(async () => position);

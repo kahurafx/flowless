@@ -1,6 +1,6 @@
 import type { Transaction } from "@flowless/db";
-import type { DataQualityRuleKey, ModuleKey } from "@flowless/shared-types";
-import { loadEntitlements } from "../../kernel/entitlement-store";
+import type { DataQualityRuleKey } from "@flowless/shared-types";
+import { defineKeyedPort, definePort, type PortOptions } from "../../kernel/port-registry";
 import type { GateFact } from "./gates";
 import type { Position } from "./termination";
 
@@ -9,19 +9,14 @@ import type { Position } from "./termination";
  * in the manner of Tariffs' closed-period port. Nothing is registered until the module that
  * can speak for a fact ships; until then the office checklist (C-06) and an explicit
  * acknowledgement (C-11) stand in. Modules register once, at start-up, through the
- * module's `index.ts`.
+ * module's `index.ts`. Every port is built on `kernel/port-registry.ts`: a registered handler
+ * is asked only while all of its `requires` modules are licensed for the organization.
  */
 
 /** A module's answer for one gate and account, or null when it has no answer ("no source yet"). */
 export type GateSource = (tx: Transaction, organizationId: string, accountId: string) => Promise<GateFact | null>;
 
-interface RegisteredSource {
-  source: GateSource;
-  /** Modules that must all be licensed for the organization before the source is asked. */
-  requires: readonly ModuleKey[];
-}
-
-const gateSources = new Map<string, RegisteredSource>();
+const gateSources = defineKeyedPort<string, GateSource>();
 
 /**
  * Registers the source for a built-in gate (`payment_threshold`: Billing, `meter_installed`:
@@ -30,9 +25,8 @@ const gateSources = new Map<string, RegisteredSource>();
  * an unlicensed module never affects activation (NF-31) and the gate falls back to the
  * checklist. Registering again replaces; pass null to remove (tests do).
  */
-export function registerGateSource(gateKey: string, source: GateSource | null, options: { requires?: readonly ModuleKey[] } = {}): void {
-  if (source === null) gateSources.delete(gateKey);
-  else gateSources.set(gateKey, { source, requires: options.requires ?? [] });
+export function registerGateSource(gateKey: string, source: GateSource | null, options: PortOptions = {}): void {
+  gateSources.register(gateKey, source, options);
 }
 
 /** Is a source registered for the gate (whether or not it is licensed for this organization)? */
@@ -45,17 +39,11 @@ export async function gatherFacts(
   accountId: string,
   gateKeys: readonly string[],
 ): Promise<Record<string, GateFact | null>> {
+  const sources = await gateSources.resolveAll(tx, gateKeys);
   const facts: Record<string, GateFact | null> = {};
-  let licensed: readonly ModuleKey[] | undefined;
   for (const key of gateKeys) {
-    const registered = gateSources.get(key);
-    facts[key] = null;
-    if (!registered) continue;
-    if (registered.requires.length) {
-      licensed ??= await loadEntitlements(tx);
-      if (!registered.requires.every((m) => licensed!.includes(m))) continue;
-    }
-    facts[key] = await registered.source(tx, organizationId, accountId);
+    const source = sources.get(key);
+    facts[key] = source ? await source(tx, organizationId, accountId) : null;
   }
   return facts;
 }
@@ -63,15 +51,21 @@ export async function gatherFacts(
 /** The ledger's position of an account: null means "no ledger yet" (C-11). */
 export type TerminationCheck = (tx: Transaction, organizationId: string, accountId: string) => Promise<Position | null>;
 
-let terminationCheck: TerminationCheck | null = null;
+const terminationCheck = definePort<TerminationCheck>();
 
-/** Billing registers the final-bill and balance check in Phase 4; pass null to go back to "no ledger" (tests do). */
-export function registerTerminationCheck(check: TerminationCheck | null): void {
-  terminationCheck = check;
+/**
+ * Billing registers the final-bill and balance check in Phase 4, with `requires: ["billing"]`;
+ * pass null to go back to "no ledger" (tests do). While a required module is unlicensed for an
+ * organization the check is not asked: that organization terminates as if there were no ledger
+ * (NF-31).
+ */
+export function registerTerminationCheck(check: TerminationCheck | null, options: PortOptions = {}): void {
+  terminationCheck.register(check, options);
 }
 
 export async function positionOf(tx: Transaction, organizationId: string, accountId: string): Promise<Position | null> {
-  return terminationCheck ? terminationCheck(tx, organizationId, accountId) : null;
+  const check = await terminationCheck.resolve(tx);
+  return check ? check(tx, organizationId, accountId) : null;
 }
 
 /*
@@ -105,36 +99,22 @@ export interface ReadingHandoverRequest {
 /** Metering registers it; it may return the reference of the closing reading it recorded. */
 export type ReadingHandover = (tx: Transaction, organizationId: string, request: ReadingHandoverRequest) => Promise<{ closingReadingRef?: string | null } | void>;
 
-interface RegisteredPort<T> {
-  handler: T;
-  requires: readonly ModuleKey[];
-}
-
-let balanceTransfer: RegisteredPort<BalanceTransfer> | null = null;
-let readingHandover: RegisteredPort<ReadingHandover> | null = null;
+const balanceTransfer = definePort<BalanceTransfer>();
+const readingHandover = definePort<ReadingHandover>();
 
 /** `requires`: the modules that must be licensed for the port to be used (Billing registers with ["billing"]). Null removes it. */
-export function registerBalanceTransfer(handler: BalanceTransfer | null, options: { requires?: readonly ModuleKey[] } = {}): void {
-  balanceTransfer = handler ? { handler, requires: options.requires ?? [] } : null;
+export function registerBalanceTransfer(handler: BalanceTransfer | null, options: PortOptions = {}): void {
+  balanceTransfer.register(handler, options);
 }
 
 /** `requires`: the modules that must be licensed (Metering registers with ["metering"]). Null removes it. */
-export function registerReadingHandover(handler: ReadingHandover | null, options: { requires?: readonly ModuleKey[] } = {}): void {
-  readingHandover = handler ? { handler, requires: options.requires ?? [] } : null;
-}
-
-async function usable<T>(tx: Transaction, port: RegisteredPort<T> | null): Promise<T | null> {
-  if (!port) return null;
-  if (port.requires.length) {
-    const licensed = await loadEntitlements(tx);
-    if (!port.requires.every((m) => licensed.includes(m))) return null;
-  }
-  return port.handler;
+export function registerReadingHandover(handler: ReadingHandover | null, options: PortOptions = {}): void {
+  readingHandover.register(handler, options);
 }
 
 /** Moves the balance if a ledger is there; otherwise says it is still to do. */
 export async function transferBalance(tx: Transaction, organizationId: string, request: BalanceTransferRequest): Promise<"done" | "pending_ledger"> {
-  const handler = await usable(tx, balanceTransfer);
+  const handler = await balanceTransfer.resolve(tx);
   if (!handler) return "pending_ledger";
   await handler(tx, organizationId, request);
   return "done";
@@ -146,7 +126,7 @@ export async function handOverReadings(
   organizationId: string,
   request: ReadingHandoverRequest,
 ): Promise<{ state: "done" | "pending_metering"; closingReadingRef: string | null }> {
-  const handler = await usable(tx, readingHandover);
+  const handler = await readingHandover.resolve(tx);
   if (!handler) return { state: "pending_metering", closingReadingRef: null };
   const result = await handler(tx, organizationId, request);
   return { state: "done", closingReadingRef: (result && result.closingReadingRef) || null };
@@ -161,21 +141,20 @@ export async function handOverReadings(
  */
 export type DataQualitySource = (tx: Transaction, organizationId: string) => Promise<readonly string[]>;
 
-const dataQualitySources = new Map<string, RegisteredPort<DataQualitySource>>();
+const dataQualitySources = defineKeyedPort<DataQualityRuleKey, DataQualitySource>();
 
 /** Registers the source of a data-quality rule; pass null to remove it (tests do). `requires`: modules that must be licensed (Metering registers with ["metering"]). */
-export function registerDataQualitySource(ruleKey: DataQualityRuleKey, source: DataQualitySource | null, options: { requires?: readonly ModuleKey[] } = {}): void {
-  if (source === null) dataQualitySources.delete(ruleKey);
-  else dataQualitySources.set(ruleKey, { handler: source, requires: options.requires ?? [] });
+export function registerDataQualitySource(ruleKey: DataQualityRuleKey, source: DataQualitySource | null, options: PortOptions = {}): void {
+  dataQualitySources.register(ruleKey, source, options);
 }
 
 /** The account ids a rule's source reports, or null when there is no usable source ("no source"). */
 export async function dataQualitySourceIds(tx: Transaction, organizationId: string, ruleKey: DataQualityRuleKey): Promise<string[] | null> {
-  const handler = await usable(tx, dataQualitySources.get(ruleKey) ?? null);
-  return handler ? [...new Set(await handler(tx, organizationId))] : null;
+  const source = await dataQualitySources.resolve(tx, ruleKey);
+  return source ? [...new Set(await source(tx, organizationId))] : null;
 }
 
 /** Is a source registered for the rule and licensed for this organization (without asking it)? */
 export async function hasUsableDataQualitySource(tx: Transaction, ruleKey: DataQualityRuleKey): Promise<boolean> {
-  return (await usable(tx, dataQualitySources.get(ruleKey) ?? null)) !== null;
+  return (await dataQualitySources.resolve(tx, ruleKey)) !== null;
 }
