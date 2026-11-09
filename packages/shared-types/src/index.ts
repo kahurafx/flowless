@@ -2,6 +2,7 @@ export type ID = string;
 export * from "./money";
 export * from "./modules";
 export * from "./accounts";
+export * from "./data-quality";
 export * from "./tariffs";
 export * from "./phone";
 export * from "./statement";

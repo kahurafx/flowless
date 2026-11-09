@@ -45,6 +45,7 @@ export const exceptionTypeLabel: Record<ExceptionType, string> = {
   UNMATCHED_PAYMENT: "Unmatched payment",
   UNDELIVERED_MESSAGE: "Undelivered message",
   STALE_ACTIVATION: "Stale activation",
+  DATA_QUALITY: "Data quality",
   STUCK_COMMITMENT: "Commitment",
   NO_BASELINE: "No baseline",
   JOB_FAILURE: "Job failure",
