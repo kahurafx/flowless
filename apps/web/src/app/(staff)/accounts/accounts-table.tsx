@@ -1,5 +1,6 @@
 import { PhoneOffIcon } from "lucide-react";
 import Link from "next/link";
+import { displayPhone } from "@/lib/account-forms";
 import { CommercialStatusBadge, ServiceStatusBadge } from "@/components/status-badges";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -46,7 +47,7 @@ export function AccountsTable({ rows, showCategory, searched }: { rows: AccountL
                       {a.customerName}
                     </Link>
                     {a.phone ? (
-                      <span className="tabular text-xs text-muted-foreground">{a.phone}</span>
+                      <span className="tabular text-xs text-muted-foreground">{displayPhone(a.phone)}</span>
                     ) : (
                       // C-01, C-12: a missing or placeholder phone is a data-quality flag, not a blank.
                       <span className="inline-flex items-center gap-1 text-xs text-warning">

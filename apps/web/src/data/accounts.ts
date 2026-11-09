@@ -182,7 +182,13 @@ export async function getAccountPage(number: string) {
     categoryName: categories.licensed && account.categoryId ? (categories.categories.find((c) => c.id === account.categoryId)?.name ?? "Unknown category") : null,
     showCategory: categories.licensed,
     categories: categories.categories.filter((c) => c.active),
-    placeName: { area: places.area, route: places.route },
+    // Plain data, not functions: this object is handed to client components.
+    pointPlaces: Object.fromEntries(
+      account.servicePoints.map((s) => [
+        s.id,
+        { areas: [places.area(s.schemeId), places.area(s.zoneId), places.area(s.dmaId)].filter((n): n is string => n !== null), route: places.route(s.routeId) },
+      ]),
+    ),
     writeOffs,
     placeOptions: {
       areas: places.areas.map(({ id, name, level, parentId }) => ({ id, name, level, parentId })),

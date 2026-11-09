@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { AccountPage } from "@/data/accounts";
+import { displayPhone } from "@/lib/account-forms";
 import { commandKindLabel, contactChannelLabel, contactKindLabel, customerTypeLabel, servicePointStatusLabel } from "@/lib/account-labels";
 import { formatWhen } from "@/lib/dates";
 import { commercialStatusLabel, serviceStateLabel } from "@/lib/account-labels";
@@ -37,7 +38,7 @@ export function Overview({ page }: { page: AccountPage }) {
   return (
     <dl className="grid grid-cols-2 gap-4 rounded-xl border bg-card p-4 text-sm sm:grid-cols-4">
       {page.showCategory && <Detail label="Category">{page.categoryName ?? <span className="text-muted-foreground">None</span>}</Detail>}
-      <Detail label="Phone">{account.phone ?? <Badge variant="warning">No phone</Badge>}</Detail>
+      <Detail label="Phone">{account.phone ? displayPhone(account.phone) : <Badge variant="warning">No phone</Badge>}</Detail>
       <Detail label="Opened">{formatWhen(account.openedAt, page.locale, page.timeZone, "date")}</Detail>
       {account.parent && (
         <Detail label="Parent account">
@@ -131,7 +132,6 @@ export function CustomerSection({ page }: { page: AccountPage }) {
 /** Service points with their place labels and GPS (glossary: service point). */
 export function ServicePointsSection({ page }: { page: AccountPage }) {
   const { servicePoints } = page.account;
-  const { area, route } = page.placeName;
   return (
     <Section id="service-points" title="Service points">
       {servicePoints.length === 0 ? (
@@ -139,8 +139,7 @@ export function ServicePointsSection({ page }: { page: AccountPage }) {
       ) : (
         <ul className="grid gap-3">
           {servicePoints.map((s) => {
-            const places = [area(s.schemeId), area(s.zoneId), area(s.dmaId)].filter(Boolean);
-            const routeName = route(s.routeId);
+            const { areas: places, route: routeName } = page.pointPlaces[s.id] ?? { areas: [], route: null };
             return (
               <li key={s.id} className="grid gap-1 rounded-lg border p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -152,7 +151,7 @@ export function ServicePointsSection({ page }: { page: AccountPage }) {
                 </div>
                 <p className="text-muted-foreground">
                   {places.length > 0 ? places.join(" › ") : "No area set"}
-                  {routeName ? ` · Route ${routeName}` : " · No route"}
+                  {routeName ? ` · ${routeName}` : " · No route"}
                 </p>
                 <p className="tabular text-xs text-muted-foreground">{s.location ? `GPS ${s.location.lat.toFixed(5)}, ${s.location.lng.toFixed(5)}` : "No GPS position"}</p>
               </li>

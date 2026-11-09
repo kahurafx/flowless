@@ -6,6 +6,16 @@ import type { ContactChannel, ContactKind, CustomerType } from "@flowless/shared
  * registration number) are tested without a browser. The API validates again.
  */
 
+/** A stored phone (254 digits) as people read it: with a leading plus. */
+export const displayPhone = (phone: string): string => (phone.startsWith("+") ? phone : `+${phone}`);
+
+/** The day after an ISO date (YYYY-MM-DD). A change of name can only be dated after the current holder took over. */
+export function nextDay(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 export type Coordinates = { lat: number; lng: number };
 export type CoordinateResult = { ok: true; value: Coordinates | null } | { ok: false; problem: string };
 

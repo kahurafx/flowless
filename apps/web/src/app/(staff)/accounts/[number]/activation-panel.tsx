@@ -23,7 +23,7 @@ const stateBadge = {
   waived: { label: "Not used", variant: "outline", icon: CircleSlashIcon },
 } as const;
 
-const viaText = { source: "Decided by the system", checklist: "Ticked by the office", disabled: "Switched off for this organization" } as const;
+const viaText = { source: "Decided by the system", checklist: "Confirmed by the office", disabled: "Switched off for this organization" } as const;
 
 /**
  * Activation (C-06): each gate with its state and who decides it, the office checklist the

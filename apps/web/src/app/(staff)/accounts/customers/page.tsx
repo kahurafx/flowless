@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { listCustomers } from "@/data/customers";
+import { displayPhone } from "@/lib/account-forms";
 import { customerTypeLabel } from "@/lib/account-labels";
 
 export const metadata = { title: "Customers" };
@@ -73,7 +74,7 @@ async function Customers({ searchParams }: { searchParams: PageProps<"/accounts/
                   </TableCell>
                   <TableCell>
                     {c.phone ? (
-                      <span className="tabular">{c.phone}</span>
+                      <span className="tabular">{displayPhone(c.phone)}</span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-xs text-warning">
                         <PhoneOffIcon className="size-3" /> No phone

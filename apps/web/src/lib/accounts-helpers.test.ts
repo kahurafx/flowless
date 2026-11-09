@@ -1,7 +1,7 @@
 import type { ApplicationStage, Permission } from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
 import { areaChoices, stillOffered } from "./area-options";
-import { areaField,contactInputs, newCustomerInput, parseCoordinates, parseMinorUnits, placeInput } from "./account-forms";
+import { areaField, contactInputs, newCustomerInput, nextDay, parseCoordinates, parseMinorUnits, placeInput } from "./account-forms";
 import { commandKindLabel } from "./account-labels";
 import { canOverrideGates, lifecycleActionsFor } from "./account-lifecycle";
 import { nextUsedStage, offersFor, stageBeforeEnd, stageLine } from "./application-view";
@@ -155,6 +155,12 @@ describe("account forms", () => {
     expect(areaField("scheme")).toBe("schemeId");
     expect(areaField("sub_zone")).toBe("zoneId");
     expect(areaField("dma")).toBe("dmaId");
+  });
+
+  it("dates a change of name from the day after the holder took over", () => {
+    expect(nextDay("2026-11-09")).toBe("2026-11-10");
+    expect(nextDay("2026-12-31")).toBe("2027-01-01");
+    expect(nextDay("2028-02-28")).toBe("2028-02-29");
   });
 
   it("parses amounts into minor units without floats", () => {

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { AccountPage } from "@/data/accounts";
-import { customerChoiceInput, customerChoiceProblem, emptyPlace, placeFromState, type CustomerChoice, type PlaceState } from "@/lib/account-forms";
+import { customerChoiceInput, customerChoiceProblem, emptyPlace, nextDay, placeFromState, type CustomerChoice, type PlaceState } from "@/lib/account-forms";
 import { DISCONNECT_REASONS, successionBasisLabel, WRITE_OFF_REASONS } from "@/lib/account-labels";
 import { lifecycleActionsFor, type LifecycleAction } from "@/lib/account-lifecycle";
 import { changeNameAction, requestRelocationAction, requestWriteOffAction, runLifecycle, succeedAction } from "../actions";
@@ -252,19 +252,27 @@ function ChangeName({ page }: { page: AccountPage }) {
   const [closing, setClosing] = useState("");
   const [reason, setReason] = useState("");
   const chosen = customerChoiceInput(customer);
+  // The new holder takes over after the current one did, and not in the future.
+  const current = page.holders.at(-1)?.validFrom;
+  const earliest = current ? nextDay(current) : null;
+  const tooSoon = earliest !== null && earliest > page.today;
   return (
     <ActionDialog
       label="Change of name"
       icon={<UserPenIcon />}
       title="Change the account holder"
-      description="The account keeps its number. The new holder takes over from the date below; earlier periods stay with the previous holder."
+      description={
+        tooSoon
+          ? `The current holder only took over on ${current}. A change of name can be dated from ${earliest}, so it has to wait until then.`
+          : "The account keeps its number. The new holder takes over from the date below; earlier periods stay with the previous holder."
+      }
       submitLabel="Change holder"
       success="Holder changed"
       onOpen={() => {
         mint();
         setDate(page.today);
       }}
-      canSubmit={chosen !== null && date !== "" && reason.trim() !== ""}
+      canSubmit={!tooSoon && chosen !== null && date !== "" && reason.trim() !== ""}
       onSubmit={async () =>
         chosen === null
           ? { error: "Choose the new holder" }
@@ -284,7 +292,7 @@ function ChangeName({ page }: { page: AccountPage }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="rename-date">Effective from</Label>
-          <Input id="rename-date" type="date" value={date} max={page.today} onChange={(e) => setDate(e.target.value)} required />
+          <Input id="rename-date" type="date" value={date} max={page.today} {...(earliest ? { min: earliest } : {})} onChange={(e) => setDate(e.target.value)} required />
         </div>
         <div className="grid gap-2">
           <Label htmlFor="rename-closing">Closing reading (optional)</Label>
