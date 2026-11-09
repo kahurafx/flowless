@@ -4,6 +4,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -19,12 +20,18 @@ import {
 import {
   ACCOUNT_COMMAND_KINDS,
   ACTIVATION_CHECK_ACTIONS,
+  APPLICATION_EVENT_KINDS,
+  APPLICATION_STAGES,
   COMMERCIAL_STATUSES,
   CONTACT_CHANNELS,
   CONTACT_KINDS,
   CUSTOMER_TYPES,
+  RELOCATION_EVENT_KINDS,
+  RELOCATION_STATUSES,
   SERVICE_POINT_STATUSES,
   SERVICE_STATES,
+  SURVEY_APPROVAL_STATES,
+  SURVEY_FEASIBILITIES,
 } from "@flowless/shared-types";
 import { pointColumn } from "../geometry";
 import { tenantPolicy } from "../tenant";
@@ -155,6 +162,19 @@ export const account = accounts.table(
      * status columns that this does not point at: from-state = old row, to-state = new row.
      */
     statusCommandId: uuid("status_command_id"),
+    /**
+     * The membership class of a child account (C-07): a key of the `accounts.membership`
+     * setting, validated by the application, and the class names the catalog item (by code)
+     * Billing prices its connection fee with.
+     */
+    membershipClass: text("membership_class"),
+    /**
+     * Succession (C-08): the account this one succeeded, and on the old account the one that
+     * succeeded it. Each is set once, and an account has at most one successor (a trigger
+     * refuses to move or clear a pointer).
+     */
+    predecessorAccountId: uuid("predecessor_account_id"),
+    successorAccountId: uuid("successor_account_id"),
     openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").notNull(),
@@ -164,6 +184,16 @@ export const account = accounts.table(
     unique("account_number_unique").on(t.organizationId, t.number),
     foreignKey({ name: "account_customer_fk", columns: [t.organizationId, t.customerId], foreignColumns: [customer.organizationId, customer.id] }),
     foreignKey({ name: "account_parent_fk", columns: [t.organizationId, t.parentAccountId], foreignColumns: [t.organizationId, t.id] }),
+    foreignKey({ name: "account_predecessor_fk", columns: [t.organizationId, t.predecessorAccountId], foreignColumns: [t.organizationId, t.id] }),
+    foreignKey({ name: "account_successor_fk", columns: [t.organizationId, t.successorAccountId], foreignColumns: [t.organizationId, t.id] }),
+    check("account_succession_not_self", sql`coalesce(${t.predecessorAccountId} <> ${t.id} and ${t.successorAccountId} <> ${t.id}, true)`),
+    check("account_membership_needs_parent", sql`${t.membershipClass} is null or ${t.parentAccountId} is not null`),
+    uniqueIndex("account_predecessor_unique")
+      .on(t.organizationId, t.predecessorAccountId)
+      .where(sql`${t.predecessorAccountId} is not null`),
+    uniqueIndex("account_successor_unique")
+      .on(t.organizationId, t.successorAccountId)
+      .where(sql`${t.successorAccountId} is not null`),
     check("account_commercial_status_valid", oneOf(t.commercialStatus, COMMERCIAL_STATUSES)),
     check("account_service_status_valid", oneOf(t.serviceStatus, SERVICE_STATES)),
     check("account_disconnected_has_reason", sql`${t.serviceStatus} = 'CONNECTED' or ${t.serviceStatusReason} is not null`),
@@ -320,6 +350,236 @@ export const activationCheck = accounts.table(
     check("activation_check_action_valid", oneOf(t.action, ACTIVATION_CHECK_ACTIONS)),
     check("activation_check_gate_key_valid", sql`${t.gateKey} ~ '^[a-z][a-z0-9_]{1,39}$'`),
     index("activation_check_account_idx").on(t.organizationId, t.accountId, t.gateKey, t.seq),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * Who held an account, from when (C-10): the account's holder history, insert-only. A row
+ * is the holder from `valid_from` until the next row's `valid_from`, so a past date still
+ * resolves to the holder then (`holderAt`, which Billing splits a bill with). The newest
+ * row is the current holder and equals `account.customer_id`, which a trigger lets change
+ * only to the customer of the newest row. `previous_closing_reading_ref` is the closing
+ * reading taken for the holder before this one (an opaque reference until Metering exists),
+ * `command_id` the `change_name` or `succeed` command that made the row, null for the first
+ * holder. The app role cannot UPDATE, DELETE or TRUNCATE it.
+ */
+export const accountHolder = accounts.table(
+  "account_holder",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    accountId: uuid("account_id").notNull(),
+    customerId: uuid("customer_id").notNull(),
+    validFrom: date("valid_from", { mode: "string" }).notNull(),
+    previousClosingReadingRef: text("previous_closing_reading_ref"),
+    commandId: uuid("command_id"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: uuid("created_by_user_id"),
+  },
+  (t) => [
+    unique("account_holder_organization_id_id_unique").on(t.organizationId, t.id),
+    unique("account_holder_from_unique").on(t.organizationId, t.accountId, t.validFrom),
+    foreignKey({ name: "account_holder_account_fk", columns: [t.organizationId, t.accountId], foreignColumns: [account.organizationId, account.id] }),
+    foreignKey({ name: "account_holder_customer_fk", columns: [t.organizationId, t.customerId], foreignColumns: [customer.organizationId, customer.id] }),
+    foreignKey({ name: "account_holder_command_fk", columns: [t.organizationId, t.commandId], foreignColumns: [accountCommand.organizationId, accountCommand.id] }),
+    index("account_holder_account_idx").on(t.organizationId, t.accountId, t.validFrom),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * An application for a new connection (C-05): the enquiry through to the account it
+ * becomes. `stage` is the current milestone and changes only together with a row in
+ * `application_event` (the application's own append-only history). The customer is an
+ * existing one or was created together with the application; the requested place is an
+ * address, a GPS point and optionally the kernel's scheme, zone, DMA and route. The
+ * category is Tariffs' opaque id. The survey, the new-connection invoice and the payment
+ * are held as facts (the survey's findings, an approval request id, opaque invoice and
+ * payment references until Billing and Payments exist). When converted, `account_id` and
+ * `service_point_id` name what was created.
+ */
+export const application = accounts.table(
+  "application",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    customerId: uuid("customer_id").notNull(),
+    requestedCategoryId: uuid("requested_category_id"),
+    /** A child connection under this account (C-07). */
+    parentAccountId: uuid("parent_account_id"),
+    membershipClass: text("membership_class"),
+    address: text("address").notNull(),
+    location: pointColumn("location"),
+    schemeId: uuid("scheme_id"),
+    zoneId: uuid("zone_id"),
+    dmaId: uuid("dma_id"),
+    routeId: uuid("route_id"),
+    notes: text("notes"),
+    stage: text("stage", { enum: APPLICATION_STAGES }).notNull().default("enquiry"),
+    surveyFeasibility: text("survey_feasibility", { enum: SURVEY_FEASIBILITIES }),
+    surveyFindings: text("survey_findings"),
+    surveyMaterials: text("survey_materials"),
+    surveyRecordedAt: timestamp("survey_recorded_at", { withTimezone: true }),
+    surveyRecordedByUserId: uuid("survey_recorded_by_user_id"),
+    /** `office` (recorded by hand) or `work_order` (the completed survey job). */
+    surveySource: text("survey_source"),
+    surveyWorkOrderId: uuid("survey_work_order_id"),
+    /** The K-05 request for the survey, with where it stands; both null while none was asked for. */
+    surveyApprovalId: uuid("survey_approval_id"),
+    surveyApprovalState: text("survey_approval_state", { enum: SURVEY_APPROVAL_STATES }),
+    /** The new-connection invoice and its payment, opaque until Billing (Phase 4) and Payments (Phase 6) replace them with events. */
+    invoiceRef: text("invoice_ref"),
+    paymentRef: text("payment_ref"),
+    accountId: uuid("account_id"),
+    servicePointId: uuid("service_point_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: uuid("created_by_user_id").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("application_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "application_customer_fk", columns: [t.organizationId, t.customerId], foreignColumns: [customer.organizationId, customer.id] }),
+    foreignKey({ name: "application_parent_account_fk", columns: [t.organizationId, t.parentAccountId], foreignColumns: [account.organizationId, account.id] }),
+    foreignKey({ name: "application_account_fk", columns: [t.organizationId, t.accountId], foreignColumns: [account.organizationId, account.id] }),
+    foreignKey({ name: "application_service_point_fk", columns: [t.organizationId, t.servicePointId], foreignColumns: [servicePoint.organizationId, servicePoint.id] }),
+    foreignKey({ name: "application_scheme_fk", columns: [t.organizationId, t.schemeId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "application_zone_fk", columns: [t.organizationId, t.zoneId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "application_dma_fk", columns: [t.organizationId, t.dmaId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "application_route_fk", columns: [t.organizationId, t.routeId], foreignColumns: [route.organizationId, route.id] }),
+    check("application_stage_valid", oneOf(t.stage, APPLICATION_STAGES)),
+    check("application_feasibility_valid", sql`${t.surveyFeasibility} is null or ${oneOf(t.surveyFeasibility, SURVEY_FEASIBILITIES)}`),
+    check("application_approval_state_valid", sql`${t.surveyApprovalState} is null or ${oneOf(t.surveyApprovalState, SURVEY_APPROVAL_STATES)}`),
+    check("application_address_present", sql`length(btrim(${t.address})) > 0`),
+    check("application_converted_has_account", sql`(${t.stage} = 'converted') = (${t.accountId} is not null)`),
+    check("application_membership_needs_parent", sql`${t.membershipClass} is null or ${t.parentAccountId} is not null`),
+    index("application_stage_idx").on(t.organizationId, t.stage, t.createdAt),
+    index("application_customer_idx").on(t.organizationId, t.customerId),
+    index("application_survey_approval_idx").on(t.organizationId, t.surveyApprovalId).where(sql`${t.surveyApprovalId} is not null`),
+    index("application_location_gist").using("gist", t.location),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * An application's history (C-05), append-only: stage changes, the survey result and the
+ * decision on it, each with who (null for the system, which also decides approvals), from
+ * where and why. `id` is client-mintable, so a retried call returns the earlier result;
+ * `fingerprint` identifies the request it came from.
+ */
+export const applicationEvent = accounts.table(
+  "application_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    applicationId: uuid("application_id").notNull(),
+    kind: text("kind", { enum: APPLICATION_EVENT_KINDS }).notNull(),
+    fromStage: text("from_stage", { enum: APPLICATION_STAGES }),
+    toStage: text("to_stage", { enum: APPLICATION_STAGES }).notNull(),
+    actorUserId: uuid("actor_user_id"),
+    source: text("source").notNull(),
+    reason: text("reason").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    fingerprint: text("fingerprint"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("application_event_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "application_event_application_fk", columns: [t.organizationId, t.applicationId], foreignColumns: [application.organizationId, application.id] }),
+    check("application_event_kind_valid", oneOf(t.kind, APPLICATION_EVENT_KINDS)),
+    check("application_event_from_valid", sql`${t.fromStage} is null or ${oneOf(t.fromStage, APPLICATION_STAGES)}`),
+    check("application_event_to_valid", oneOf(t.toStage, APPLICATION_STAGES)),
+    check("application_event_actor_present", sql`${t.actorUserId} is not null or ${t.source} = 'system'`),
+    index("application_event_application_idx").on(t.organizationId, t.applicationId, t.occurredAt),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * A relocation on the same account (C-09): the customer moves the connection. It names the
+ * service point being closed and the place of the new one; completing it creates the new
+ * service point and decommissions the old. The account keeps its number and status. The
+ * fees to transfer are charge item codes (no foreign key; recorded, not invoiced), the
+ * final and initial readings are opaque text until Metering exists, and `work_order_id` is
+ * the Work Orders job doing the work, by id only. History is `relocation_event`.
+ */
+export const relocation = accounts.table(
+  "relocation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    accountId: uuid("account_id").notNull(),
+    fromServicePointId: uuid("from_service_point_id").notNull(),
+    newServicePointId: uuid("new_service_point_id"),
+    toAddress: text("to_address").notNull(),
+    toLocation: pointColumn("to_location"),
+    toSchemeId: uuid("to_scheme_id"),
+    toZoneId: uuid("to_zone_id"),
+    toDmaId: uuid("to_dma_id"),
+    toRouteId: uuid("to_route_id"),
+    status: text("status", { enum: RELOCATION_STATUSES }).notNull().default("requested"),
+    reason: text("reason").notNull(),
+    feeItemCodes: jsonb("fee_item_codes").notNull().default([]),
+    surveyFeasibility: text("survey_feasibility", { enum: SURVEY_FEASIBILITIES }),
+    surveyFindings: text("survey_findings"),
+    finalReading: text("final_reading"),
+    initialReading: text("initial_reading"),
+    workOrderId: uuid("work_order_id"),
+    requestedByUserId: uuid("requested_by_user_id").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("relocation_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "relocation_account_fk", columns: [t.organizationId, t.accountId], foreignColumns: [account.organizationId, account.id] }),
+    foreignKey({ name: "relocation_from_service_point_fk", columns: [t.organizationId, t.fromServicePointId], foreignColumns: [servicePoint.organizationId, servicePoint.id] }),
+    foreignKey({ name: "relocation_new_service_point_fk", columns: [t.organizationId, t.newServicePointId], foreignColumns: [servicePoint.organizationId, servicePoint.id] }),
+    foreignKey({ name: "relocation_scheme_fk", columns: [t.organizationId, t.toSchemeId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "relocation_zone_fk", columns: [t.organizationId, t.toZoneId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "relocation_dma_fk", columns: [t.organizationId, t.toDmaId], foreignColumns: [area.organizationId, area.id] }),
+    foreignKey({ name: "relocation_route_fk", columns: [t.organizationId, t.toRouteId], foreignColumns: [route.organizationId, route.id] }),
+    check("relocation_status_valid", oneOf(t.status, RELOCATION_STATUSES)),
+    check("relocation_feasibility_valid", sql`${t.surveyFeasibility} is null or ${oneOf(t.surveyFeasibility, SURVEY_FEASIBILITIES)}`),
+    check("relocation_address_present", sql`length(btrim(${t.toAddress})) > 0`),
+    check("relocation_completed_has_service_point", sql`(${t.status} = 'completed') = (${t.newServicePointId} is not null)`),
+    index("relocation_account_idx").on(t.organizationId, t.accountId, t.requestedAt),
+    index("relocation_status_idx").on(t.organizationId, t.status),
+    // One open relocation per service point.
+    uniqueIndex("relocation_open_unique")
+      .on(t.organizationId, t.fromServicePointId)
+      .where(sql`${t.status} in ('requested', 'surveyed')`),
+    index("relocation_to_location_gist").using("gist", t.toLocation),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/** A relocation's history (C-09), append-only, like `application_event`. */
+export const relocationEvent = accounts.table(
+  "relocation_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    relocationId: uuid("relocation_id").notNull(),
+    kind: text("kind", { enum: RELOCATION_EVENT_KINDS }).notNull(),
+    fromStatus: text("from_status", { enum: RELOCATION_STATUSES }),
+    toStatus: text("to_status", { enum: RELOCATION_STATUSES }).notNull(),
+    actorUserId: uuid("actor_user_id"),
+    source: text("source").notNull(),
+    reason: text("reason").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    fingerprint: text("fingerprint"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("relocation_event_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "relocation_event_relocation_fk", columns: [t.organizationId, t.relocationId], foreignColumns: [relocation.organizationId, relocation.id] }),
+    check("relocation_event_kind_valid", oneOf(t.kind, RELOCATION_EVENT_KINDS)),
+    check("relocation_event_from_valid", sql`${t.fromStatus} is null or ${oneOf(t.fromStatus, RELOCATION_STATUSES)}`),
+    check("relocation_event_to_valid", oneOf(t.toStatus, RELOCATION_STATUSES)),
+    check("relocation_event_actor_present", sql`${t.actorUserId} is not null or ${t.source} = 'system'`),
+    index("relocation_event_relocation_idx").on(t.organizationId, t.relocationId, t.occurredAt),
     tenantPolicy(t.organizationId),
   ],
 );

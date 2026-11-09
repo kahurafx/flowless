@@ -225,6 +225,20 @@
       "when": 1794197275255,
       "tag": "0031_accounts_lifecycle_access",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794198838412,
+      "tag": "0032_accounts_applications",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794198860453,
+      "tag": "0033_accounts_applications_access",
+      "breakpoints": true
     }
   ]
 }
