@@ -1,8 +1,10 @@
+import type { Transaction } from "@flowless/db";
 import { category, categoryAssignment } from "@flowless/db/schema/tariffs";
 import { isoDateSchema, versionInForce } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { procedureEnv, type UserActionEnv } from "../../kernel/action-env";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import type { TariffsProcedures } from "./procedures";
 import { plain, tidy } from "../../kernel/text";
@@ -16,7 +18,6 @@ import {
   toAssignmentDto,
   toCategoryDto,
   type CategoryRow,
-  type WriteContext,
 } from "./service";
 
 export const CODE = z
@@ -25,7 +26,7 @@ export const CODE = z
   .regex(/^[a-z][a-z0-9_]{0,39}$/, "Use lower-case letters, digits and underscores, starting with a letter");
 const Name = z.string().trim().min(1).max(120);
 
-async function present(ctx: { tx: WriteContext["tx"] }, rows: readonly CategoryRow[]) {
+async function present(ctx: { tx: Transaction }, rows: readonly CategoryRow[]) {
   const today = await organizationToday(ctx.tx);
   const assignments = await assignmentsOf(
     ctx.tx,
@@ -45,14 +46,14 @@ async function present(ctx: { tx: WriteContext["tx"] }, rows: readonly CategoryR
 }
 
 /** The reference ids one assignment may point at, checked for kind: a standing charge and meter rent are recurring items, a discount an adjustment. */
-async function checkReferences(ctx: WriteContext, refs: { tariffId: string | null; standingChargeItemId: string | null; meterRentItemId: string | null; discountItemId: string | null }) {
+async function checkReferences(env: UserActionEnv, refs: { tariffId: string | null; standingChargeItemId: string | null; meterRentItemId: string | null; discountItemId: string | null }) {
   if (refs.tariffId) {
-    const t = await findTariff(ctx.tx, refs.tariffId);
+    const t = await findTariff(env.tx, refs.tariffId);
     if (!t.active) throw new TRPCError({ code: "BAD_REQUEST", message: `Tariff "${t.name}" is not active` });
   }
   const item = async (id: string | null, type: "recurring" | "adjustment", what: string) => {
     if (!id) return;
-    const row = await findChargeItem(ctx.tx, { id });
+    const row = await findChargeItem(env.tx, { id });
     if (row.type !== type) throw new TRPCError({ code: "BAD_REQUEST", message: `${what} must be a ${type} charge item; "${row.code}" is ${row.type}` });
     if (!row.active) throw new TRPCError({ code: "BAD_REQUEST", message: `Charge item "${row.code}" is not active` });
   };
@@ -100,8 +101,8 @@ export function categoriesRouter(p: TariffsProcedures) {
     }),
 
     /** Stops a category being chosen for new accounts. Accounts that have it keep it, and its pricing history stays. */
-    deactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(ctx, input.id, false)),
-    reactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(ctx, input.id, true)),
+    deactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(procedureEnv(ctx), input.id, false)),
+    reactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(procedureEnv(ctx), input.id, true)),
 
     /**
      * Points a category at a tariff, standing charge, meter rent and discount from a date
@@ -132,7 +133,7 @@ export function categoriesRouter(p: TariffsProcedures) {
         const base = versionInForce(history, effectiveFrom);
         const pick = <K extends "tariffId" | "standingChargeItemId" | "meterRentItemId" | "discountItemId">(key: K): string | null => (input[key] !== undefined ? input[key] : (base?.[key] ?? null));
         const refs = { tariffId: pick("tariffId"), standingChargeItemId: pick("standingChargeItemId"), meterRentItemId: pick("meterRentItemId"), discountItemId: pick("discountItemId") };
-        await checkReferences(ctx, refs);
+        await checkReferences(procedureEnv(ctx), refs);
         const versionNo = history.reduce((max, a) => Math.max(max, a.versionNo), 0) + 1;
         const [row] = await ctx.tx
           .insert(categoryAssignment)
@@ -151,10 +152,10 @@ export function categoriesRouter(p: TariffsProcedures) {
   };
 }
 
-async function setActive(ctx: WriteContext, id: string, active: boolean) {
-  const before = await findCategory(ctx.tx, id, true);
+async function setActive(env: UserActionEnv, id: string, active: boolean) {
+  const before = await findCategory(env.tx, id, true);
   if (before.active === active) return toCategoryDto(before);
-  const [row] = await ctx.tx.update(category).set({ active, updatedAt: new Date() }).where(eq(category.id, id)).returning();
-  await ctx.audit({ action: active ? "tariffs.category_reactivate" : "tariffs.category_deactivate", subjectType: "category", subjectId: id, before: { active: before.active }, after: { active } });
+  const [row] = await env.tx.update(category).set({ active, updatedAt: new Date() }).where(eq(category.id, id)).returning();
+  await env.audit({ action: active ? "tariffs.category_reactivate" : "tariffs.category_deactivate", subjectType: "category", subjectId: id, before: { active: before.active }, after: { active } });
   return toCategoryDto(row!);
 }

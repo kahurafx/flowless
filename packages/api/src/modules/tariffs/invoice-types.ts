@@ -1,14 +1,16 @@
+import type { Transaction } from "@flowless/db";
 import { chargeItem, invoiceType, invoiceTypeLine, lateFeeRule } from "@flowless/db/schema/tariffs";
 import { INVOICE_APPLIES_TO, invoicePolicyProblems, lateFee, lateFeeRuleSchema, overdueSchema, termsSchema, type LateFeeRule, type OverduePolicy, type Terms } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { procedureEnv, type UserActionEnv } from "../../kernel/action-env";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import { CODE } from "./categories";
 import { invoiceTypeChanged } from "./events";
 import type { TariffsProcedures } from "./procedures";
 import { plain, tidy } from "../../kernel/text";
-import { findInvoiceType, lateFeeRuleOf, overdueOf, presentInvoiceTypes, previewInvoiceNumber, termsOf, type InvoiceTypeDto, type InvoiceTypeRow, type WriteContext } from "./service";
+import { findInvoiceType, lateFeeRuleOf, overdueOf, presentInvoiceTypes, previewInvoiceNumber, termsOf, type InvoiceTypeDto, type InvoiceTypeRow } from "./service";
 
 const Name = z.string().trim().min(1).max(120);
 const Prefix = z.string().trim().regex(/^[A-Za-z0-9/_-]{0,12}$/, "Up to 12 letters, digits, dashes, slashes or underscores");
@@ -43,29 +45,29 @@ function termsColumns(terms: Terms) {
   };
 }
 
-async function reload(ctx: { tx: WriteContext["tx"] }, id: string): Promise<InvoiceTypeDto> {
+async function reload(ctx: { tx: Transaction }, id: string): Promise<InvoiceTypeDto> {
   return (await presentInvoiceTypes(ctx.tx, [await findInvoiceType(ctx.tx, { id })]))[0]!;
 }
 
-async function changed(ctx: WriteContext, row: Pick<InvoiceTypeRow, "id" | "code">, change: "created" | "updated" | "lines_set" | "late_fee_rule_set") {
-  await ctx.publish(invoiceTypeChanged, { invoiceTypeId: row.id, code: row.code, change, changedByUserId: ctx.session.user.id });
+async function changed(env: UserActionEnv, row: Pick<InvoiceTypeRow, "id" | "code">, change: "created" | "updated" | "lines_set" | "late_fee_rule_set") {
+  await env.publish(invoiceTypeChanged, { invoiceTypeId: row.id, code: row.code, change, changedByUserId: env.actor.userId });
 }
 
 /** Replaces the line template: each code must be an active catalog item, once. Returns what was stored. */
-async function writeLines(ctx: WriteContext, typeId: string, lines: readonly z.output<typeof lineSchema>[]) {
+async function writeLines(env: UserActionEnv, typeId: string, lines: readonly z.output<typeof lineSchema>[]) {
   const codes = lines.map((l) => l.chargeItemCode);
   if (new Set(codes).size !== codes.length) throw bad("A charge item can appear once in the template");
-  const items = codes.length ? await ctx.tx.select({ id: chargeItem.id, code: chargeItem.code, active: chargeItem.active }).from(chargeItem).where(inArray(chargeItem.code, codes)) : [];
+  const items = codes.length ? await env.tx.select({ id: chargeItem.id, code: chargeItem.code, active: chargeItem.active }).from(chargeItem).where(inArray(chargeItem.code, codes)) : [];
   for (const code of codes) {
     const item = items.find((i) => i.code === code);
     if (!item) throw bad(`There is no charge item "${code}"`);
     if (!item.active) throw bad(`Charge item "${code}" is not active`);
   }
-  await ctx.tx.delete(invoiceTypeLine).where(eq(invoiceTypeLine.invoiceTypeId, typeId));
+  await env.tx.delete(invoiceTypeLine).where(eq(invoiceTypeLine.invoiceTypeId, typeId));
   if (lines.length) {
-    await ctx.tx.insert(invoiceTypeLine).values(
+    await env.tx.insert(invoiceTypeLine).values(
       lines.map((l, position) => ({
-        organizationId: ctx.organizationId,
+        organizationId: env.organizationId,
         invoiceTypeId: typeId,
         position,
         chargeItemId: items.find((i) => i.code === l.chargeItemCode)!.id,
@@ -77,15 +79,15 @@ async function writeLines(ctx: WriteContext, typeId: string, lines: readonly z.o
   }
 }
 
-async function writeRule(ctx: WriteContext, typeId: string, rule: LateFeeRule | null) {
+async function writeRule(env: UserActionEnv, typeId: string, rule: LateFeeRule | null) {
   if (rule === null) {
-    await ctx.tx.delete(lateFeeRule).where(eq(lateFeeRule.invoiceTypeId, typeId));
+    await env.tx.delete(lateFeeRule).where(eq(lateFeeRule.invoiceTypeId, typeId));
     return;
   }
   const values = { triggerDays: rule.triggerDays, base: rule.base, rateBp: rule.rateBp, flatAmount: rule.flatAmount, cap: rule.cap, frequency: rule.frequency };
-  await ctx.tx
+  await env.tx
     .insert(lateFeeRule)
-    .values({ organizationId: ctx.organizationId, invoiceTypeId: typeId, ...values })
+    .values({ organizationId: env.organizationId, invoiceTypeId: typeId, ...values })
     .onConflictDoUpdate({ target: [lateFeeRule.organizationId, lateFeeRule.invoiceTypeId], set: { ...values, updatedAt: new Date() } });
 }
 
@@ -151,11 +153,12 @@ export function invoiceTypesRouter(p: TariffsProcedures) {
             if (isUniqueViolation(error)) throw new TRPCError({ code: "CONFLICT", message: `An invoice type with code "${input.code}" already exists` });
             throw error;
           });
-        await writeLines(ctx, row!.id, input.lines);
-        if (input.lateFeeRule) await writeRule(ctx, row!.id, input.lateFeeRule);
+        const env = procedureEnv(ctx);
+        await writeLines(env, row!.id, input.lines);
+        if (input.lateFeeRule) await writeRule(env, row!.id, input.lateFeeRule);
         const view = await reload(ctx, row!.id);
         await ctx.audit({ action: "tariffs.invoice_type_create", subjectType: "invoice_type", subjectId: row!.id, after: plain(view) });
-        await changed(ctx, row!, "created");
+        await changed(env, row!, "created");
         return view;
       }),
 
@@ -197,7 +200,7 @@ export function invoiceTypesRouter(p: TariffsProcedures) {
         const view = await reload(ctx, before.id);
         if (JSON.stringify(plain({ ...view, updatedAt: null })) === JSON.stringify(plain({ ...prior, updatedAt: null }))) return view;
         await ctx.audit({ action: "tariffs.invoice_type_update", subjectType: "invoice_type", subjectId: before.id, before: plain(prior), after: plain(view) });
-        await changed(ctx, before, "updated");
+        await changed(procedureEnv(ctx), before, "updated");
         return view;
       }),
 
@@ -211,10 +214,10 @@ export function invoiceTypesRouter(p: TariffsProcedures) {
       .mutation(async ({ ctx, input }) => {
         const row = await findInvoiceType(ctx.tx, { id: input.id }, true);
         const prior = await reload(ctx, row.id);
-        await writeLines(ctx, row.id, input.lines);
+        await writeLines(procedureEnv(ctx), row.id, input.lines);
         const view = await reload(ctx, row.id);
         await ctx.audit({ action: "tariffs.invoice_type_lines_set", subjectType: "invoice_type", subjectId: row.id, before: plain(prior.lines), after: plain(view.lines) });
-        await changed(ctx, row, "lines_set");
+        await changed(procedureEnv(ctx), row, "lines_set");
         return view;
       }),
 
@@ -224,10 +227,10 @@ export function invoiceTypesRouter(p: TariffsProcedures) {
       .mutation(async ({ ctx, input }) => {
         const row = await findInvoiceType(ctx.tx, { id: input.id }, true);
         const prior = await reload(ctx, row.id);
-        await writeRule(ctx, row.id, input.rule);
+        await writeRule(procedureEnv(ctx), row.id, input.rule);
         const view = await reload(ctx, row.id);
         await ctx.audit({ action: "tariffs.invoice_type_late_fee_rule_set", subjectType: "invoice_type", subjectId: row.id, before: plain(prior.lateFeeRule), after: plain(view.lateFeeRule) });
-        await changed(ctx, row, "late_fee_rule_set");
+        await changed(procedureEnv(ctx), row, "late_fee_rule_set");
         return view;
       }),
   };

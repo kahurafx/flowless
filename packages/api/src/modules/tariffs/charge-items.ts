@@ -1,8 +1,10 @@
+import type { Transaction } from "@flowless/db";
 import { chargeItem, chargeItemAmount } from "@flowless/db/schema/tariffs";
 import { CHARGE_RECURRENCES, CHARGE_TYPES, isoDateSchema, revenueKindOf, versionInForce, versionSpans } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { procedureEnv, type UserActionEnv } from "../../kernel/action-env";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import { CODE } from "./categories";
 import { chargeItemAmountChanged, chargeItemCreated } from "./events";
@@ -16,13 +18,12 @@ import {
   toAmountDto,
   toChargeItemDto,
   type ChargeItemRow,
-  type WriteContext,
 } from "./service";
 
 const Name = z.string().trim().min(1).max(120);
 const Amount = z.bigint().min(0n).max(10n ** 12n);
 
-async function present(ctx: { tx: WriteContext["tx"] }, rows: readonly ChargeItemRow[]) {
+async function present(ctx: { tx: Transaction }, rows: readonly ChargeItemRow[]) {
   const today = await organizationToday(ctx.tx);
   const amounts = await amountsOf(
     ctx.tx,
@@ -38,17 +39,17 @@ async function present(ctx: { tx: WriteContext["tx"] }, rows: readonly ChargeIte
 }
 
 /** Appends an amount version to an item (T-07, T-03) and publishes the change. */
-async function appendAmount(ctx: WriteContext, item: ChargeItemRow, input: { amount: bigint; effectiveFrom?: string | undefined; reason?: string | undefined }) {
+async function appendAmount(env: UserActionEnv, item: ChargeItemRow, input: { amount: bigint; effectiveFrom?: string | undefined; reason?: string | undefined }) {
   if (item.type === "usage") throw new TRPCError({ code: "BAD_REQUEST", message: "A usage item is priced by a tariff, not by an amount" });
-  const history = await amountsOf(ctx.tx, [item.id]);
-  const effectiveFrom = await chooseEffectiveDate(ctx.tx, ctx.organizationId, { requested: input.effectiveFrom, existing: history.map((a) => a.effectiveFrom), first: history.length === 0 });
+  const history = await amountsOf(env.tx, [item.id]);
+  const effectiveFrom = await chooseEffectiveDate(env.tx, env.organizationId, { requested: input.effectiveFrom, existing: history.map((a) => a.effectiveFrom), first: history.length === 0 });
   const previous = versionInForce(history, effectiveFrom);
   const versionNo = history.reduce((max, a) => Math.max(max, a.versionNo), 0) + 1;
-  const [row] = await ctx.tx
+  const [row] = await env.tx
     .insert(chargeItemAmount)
-    .values({ organizationId: ctx.organizationId, chargeItemId: item.id, versionNo, effectiveFrom, amount: input.amount, reason: input.reason || null, createdByUserId: ctx.session.user.id })
+    .values({ organizationId: env.organizationId, chargeItemId: item.id, versionNo, effectiveFrom, amount: input.amount, reason: input.reason || null, createdByUserId: env.actor.userId })
     .returning();
-  await ctx.audit({
+  await env.audit({
     action: "tariffs.charge_item_amount_add",
     subjectType: "charge_item",
     subjectId: item.id,
@@ -56,14 +57,14 @@ async function appendAmount(ctx: WriteContext, item: ChargeItemRow, input: { amo
     after: plain({ versionNo, effectiveFrom, amount: input.amount }),
     reason: input.reason || null,
   });
-  await ctx.publish(chargeItemAmountChanged, {
+  await env.publish(chargeItemAmountChanged, {
     chargeItemId: item.id,
     code: item.code,
     versionNo,
     effectiveFrom,
     amount: input.amount.toString(),
     previousAmount: previous ? previous.amount.toString() : null,
-    createdByUserId: ctx.session.user.id,
+    createdByUserId: env.actor.userId,
   });
   return toAmountDto(row!, null);
 }
@@ -130,7 +131,7 @@ export function chargeItemsRouter(p: TariffsProcedures) {
           after: { code: row!.code, name: row!.name, type: row!.type, recurrence: row!.recurrence, inventoryItemRef: row!.inventoryItemRef },
         });
         await ctx.publish(chargeItemCreated, { chargeItemId: row!.id, code: row!.code, type: row!.type, revenueKind: revenueKindOf(row!.type), createdByUserId: ctx.session.user.id });
-        if (input.amount !== undefined) await appendAmount(ctx, row!, { amount: input.amount, effectiveFrom: input.effectiveFrom });
+        if (input.amount !== undefined) await appendAmount(procedureEnv(ctx), row!, { amount: input.amount, effectiveFrom: input.effectiveFrom });
         return (await present(ctx, [row!]))[0]!;
       }),
 
@@ -163,18 +164,18 @@ export function chargeItemsRouter(p: TariffsProcedures) {
      */
     addAmountVersion: p.manage
       .input(z.object({ chargeItemId: z.uuid(), amount: Amount, effectiveFrom: isoDateSchema.optional(), reason: z.string().trim().max(500).optional() }))
-      .mutation(async ({ ctx, input }) => appendAmount(ctx, await findChargeItem(ctx.tx, { id: input.chargeItemId }, true), input)),
+      .mutation(async ({ ctx, input }) => appendAmount(procedureEnv(ctx), await findChargeItem(ctx.tx, { id: input.chargeItemId }, true), input)),
 
     /** Takes an item out of use for new invoices. Its history, and invoices already issued, are untouched. */
-    deactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(ctx, input.id, false)),
-    reactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(ctx, input.id, true)),
+    deactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(procedureEnv(ctx), input.id, false)),
+    reactivate: p.manage.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => setActive(procedureEnv(ctx), input.id, true)),
   };
 }
 
-async function setActive(ctx: WriteContext, id: string, active: boolean) {
-  const before = await findChargeItem(ctx.tx, { id }, true);
-  if (before.active === active) return (await present(ctx, [before]))[0]!;
-  const [row] = await ctx.tx.update(chargeItem).set({ active, updatedAt: new Date() }).where(eq(chargeItem.id, id)).returning();
-  await ctx.audit({ action: active ? "tariffs.charge_item_reactivate" : "tariffs.charge_item_deactivate", subjectType: "charge_item", subjectId: id, before: { active: before.active }, after: { active } });
-  return (await present(ctx, [row!]))[0]!;
+async function setActive(env: UserActionEnv, id: string, active: boolean) {
+  const before = await findChargeItem(env.tx, { id }, true);
+  if (before.active === active) return (await present(env, [before]))[0]!;
+  const [row] = await env.tx.update(chargeItem).set({ active, updatedAt: new Date() }).where(eq(chargeItem.id, id)).returning();
+  await env.audit({ action: active ? "tariffs.charge_item_reactivate" : "tariffs.charge_item_deactivate", subjectType: "charge_item", subjectId: id, before: { active: before.active }, after: { active } });
+  return (await present(env, [row!]))[0]!;
 }

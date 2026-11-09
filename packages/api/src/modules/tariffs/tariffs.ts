@@ -3,6 +3,7 @@ import { FLAT_BASES, TARIFF_TYPES, bandsFor, isoDateSchema, nextPeriodStartIso, 
 import { TRPCError } from "@trpc/server";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { procedureEnv, type UserActionEnv } from "../../kernel/action-env";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import { readSetting } from "../../kernel/config-store";
 import { toLineRows } from "./content";
@@ -16,7 +17,6 @@ import {
   tariffVersions,
   toTariffDto,
   type TariffRow,
-  type WriteContext,
 } from "./service";
 import { closedThrough } from "./closed-period";
 import { tariffPolicySetting } from "./settings";
@@ -30,30 +30,30 @@ const Note = z.string().trim().max(500).optional();
  * today), numbers the version and writes it and its lines, audited and published. The
  * tariff row is locked so two writers number versions in turn.
  */
-export async function appendTariffVersion(ctx: WriteContext, t: TariffRow, input: { content: TariffContent; effectiveFrom?: string | undefined; note?: string | undefined }) {
+export async function appendTariffVersion(env: UserActionEnv, t: TariffRow, input: { content: TariffContent; effectiveFrom?: string | undefined; note?: string | undefined }) {
   const checked = validateTariffContent(t, input.content);
   if (!checked.ok) throw new TRPCError({ code: "BAD_REQUEST", message: checked.problems.join("; ") });
-  await findTariff(ctx.tx, t.id, true);
-  const existing = await ctx.tx.select({ effectiveFrom: tariffVersion.effectiveFrom, versionNo: tariffVersion.versionNo }).from(tariffVersion).where(eq(tariffVersion.tariffId, t.id));
-  const effectiveFrom = await chooseEffectiveDate(ctx.tx, ctx.organizationId, {
+  await findTariff(env.tx, t.id, true);
+  const existing = await env.tx.select({ effectiveFrom: tariffVersion.effectiveFrom, versionNo: tariffVersion.versionNo }).from(tariffVersion).where(eq(tariffVersion.tariffId, t.id));
+  const effectiveFrom = await chooseEffectiveDate(env.tx, env.organizationId, {
     requested: input.effectiveFrom,
     existing: existing.map((e) => e.effectiveFrom),
     first: existing.length === 0,
   });
   const versionNo = existing.reduce((max, e) => Math.max(max, e.versionNo), 0) + 1;
-  const [version] = await ctx.tx
+  const [version] = await env.tx
     .insert(tariffVersion)
-    .values({ organizationId: ctx.organizationId, tariffId: t.id, versionNo, effectiveFrom, note: input.note || null, createdByUserId: ctx.session.user.id })
+    .values({ organizationId: env.organizationId, tariffId: t.id, versionNo, effectiveFrom, note: input.note || null, createdByUserId: env.actor.userId })
     .returning();
-  await ctx.tx.insert(tariffVersionLine).values(toLineRows(checked.content).map((row) => ({ organizationId: ctx.organizationId, versionId: version!.id, ...row })));
-  await ctx.audit({
+  await env.tx.insert(tariffVersionLine).values(toLineRows(checked.content).map((row) => ({ organizationId: env.organizationId, versionId: version!.id, ...row })));
+  await env.audit({
     action: "tariffs.tariff_version_add",
     subjectType: "tariff",
     subjectId: t.id,
     after: plain({ versionId: version!.id, versionNo, effectiveFrom, content: checked.content }),
     reason: input.note || null,
   });
-  await ctx.publish(tariffVersionCreated, { tariffId: t.id, versionId: version!.id, versionNo, type: t.type, effectiveFrom, createdByUserId: ctx.session.user.id });
+  await env.publish(tariffVersionCreated, { tariffId: t.id, versionId: version!.id, versionNo, type: t.type, effectiveFrom, createdByUserId: env.actor.userId });
   return { id: version!.id, versionNo, effectiveFrom };
 }
 
@@ -121,7 +121,7 @@ export function tariffProcedureSet(p: TariffsProcedures) {
             throw error;
           });
         await ctx.audit({ action: "tariffs.tariff_create", subjectType: "tariff", subjectId: row!.id, after: { name: row!.name, type: row!.type, flatBasis: row!.flatBasis } });
-        const version = await appendTariffVersion(ctx, row!, { content: checked.content, effectiveFrom: input.effectiveFrom, note: input.note });
+        const version = await appendTariffVersion(procedureEnv(ctx), row!, { content: checked.content, effectiveFrom: input.effectiveFrom, note: input.note });
         return { ...toTariffDto(row!), firstVersion: version };
       }),
 
@@ -153,7 +153,7 @@ export function tariffProcedureSet(p: TariffsProcedures) {
      */
     addVersion: p.manage
       .input(z.object({ tariffId: z.uuid(), content: tariffContentSchema, effectiveFrom: isoDateSchema.optional(), note: Note }))
-      .mutation(async ({ ctx, input }) => appendTariffVersion(ctx, await findTariff(ctx.tx, input.tariffId), input)),
+      .mutation(async ({ ctx, input }) => appendTariffVersion(procedureEnv(ctx), await findTariff(ctx.tx, input.tariffId), input)),
 
     /** Every version of a tariff, oldest first, with its content and the days it covers. */
     versions: p.read.input(z.object({ tariffId: z.uuid() })).query(async ({ ctx, input }) => tariffVersions(ctx.tx, await findTariff(ctx.tx, input.tariffId))),

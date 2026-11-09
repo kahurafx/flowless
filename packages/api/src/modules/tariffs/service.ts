@@ -15,10 +15,8 @@ import {
 import { formatInvoiceNumber, planEffectiveDate, revenueKindOf, todayIn, versionInForce, versionSpans, type IsoDate, type LateFeeRule, type OverduePolicy, type Terms, type TariffContent } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import type { AuditNote } from "../../trpc";
 import { readSetting } from "../../kernel/config-store";
 import { notFound } from "../../kernel/errors";
-import type { EventDef } from "../../kernel/events";
 import { regionalSetting } from "../../kernel/regional";
 import { closedThrough } from "./closed-period";
 import { fromLineRows } from "./content";
@@ -34,15 +32,6 @@ export type TariffRow = typeof tariff.$inferSelect;
 export type CategoryRow = typeof category.$inferSelect;
 export type ChargeItemRow = typeof chargeItem.$inferSelect;
 export type InvoiceTypeRow = typeof invoiceType.$inferSelect;
-
-/** What a write needs from the procedure context. The tRPC context satisfies it. */
-export interface WriteContext {
-  tx: Transaction;
-  organizationId: string;
-  session: { user: { id: string } };
-  audit(note: AuditNote): Promise<void>;
-  publish<T>(event: EventDef<T>, payload: T): Promise<unknown>;
-}
 
 /* ---------- effective dates (T-03) ---------- */
 
