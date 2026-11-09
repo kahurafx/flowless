@@ -1,5 +1,6 @@
 import { clientErrorMessage } from "@flowless/api";
 import { refresh } from "next/cache";
+import { readableMessage } from "@/lib/error-message";
 import { getApi } from "./session";
 
 export type Api = Awaited<ReturnType<typeof getApi>>["api"];
@@ -17,7 +18,7 @@ export async function runAction<T>(change: (api: Api) => Promise<T>, options: { 
     data = await change(api);
   } catch (error) {
     const message = clientErrorMessage(error);
-    if (message) return { error: message };
+    if (message) return { error: readableMessage(message) };
     throw error;
   }
   if (options.refresh !== false) refresh();

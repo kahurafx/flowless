@@ -1,6 +1,7 @@
 import type { ApplicationStage, Permission } from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
 import { areaChoices, stillOffered } from "./area-options";
+import { readableMessage } from "./error-message";
 import { areaField, contactInputs, newCustomerInput, nextDay, parseCoordinates, parseMinorUnits, placeInput } from "./account-forms";
 import { commandKindLabel } from "./account-labels";
 import { canOverrideGates, lifecycleActionsFor } from "./account-lifecycle";
@@ -170,6 +171,19 @@ describe("account forms", () => {
     expect(parseMinorUnits("1.234")).toBeNull();
     expect(parseMinorUnits("-5")).toBeNull();
     expect(parseMinorUnits("abc")).toBeNull();
+  });
+});
+
+describe("readable error messages", () => {
+  it("turns validation issues into their messages", () => {
+    const json = JSON.stringify([{ code: "too_small", path: ["reason"], message: "Say why" }, { message: "Say why" }, { message: "Pick a date" }]);
+    expect(readableMessage(json)).toBe("Say why. Pick a date");
+  });
+
+  it("leaves ordinary messages alone", () => {
+    expect(readableMessage("That id was already used")).toBe("That id was already used");
+    expect(readableMessage("[not json")).toBe("[not json");
+    expect(readableMessage("[]")).toBe("[]");
   });
 });
 
