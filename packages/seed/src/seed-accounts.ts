@@ -264,6 +264,9 @@ async function seedAccounts(cx: AccountsSeedContext) {
   const categories = new Map((await api.tariffs.categories.list({ includeInactive: true })).map((c) => [c.code, c.id]));
   const connections = new Map((await api.gis.connections.list()).map((c) => [c.connectionNumber, c.id]));
   const have = new Map((await api.accounts.list({ limit: 200 })).map((a) => [a.customerName, a]));
+  // An account that changed name below is known by its new name on a re-run.
+  const renamedTo = have.get(NAME_CHANGE.to);
+  if (renamedTo && !have.has(NAME_CHANGE.account)) have.set(NAME_CHANGE.account, renamedTo);
   const created: Record<string, Awaited<ReturnType<Api["accounts"]["create"]>>> = {};
   const servicePoints = new Map<string, string>();
   const centre = { KW: KAHAWA, G45: GITHURAI };
