@@ -384,6 +384,11 @@ export async function presentAccounts(tx: Transaction, rows: readonly AccountRow
   );
 }
 
+/** One account as the caller sees it (`presentAccounts` for a single row). */
+export async function presentAccount(tx: Transaction, row: AccountRow): Promise<AccountDto> {
+  return (await presentAccounts(tx, [row]))[0]!;
+}
+
 /* ---------- service points ---------- */
 
 export type PlacementInput = { [K in keyof Placement]?: string | null };

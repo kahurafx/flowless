@@ -1,4 +1,3 @@
-import type { Transaction } from "@flowless/db";
 import { account, customer, customerContact, servicePoint } from "@flowless/db/schema/accounts";
 import { COMMERCIAL_STATUSES, SERVICE_STATES, parsePhone } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
@@ -12,6 +11,7 @@ import {
   callingCodeFor,
   findAccount,
   likeEscape,
+  presentAccount,
   presentAccounts,
   previewNextNumber,
   toAccountDto,
@@ -23,8 +23,6 @@ import { numberingSetting } from "./settings";
 
 const Number_ = z.string().trim().min(1).max(40);
 const Page = z.number().int().min(1).max(200).default(50);
-
-const presentOne = async (tx: Transaction, row: Parameters<typeof presentAccounts>[1][number]) => (await presentAccounts(tx, [row]))[0]!;
 
 /** Accounts (C-02, C-03), mounted at the module's root: `accounts.create`, `accounts.get`, ... */
 export function accountProcedureSet(p: AccountsProcedures) {
@@ -48,7 +46,7 @@ export function accountProcedureSet(p: AccountsProcedures) {
           membershipClass: z.string().trim().min(1).max(30).optional(),
         }),
       )
-      .mutation(async ({ ctx, input }) => presentOne(ctx.tx, await openAccount({ ...ctx, userId: ctx.viewer.userId }, ctx.viewer, input))),
+      .mutation(async ({ ctx, input }) => presentAccount(ctx.tx, await openAccount({ ...ctx, userId: ctx.viewer.userId }, ctx.viewer, input))),
 
     /** An account with its customer's contact details, parent, children and service points, by id or number. */
     get: p.read

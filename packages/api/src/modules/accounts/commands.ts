@@ -8,14 +8,14 @@ import { approvalOutcome } from "../../kernel/approval-store";
 import { readSetting } from "../../kernel/config-store";
 import { loadEntitlements } from "../../kernel/entitlement-store";
 import type { EventDef } from "../../kernel/events";
-import { isUniqueViolation } from "../../kernel/pg-errors";
 import type { AuditNote } from "../../trpc";
 import type { Viewer } from "./access";
 import { gateReport } from "./activation";
 import { accountActivated, accountStatusChanged, accountTerminated, serviceStatusChanged } from "./events";
 import { hasPaymentGate } from "./gates";
 import { planCommand, type StatusCommand } from "./lifecycle";
-import { findAccount, notFound, presentAccounts, type AccountRow } from "./service";
+import { claimingId, loggedStep } from "./idempotent";
+import { findAccount, notFound, presentAccount, type AccountDto, type AccountRow } from "./service";
 import { activationSetting } from "./settings";
 import { positionOf } from "./sources";
 import { settleTermination } from "./termination";
@@ -72,6 +72,17 @@ export function systemEnv(tx: Transaction, organizationId: string): CommandEnv {
 
 export type CommandRow = typeof accountCommand.$inferSelect;
 
+/**
+ * Idempotency of the account's command log: a command id replays for the same account, kind,
+ * actor and request fingerprint, and is CONFLICT for anything else. Every account step
+ * (status commands, `succeed`, `change_name`, `relocate`) goes through it.
+ */
+export const commandLog = loggedStep<CommandRow>({
+  find: async (tx, id) => (await tx.select().from(accountCommand).where(eq(accountCommand.id, id)))[0],
+  parentOf: (c) => c.accountId,
+  conflict: "That id was already used for a different request",
+});
+
 export function toCommandDto(c: CommandRow) {
   return {
     id: c.id,
@@ -114,7 +125,7 @@ export interface CommandRequest {
 
 export interface CommandResult {
   command: CommandDto;
-  account: Awaited<ReturnType<typeof presentAccounts>>[number];
+  account: AccountDto;
   /** True when this id had already been used by the same request: nothing was done again. */
   replayed: boolean;
 }
@@ -154,20 +165,22 @@ async function lockAccount(tx: Transaction, viewer: Viewer | null, accountId: st
  * different request, account or person it is CONFLICT.
  */
 export async function runCommand(env: CommandEnv, viewer: Viewer | null, req: CommandRequest): Promise<CommandResult> {
-  const { tx, organizationId } = env;
-  const row = await lockAccount(tx, viewer, req.accountId);
+  const row = await lockAccount(env.tx, viewer, req.accountId);
   const fingerprint = fingerprintOf(req);
+  return commandLog.once(
+    env,
+    req.id,
+    { parentId: row.id, kind: req.kind, fingerprint },
+    {
+      replay: async (earlier) => ({ command: toCommandDto(earlier), account: await presentAccount(env.tx, row) }),
+      run: () => applyCommand(env, row, req, fingerprint),
+    },
+  );
+}
 
-  if (req.id) {
-    const [earlier] = await tx.select().from(accountCommand).where(eq(accountCommand.id, req.id));
-    if (earlier) {
-      if (earlier.accountId !== row.id || earlier.kind !== req.kind || earlier.actorUserId !== env.actor.userId || earlier.fingerprint !== fingerprint) {
-        throw new TRPCError({ code: "CONFLICT", message: "That command id was already used for a different request" });
-      }
-      return { command: toCommandDto(earlier), account: (await presentAccounts(tx, [row]))[0]!, replayed: true };
-    }
-  }
-
+/** Plans and applies one command on the locked account: the effect `runCommand` runs once per id. */
+async function applyCommand(env: CommandEnv, row: AccountRow, req: CommandRequest, fingerprint: string) {
+  const { tx, organizationId } = env;
   const config = (await readSetting(tx, activationSetting)).value;
   const override = req.kind === "activate" && req.override === true;
   const plan = planCommand(
@@ -217,9 +230,8 @@ export async function runCommand(env: CommandEnv, viewer: Viewer | null, req: Co
 
   const to = plan.to;
   const commandId = req.id ?? undefined;
-  let command: CommandRow | undefined;
-  try {
-    [command] = await tx
+  const [command] = await claimingId(() =>
+    tx
       .insert(accountCommand)
       .values({
         ...(commandId ? { id: commandId } : {}),
@@ -239,11 +251,8 @@ export async function runCommand(env: CommandEnv, viewer: Viewer | null, req: Co
         payload,
         fingerprint,
       })
-      .returning();
-  } catch (error) {
-    if (isUniqueViolation(error)) throw new TRPCError({ code: "CONFLICT", message: "That command id is already in use" });
-    throw error;
-  }
+      .returning(),
+  );
 
   const [updated] = await tx
     .update(account)
@@ -261,7 +270,7 @@ export async function runCommand(env: CommandEnv, viewer: Viewer | null, req: Co
   });
   await publishFor(env, row, updated!, command!, via, settlement && settlement.ok ? settlement : null, req.approvalId);
 
-  return { command: toCommandDto(command!), account: (await presentAccounts(tx, [updated!]))[0]!, replayed: false };
+  return { command: toCommandDto(command!), account: await presentAccount(tx, updated!) };
 }
 
 async function publishFor(
