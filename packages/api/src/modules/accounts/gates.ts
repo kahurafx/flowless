@@ -1,5 +1,7 @@
-import { ACTIVATION_GATE_KEYS, ACTIVATION_MODES, type ActivationGateKey } from "@flowless/shared-types";
-import { z } from "zod";
+import { ACTIVATION_GATE_KEYS, activationConfigSchema, officeItemSchema, type ActivationConfig, type ActivationGateKey } from "@flowless/shared-types";
+
+// The schemas are shared with the web form (`@flowless/shared-types`); the module keeps exporting them.
+export { activationConfigSchema, officeItemSchema, type ActivationConfig };
 
 /*
  * Activation gates (C-06), pure: the organization's configuration (`accounts.activation`) and
@@ -9,72 +11,11 @@ import { z } from "zod";
  * office ticking it on the checklist.
  */
 
-const gate = {
-  /** A disabled gate is not part of this organization's activation at all (waived). */
-  enabled: z.boolean().default(true),
-  /** An enabled gate that is not required is shown but does not hold activation back. */
-  required: z.boolean().default(true),
-};
-
 export const GATE_LABELS: Record<ActivationGateKey, string> = {
   payment_threshold: "Payment threshold met",
   meter_installed: "Meter installed and confirmed in inventory",
   initial_reading: "Initial reading captured",
 };
-
-export const officeItemSchema = z.object({
-  key: z
-    .string()
-    .regex(/^[a-z][a-z0-9_]{1,39}$/, "Keys are 2 to 40 lower-case letters, digits or _, starting with a letter")
-    .refine((k) => !(ACTIVATION_GATE_KEYS as readonly string[]).includes(k), "That key belongs to a built-in gate"),
-  label: z.string().trim().min(1).max(120),
-  ...gate,
-});
-
-/** Every field has a default, so older stored values keep reading (NF-32). */
-export const activationConfigSchema = z
-  .object({
-    /** `checklist`: the office activates once the gates are met. `auto`: activation happens by itself when the last fact arrives. */
-    mode: z.enum(ACTIVATION_MODES).default("checklist"),
-    /** NEW or PENDING_PAYMENT for longer than this many days raises an exception (C-06, X-02). */
-    staleAfterDays: z.number().int().min(1).max(365).default(14),
-    gates: z
-      .object({
-        /** The share of the new-connection invoice that must be paid, or a fixed minimum in minor units. Billing's source reads these. */
-        payment_threshold: z
-          .object({
-            ...gate,
-            basis: z.enum(["percent", "fixed"]).default("percent"),
-            percent: z.number().int().min(1).max(100).default(100),
-            fixedAmount: z.string().regex(/^\d+$/, "Amounts are whole minor units").default("0"),
-          })
-          .default({ enabled: true, required: true, basis: "percent", percent: 100, fixedAmount: "0" }),
-        meter_installed: z.object(gate).default({ enabled: true, required: true }),
-        initial_reading: z.object(gate).default({ enabled: true, required: true }),
-      })
-      .default({
-        payment_threshold: { enabled: true, required: true, basis: "percent", percent: 100, fixedAmount: "0" },
-        meter_installed: { enabled: true, required: true },
-        initial_reading: { enabled: true, required: true },
-      }),
-    /** Extra items the office ticks by hand, such as "Site visit signed off". */
-    officeChecklist: z
-      .array(officeItemSchema)
-      .max(20)
-      .default([])
-      .refine((items) => new Set(items.map((i) => i.key)).size === items.length, "Each checklist item needs its own key"),
-  })
-  .default({
-    mode: "checklist",
-    staleAfterDays: 14,
-    gates: {
-      payment_threshold: { enabled: true, required: true, basis: "percent", percent: 100, fixedAmount: "0" },
-      meter_installed: { enabled: true, required: true },
-      initial_reading: { enabled: true, required: true },
-    },
-    officeChecklist: [],
-  });
-export type ActivationConfig = z.infer<typeof activationConfigSchema>;
 
 /** What a module's gate source says about one account. */
 export interface GateFact {

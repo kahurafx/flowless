@@ -8,6 +8,8 @@ export * from "./tariff-content";
 export * from "./invoice-policy";
 export * from "./late-fee";
 export * from "./dating";
+export * from "./account-settings";
+export * from "./approval-policy";
 export * from "./phone";
 export * from "./statement";
 export * from "./exceptions";

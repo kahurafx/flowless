@@ -1,20 +1,20 @@
 "use client";
 
-import { ACTIVATION_GATE_KEYS, ACTIVATION_MODES, type ActivationGateKey } from "@flowless/shared-types";
+import { ACTIVATION_GATE_KEYS, ACTIVATION_MODES, type ActivationConfig, type ActivationGateKey } from "@flowless/shared-types";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { FieldSelect } from "@/components/field-select";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { activationFromForm, activationToForm, gateLabel, type ActivationForm, type ActivationValue } from "@/lib/account-settings";
+import { activationFromForm, activationToForm, gateLabel, type ActivationForm } from "@/lib/account-settings";
 import { SettingShell, type SettingMeta } from "./setting-shell";
 import { useDraft, type FormFrame } from "./use-draft";
 
 const modeLabel = { checklist: "Office checklist: staff activate once the gates are met", auto: "Automatic: activate by itself when the last gate is met" } as const;
 
 /** `accounts.activation` (C-06): mode, the gates and which are required, the payment threshold, the office checklist and the stale-account limit. */
-export function ActivationSettingForm({ meta, value, frame }: { meta: SettingMeta; value: ActivationValue; frame: FormFrame }) {
+export function ActivationSettingForm({ meta, value, frame }: { meta: SettingMeta; value: ActivationConfig; frame: FormFrame }) {
   const draft = useDraft<ActivationForm>(activationToForm(value, frame.currency));
   const form = draft.value;
   const gate = (key: ActivationGateKey) => form.gates[key];

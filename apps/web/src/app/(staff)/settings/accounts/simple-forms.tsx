@@ -1,6 +1,6 @@
 "use client";
 
-import { DATA_QUALITY_RULES } from "@flowless/shared-types";
+import { DATA_QUALITY_RULES, type ApplicationConfig, type DataQualityConfig, type MembershipConfig } from "@flowless/shared-types";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { FieldSelect } from "@/components/field-select";
 import { Badge } from "@/components/ui/badge";
@@ -18,16 +18,13 @@ import {
   membershipToForm,
   severityLabel,
   type ApplicationForm,
-  type ApplicationValue,
   type DataQualityForm,
-  type DataQualityValue,
-  type MembershipValue,
 } from "@/lib/account-settings";
 import { SettingShell, type SettingMeta } from "./setting-shell";
 import { useDraft, type FormFrame } from "./use-draft";
 
 /** `accounts.application` (C-05, C-09): which stages an application goes through, and whether a relocation needs a survey. */
-export function ApplicationSettingForm({ meta, value, frame }: { meta: SettingMeta; value: ApplicationValue; frame: FormFrame }) {
+export function ApplicationSettingForm({ meta, value, frame }: { meta: SettingMeta; value: ApplicationConfig; frame: FormFrame }) {
   const draft = useDraft<ApplicationForm>(applicationToForm(value));
   const form = draft.value;
   const rows: { key: keyof ApplicationForm; label: string; hint: string }[] = [
@@ -62,7 +59,7 @@ export function ApplicationSettingForm({ meta, value, frame }: { meta: SettingMe
 }
 
 /** `accounts.membership` (C-07): classes of child accounts, each with an optional connection-fee item from the charge catalog. */
-export function MembershipSettingForm({ meta, value, frame, chargeItems }: { meta: SettingMeta; value: MembershipValue; frame: FormFrame; chargeItems: { code: string; name: string; type: string }[] | null }) {
+export function MembershipSettingForm({ meta, value, frame, chargeItems }: { meta: SettingMeta; value: MembershipConfig; frame: FormFrame; chargeItems: { code: string; name: string; type: string }[] | null }) {
   const draft = useDraft(membershipToForm(value));
   const form = draft.value;
   const setClass = (i: number, patch: Partial<(typeof form.classes)[number]>) => draft.set({ classes: form.classes.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
@@ -122,7 +119,7 @@ export function MembershipSettingForm({ meta, value, frame, chargeItems }: { met
 }
 
 /** `accounts.data_quality` (C-12): for each rule whether it runs, how serious its findings are and whether the sweep raises exceptions. */
-export function DataQualitySettingForm({ meta, value, frame }: { meta: SettingMeta; value: DataQualityValue; frame: FormFrame }) {
+export function DataQualitySettingForm({ meta, value, frame }: { meta: SettingMeta; value: DataQualityConfig; frame: FormFrame }) {
   const draft = useDraft<DataQualityForm>(dataQualityToForm(value));
   const form = draft.value;
   return (

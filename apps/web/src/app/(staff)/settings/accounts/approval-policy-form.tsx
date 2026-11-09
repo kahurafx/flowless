@@ -1,12 +1,12 @@
 "use client";
 
-import { PERMISSIONS } from "@flowless/shared-types";
+import { PERMISSIONS, type ApprovalPolicy } from "@flowless/shared-types";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { FieldSelect } from "@/components/field-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MAX_APPROVAL_LEVELS, approvalPolicyFromForm, approvalPolicyToForm, type ApprovalPolicyForm, type ApprovalPolicyValue } from "@/lib/account-settings";
+import { MAX_APPROVAL_LEVELS, approvalPolicyFromForm, approvalPolicyToForm, type ApprovalPolicyForm } from "@/lib/account-settings";
 import { permissionLabel } from "@/lib/permission-labels";
 import { SettingShell, type SettingMeta } from "./setting-shell";
 import { useDraft, type FormFrame } from "./use-draft";
@@ -29,7 +29,7 @@ export function ApprovalPolicySettingForm({
   amountHint,
 }: {
   meta: SettingMeta;
-  value: ApprovalPolicyValue;
+  value: ApprovalPolicy;
   frame: FormFrame;
   title: string;
   description: string;

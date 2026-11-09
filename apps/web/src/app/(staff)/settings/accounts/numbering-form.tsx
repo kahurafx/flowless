@@ -1,16 +1,16 @@
 "use client";
 
-import { CHECK_DIGIT_SCHEMES } from "@flowless/shared-types";
+import { CHECK_DIGIT_SCHEMES, type NumberingFormat } from "@flowless/shared-types";
 import { FieldSelect } from "@/components/field-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sampleNumbers } from "@/lib/account-number";
-import { checkDigitLabel, numberingFromForm, numberingToForm, separatorLabel, type NumberingForm, type NumberingValue } from "@/lib/account-settings";
+import { checkDigitLabel, numberingFromForm, numberingToForm, separatorLabel, type NumberingForm } from "@/lib/account-settings";
 import { SettingShell, type SettingMeta } from "./setting-shell";
 import { useDraft, type FormFrame } from "./use-draft";
 
 /** `accounts.numbering` (C-02): prefix, digits, first number, check digit and separator, with a preview of what it would issue. */
-export function NumberingSettingForm({ meta, value, nextNumber, frame }: { meta: SettingMeta; value: NumberingValue; nextNumber: string; frame: FormFrame }) {
+export function NumberingSettingForm({ meta, value, nextNumber, frame }: { meta: SettingMeta; value: NumberingFormat; nextNumber: string; frame: FormFrame }) {
   const draft = useDraft<NumberingForm>(numberingToForm(value));
   const form = draft.value;
   const set = <K extends keyof NumberingForm>(key: K, v: NumberingForm[K]) => draft.set({ ...form, [key]: v });
@@ -50,7 +50,7 @@ export function NumberingSettingForm({ meta, value, nextNumber, frame }: { meta:
             id="num-sep"
             value={form.separator === "" ? "none" : form.separator}
             onChange={(v) => set("separator", v === "none" ? "" : (v as NumberingForm["separator"]))}
-            options={(Object.keys(separatorLabel) as NumberingValue["separator"][]).map((s) => ({ value: s === "" ? "none" : s, label: separatorLabel[s] }))}
+            options={(Object.keys(separatorLabel) as NumberingFormat["separator"][]).map((s) => ({ value: s === "" ? "none" : s, label: separatorLabel[s] }))}
             placeholder="Choose"
             className="w-36"
           />

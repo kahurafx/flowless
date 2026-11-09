@@ -1,5 +1,7 @@
-import { APPLICATION_STAGES, TERMINAL_APPLICATION_STAGES, type ApplicationStage } from "@flowless/shared-types";
-import { z } from "zod";
+import { APPLICATION_STAGES, TERMINAL_APPLICATION_STAGES, applicationConfigSchema, type ApplicationConfig, type ApplicationStage } from "@flowless/shared-types";
+
+// The schema is shared with the web form (`@flowless/shared-types`); the module keeps exporting it.
+export { applicationConfigSchema, type ApplicationConfig };
 
 /*
  * The application stage machine (C-05), pure: no I/O, no clock. An application is a path of
@@ -15,20 +17,6 @@ import { z } from "zod";
  * stages (converted, rejected, cancelled) never change. `use-cases` in `applications.ts` run
  * this under a row lock and write the event that records the move.
  */
-
-const used = z.object({ required: z.boolean().default(true) });
-
-export const applicationConfigSchema = z.object({
-  /** A survey (with its approval, set by the K-05 policy `approvals.accounts.connection_survey`) before the application. */
-  survey: used.default({ required: true }),
-  /** The new-connection invoice and its payment. Waived: the application goes on without an invoice. */
-  invoice: used.default({ required: true }),
-  /** Installation before the connection is ready. */
-  installation: used.default({ required: true }),
-  /** C-09: a survey must be recorded before a relocation can be completed. */
-  relocation: z.object({ surveyRequired: z.boolean().default(true) }).default({ surveyRequired: true }),
-});
-export type ApplicationConfig = z.infer<typeof applicationConfigSchema>;
 
 export const DEFAULT_APPLICATION_CONFIG: ApplicationConfig = applicationConfigSchema.parse({});
 

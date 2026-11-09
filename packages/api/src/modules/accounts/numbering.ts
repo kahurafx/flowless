@@ -1,5 +1,7 @@
-import { CHECK_DIGIT_SCHEMES, type CheckDigitScheme } from "@flowless/shared-types";
-import { z } from "zod";
+import { numberingFormatSchema, type CheckDigitScheme, type NumberingFormat } from "@flowless/shared-types";
+
+// The format schema is shared with the web form (`@flowless/shared-types`); the module keeps exporting it.
+export { numberingFormatSchema, type NumberingFormat };
 
 /*
  * Account numbers (C-02): format, check digits and parent/child letters. Pure: no I/O, no
@@ -13,25 +15,6 @@ import { z } from "zod";
  * Separators appear only between the parts that are present. The check digit covers the
  * sequence digits only, so a prefix or separator can change without invalidating numbers.
  */
-
-/** The organization's format, held as the `accounts.numbering` setting. Every field has a default so old versions stay readable. */
-export const numberingFormatSchema = z.object({
-  /** Upper-case letters and digits put before the sequence ("" for none). */
-  prefix: z
-    .string()
-    .regex(/^[A-Z0-9]{0,8}$/, "Use up to 8 capital letters or digits")
-    .default(""),
-  /** The sequence is padded with zeros to at least this many digits. */
-  width: z.number().int().min(1).max(12).default(4),
-  /** The first sequence number; raising it moves an existing counter forward, never back. */
-  start: z.number().int().min(1).max(2_000_000_000).default(1001),
-  checkDigit: z.enum(CHECK_DIGIT_SCHEMES).default("luhn"),
-  /** Put between prefix, sequence and check digit. Empty for none. */
-  separator: z.enum(["", "-", "/", "."]).default(""),
-  /** How a child account's number extends its parent's; letters only for now (A, B, ... Z, AA). */
-  childSuffix: z.enum(["letters"]).default("letters"),
-});
-export type NumberingFormat = z.infer<typeof numberingFormatSchema>;
 
 export const DEFAULT_NUMBERING: NumberingFormat = numberingFormatSchema.parse({});
 

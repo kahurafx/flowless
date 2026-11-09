@@ -7,14 +7,22 @@ import {
   SERVICE_STATES,
   effectiveDataQualityRules,
   isPermission,
+  startOfDayIn,
+  type ActivationConfig,
   type ActivationMode,
+  type ApplicationConfig,
+  type ApprovalPolicy,
   type ChargeType,
   type CheckDigitScheme,
   type CommercialStatus,
+  type DataQualityConfig,
   type DataQualityRuleKey,
   type DataQualitySeverity,
+  type MembershipConfig,
+  type NumberingFormat,
   type Permission,
   type ServiceState,
+  type StatusRules,
 } from "@flowless/shared-types";
 import { amountText, minorFromDigits, parseAmount } from "./money-input";
 
@@ -22,8 +30,9 @@ import { amountText, minorFromDigits, parseAmount } from "./money-input";
  * The Accounts configuration settings (K-10, C-02, C-04 to C-07, C-12) and the two approval
  * policies of the Accounts module as forms: each setting's stored value mapped to the fields
  * a person edits and back. Pure, so the mappers are tested without a browser. The stored
- * shapes mirror the zod schemas in `packages/api/src/modules/accounts` (the web may not import
- * them into the browser); the API validates every save again and its refusal is shown as is.
+ * shapes are the types inferred from the zod schemas in `@flowless/shared-types` that the
+ * API registers its settings with, so a change to a stored shape is a type error here; the
+ * API validates every save again and its refusal is shown as is.
  */
 
 export const SETTING_KEYS = {
@@ -75,37 +84,14 @@ export function effectiveFromOf(dateText: string, today: string, timeZone: strin
   return ok(startOfDayIn(text, timeZone));
 }
 
-/** Midnight at the start of a calendar date in an IANA time zone, as an instant. */
-export function startOfDayIn(date: string, timeZone: string): Date {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  const wanted = Date.UTC(y, m - 1, d);
-  const offsetAt = (instant: number) => {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" }).formatToParts(new Date(instant));
-    const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
-    return Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")) - Math.floor(instant / 1000) * 1000;
-  };
-  // Two passes settle on the right offset even across a daylight-saving change.
-  let instant = wanted - offsetAt(wanted);
-  instant = wanted - offsetAt(instant);
-  return new Date(instant);
-}
-
 /* ---------- accounts.numbering (C-02) ---------- */
 
-export interface NumberingValue {
-  prefix: string;
-  width: number;
-  start: number;
-  checkDigit: CheckDigitScheme;
-  separator: "" | "-" | "/" | ".";
-  childSuffix: "letters";
-}
 export interface NumberingForm {
   prefix: string;
   width: string;
   start: string;
   checkDigit: CheckDigitScheme;
-  separator: NumberingValue["separator"];
+  separator: NumberingFormat["separator"];
 }
 
 export const checkDigitLabel: Record<CheckDigitScheme, string> = {
@@ -113,11 +99,11 @@ export const checkDigitLabel: Record<CheckDigitScheme, string> = {
   luhn: "Luhn (catches a mistyped digit)",
   mod11: "Mod 11 (also catches swapped digits)",
 };
-export const separatorLabel: Record<NumberingValue["separator"], string> = { "": "None", "-": "Dash (-)", "/": "Slash (/)", ".": "Dot (.)" };
+export const separatorLabel: Record<NumberingFormat["separator"], string> = { "": "None", "-": "Dash (-)", "/": "Slash (/)", ".": "Dot (.)" };
 
-export const numberingToForm = (v: NumberingValue): NumberingForm => ({ prefix: v.prefix, width: String(v.width), start: String(v.start), checkDigit: v.checkDigit, separator: v.separator });
+export const numberingToForm = (v: NumberingFormat): NumberingForm => ({ prefix: v.prefix, width: String(v.width), start: String(v.start), checkDigit: v.checkDigit, separator: v.separator });
 
-export function numberingFromForm(form: NumberingForm, current: NumberingValue): FormResult<NumberingValue> {
+export function numberingFromForm(form: NumberingForm, current: NumberingFormat): FormResult<NumberingFormat> {
   const problems: string[] = [];
   const prefix = form.prefix.trim().toUpperCase();
   if (!/^[A-Z0-9]{0,8}$/.test(prefix)) problems.push("The prefix is up to 8 capital letters or digits");
@@ -131,18 +117,13 @@ export function numberingFromForm(form: NumberingForm, current: NumberingValue):
 
 /* ---------- accounts.status_rules (C-04) ---------- */
 
-export interface StatusRuleCell {
-  billsConsumption: boolean;
-  chargeTypes: ChargeType[];
-}
-export type StatusRulesValue = Record<CommercialStatus, Record<ServiceState, StatusRuleCell>>;
 /** Usage is not a choice of its own: it is billed exactly when consumption is. */
 export type StatusRulesForm = Record<CommercialStatus, Record<ServiceState, { billsConsumption: boolean; chargeTypes: ChargeType[] }>>;
 
 /** The charge types a cell can switch on besides usage. */
 export const OTHER_CHARGE_TYPES = CHARGE_TYPES.filter((t) => t !== "usage");
 
-export function statusRulesToForm(value: StatusRulesValue): StatusRulesForm {
+export function statusRulesToForm(value: StatusRules): StatusRulesForm {
   const form = {} as StatusRulesForm;
   for (const status of COMMERCIAL_STATUSES) {
     form[status] = {} as StatusRulesForm[CommercialStatus];
@@ -154,10 +135,10 @@ export function statusRulesToForm(value: StatusRulesValue): StatusRulesForm {
   return form;
 }
 
-export function statusRulesFromForm(form: StatusRulesForm): StatusRulesValue {
-  const value = {} as StatusRulesValue;
+export function statusRulesFromForm(form: StatusRulesForm): StatusRules {
+  const value = {} as StatusRules;
   for (const status of COMMERCIAL_STATUSES) {
-    value[status] = {} as StatusRulesValue[CommercialStatus];
+    value[status] = {} as StatusRules[CommercialStatus];
     for (const service of SERVICE_STATES) {
       const cell = form[status][service];
       value[status][service] = { billsConsumption: cell.billsConsumption, chargeTypes: CHARGE_TYPES.filter((t) => (t === "usage" ? cell.billsConsumption : cell.chargeTypes.includes(t))) };
@@ -179,17 +160,6 @@ export function toggleConsumption(form: StatusRulesForm, status: CommercialStatu
 
 /* ---------- accounts.activation (C-06) ---------- */
 
-export interface ActivationValue {
-  mode: ActivationMode;
-  staleAfterDays: number;
-  gates: {
-    payment_threshold: { enabled: boolean; required: boolean; basis: "percent" | "fixed"; percent: number; fixedAmount: string };
-    meter_installed: { enabled: boolean; required: boolean };
-    initial_reading: { enabled: boolean; required: boolean };
-  };
-  officeChecklist: { key: string; label: string; enabled: boolean; required: boolean }[];
-}
-
 export interface ActivationForm {
   mode: ActivationMode;
   staleAfterDays: string;
@@ -208,7 +178,7 @@ export const gateLabel: Record<(typeof ACTIVATION_GATE_KEYS)[number], string> = 
   initial_reading: "Initial reading captured",
 };
 
-export function activationToForm(v: ActivationValue, currency: string): ActivationForm {
+export function activationToForm(v: ActivationConfig, currency: string): ActivationForm {
   const fixed = minorFromDigits(v.gates.payment_threshold.fixedAmount) ?? 0n;
   return {
     mode: v.mode,
@@ -222,7 +192,7 @@ export function activationToForm(v: ActivationValue, currency: string): Activati
   };
 }
 
-export function activationFromForm(form: ActivationForm, currency: string): FormResult<ActivationValue> {
+export function activationFromForm(form: ActivationForm, currency: string): FormResult<ActivationConfig> {
   const problems: string[] = [];
   const stale = whole(form.staleAfterDays, 1, 365);
   if (stale === null) problems.push("Days before an account is raised as stale: 1 to 365");
@@ -258,12 +228,6 @@ export function activationFromForm(form: ActivationForm, currency: string): Form
 
 /* ---------- accounts.application (C-05, C-09) ---------- */
 
-export interface ApplicationValue {
-  survey: { required: boolean };
-  invoice: { required: boolean };
-  installation: { required: boolean };
-  relocation: { surveyRequired: boolean };
-}
 /** Each stage is "used" (the value's `required`); an unused stage is waived and skipped. */
 export interface ApplicationForm {
   survey: boolean;
@@ -272,14 +236,14 @@ export interface ApplicationForm {
   relocationSurvey: boolean;
 }
 
-export const applicationToForm = (v: ApplicationValue): ApplicationForm => ({
+export const applicationToForm = (v: ApplicationConfig): ApplicationForm => ({
   survey: v.survey.required,
   invoice: v.invoice.required,
   installation: v.installation.required,
   relocationSurvey: v.relocation.surveyRequired,
 });
 
-export const applicationFromForm = (f: ApplicationForm): ApplicationValue => ({
+export const applicationFromForm = (f: ApplicationForm): ApplicationConfig => ({
   survey: { required: f.survey },
   invoice: { required: f.invoice },
   installation: { required: f.installation },
@@ -288,17 +252,14 @@ export const applicationFromForm = (f: ApplicationForm): ApplicationValue => ({
 
 /* ---------- accounts.membership (C-07) ---------- */
 
-export interface MembershipValue {
-  classes: { key: string; label: string; connectionFeeChargeItemCode?: string | undefined }[];
-}
 export interface MembershipForm {
   /** `key` is "" for a class added in this form. */
   classes: { key: string; label: string; chargeItemCode: string }[];
 }
 
-export const membershipToForm = (v: MembershipValue): MembershipForm => ({ classes: v.classes.map((c) => ({ key: c.key, label: c.label, chargeItemCode: c.connectionFeeChargeItemCode ?? "" })) });
+export const membershipToForm = (v: MembershipConfig): MembershipForm => ({ classes: v.classes.map((c) => ({ key: c.key, label: c.label, chargeItemCode: c.connectionFeeChargeItemCode ?? "" })) });
 
-export function membershipFromForm(form: MembershipForm): FormResult<MembershipValue> {
+export function membershipFromForm(form: MembershipForm): FormResult<MembershipConfig> {
   const problems: string[] = [];
   const seen = new Set<string>();
   const classes = form.classes.map((c, i) => {
@@ -317,35 +278,26 @@ export function membershipFromForm(form: MembershipForm): FormResult<MembershipV
 
 /* ---------- accounts.data_quality (C-12) ---------- */
 
-export interface DataQualityValue {
-  rules: Record<string, { enabled?: boolean | undefined; severity?: DataQualitySeverity | undefined; raiseExceptions?: boolean | undefined } | undefined>;
-}
 export type DataQualityForm = Record<DataQualityRuleKey, { enabled: boolean; severity: DataQualitySeverity; raiseExceptions: boolean }>;
 
 export const severityLabel: Record<DataQualitySeverity, string> = { info: "Info", warning: "Warning", critical: "Critical" };
 export const SEVERITIES = DATA_QUALITY_SEVERITIES;
 
-export function dataQualityToForm(v: DataQualityValue): DataQualityForm {
+export function dataQualityToForm(v: DataQualityConfig): DataQualityForm {
   const form = {} as DataQualityForm;
   for (const rule of effectiveDataQualityRules(v.rules)) form[rule.key] = { enabled: rule.enabled, severity: rule.severity, raiseExceptions: rule.raiseExceptions };
   return form;
 }
 
 /** Writes every catalogue rule explicitly and keeps keys the catalogue no longer knows, as the store does. */
-export function dataQualityFromForm(form: DataQualityForm, current: DataQualityValue): DataQualityValue {
-  const rules: DataQualityValue["rules"] = { ...current.rules };
+export function dataQualityFromForm(form: DataQualityForm, current: DataQualityConfig): DataQualityConfig {
+  const rules: DataQualityConfig["rules"] = { ...current.rules };
   for (const rule of DATA_QUALITY_RULES) rules[rule.key] = { enabled: form[rule.key].enabled, severity: form[rule.key].severity, raiseExceptions: form[rule.key].raiseExceptions };
   return { rules };
 }
 
 /* ---------- approvals.<kind> (K-05) ---------- */
 
-export interface ApprovalPolicyValue {
-  levels: { label: string; permission: Permission; minAmount?: string | undefined }[];
-  slaHours: number;
-  escalateTo?: Permission | undefined;
-  reasonCodes?: { code: string; label: string }[] | undefined;
-}
 export interface ApprovalPolicyForm {
   levels: { label: string; permission: string; minAmount: string }[];
   slaHours: string;
@@ -354,7 +306,7 @@ export interface ApprovalPolicyForm {
 
 export const MAX_APPROVAL_LEVELS = 5;
 
-export function approvalPolicyToForm(v: ApprovalPolicyValue, currency: string): ApprovalPolicyForm {
+export function approvalPolicyToForm(v: ApprovalPolicy, currency: string): ApprovalPolicyForm {
   return {
     levels: v.levels.map((l) => ({ label: l.label, permission: l.permission, minAmount: l.minAmount ? amountText(minorFromDigits(l.minAmount) ?? 0n, currency) : "" })),
     slaHours: String(v.slaHours),
@@ -363,7 +315,7 @@ export function approvalPolicyToForm(v: ApprovalPolicyValue, currency: string): 
 }
 
 /** The policy to store; reason codes the page does not edit are kept as they were. */
-export function approvalPolicyFromForm(form: ApprovalPolicyForm, current: ApprovalPolicyValue, currency: string): FormResult<ApprovalPolicyValue> {
+export function approvalPolicyFromForm(form: ApprovalPolicyForm, current: ApprovalPolicy, currency: string): FormResult<ApprovalPolicy> {
   const problems: string[] = [];
   if (form.levels.length > MAX_APPROVAL_LEVELS) problems.push(`At most ${MAX_APPROVAL_LEVELS} levels`);
   const levels = form.levels.map((l, i) => {
@@ -398,29 +350,29 @@ export function summarize(key: string, value: unknown): string {
   const v = value as Record<string, unknown>;
   switch (key) {
     case SETTING_KEYS.numbering: {
-      const n = value as NumberingValue;
+      const n = value as NumberingFormat;
       return `${n.prefix || "no prefix"}, ${n.width} digits from ${n.start}, ${checkDigitLabel[n.checkDigit].split(" (")[0]!.toLowerCase()}`;
     }
     case SETTING_KEYS.statusRules: {
-      const rules = value as StatusRulesValue;
+      const rules = value as StatusRules;
       const billing = COMMERCIAL_STATUSES.filter((s) => SERVICE_STATES.some((x) => rules[s][x].billsConsumption));
       return billing.length ? `Consumption billed while ${billing.map((s) => s.toLowerCase().replace("_", " ")).join(", ")}` : "Consumption never billed";
     }
     case SETTING_KEYS.activation: {
-      const a = value as ActivationValue;
+      const a = value as ActivationConfig;
       return `${a.mode === "auto" ? "Automatic" : "Office checklist"}, stale after ${a.staleAfterDays} days, ${a.officeChecklist.length} office item${a.officeChecklist.length === 1 ? "" : "s"}`;
     }
     case SETTING_KEYS.application: {
-      const a = value as ApplicationValue;
+      const a = value as ApplicationConfig;
       const waived = [!a.survey.required && "survey", !a.invoice.required && "invoice and payment", !a.installation.required && "installation"].filter(Boolean);
       return waived.length ? `Waived: ${waived.join(", ")}` : "Every stage used";
     }
     case SETTING_KEYS.membership: {
-      const m = value as MembershipValue;
+      const m = value as MembershipConfig;
       return `${m.classes.length} class${m.classes.length === 1 ? "" : "es"}`;
     }
     case SETTING_KEYS.dataQuality: {
-      const form = dataQualityToForm(value as DataQualityValue);
+      const form = dataQualityToForm(value as DataQualityConfig);
       const off = DATA_QUALITY_RULES.filter((r) => !form[r.key].enabled).length;
       const raising = DATA_QUALITY_RULES.filter((r) => form[r.key].enabled && form[r.key].raiseExceptions).length;
       return `${DATA_QUALITY_RULES.length - off} rule${DATA_QUALITY_RULES.length - off === 1 ? "" : "s"} on, ${raising} raising exceptions`;

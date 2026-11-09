@@ -1,14 +1,21 @@
-import { CHARGE_TYPES, DATA_QUALITY_RULES, type ChargeType } from "@flowless/shared-types";
+import {
+  CHARGE_TYPES,
+  DATA_QUALITY_RULES,
+  activationConfigSchema,
+  applicationConfigSchema,
+  approvalPolicySchema,
+  dataQualityConfigSchema,
+  membershipConfigSchema,
+  numberingFormatSchema,
+  startOfDayIn,
+  statusRulesSchema,
+  type ApprovalPolicy,
+  type ChargeType,
+} from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
-// The API's pure schemas, imported by path only to check that what the forms write is what the store accepts.
-import { activationConfigSchema } from "../../../../packages/api/src/modules/accounts/gates";
-import { applicationConfigSchema } from "../../../../packages/api/src/modules/accounts/application-stages";
-import { dataQualityConfigSchema } from "../../../../packages/api/src/modules/accounts/data-quality-config";
-import { membershipConfigSchema } from "../../../../packages/api/src/modules/accounts/membership";
-import { formatAccountNumber, numberingFormatSchema } from "../../../../packages/api/src/modules/accounts/numbering";
+// The API's number issuer, imported by path only to check that the form's number preview mirrors it.
+import { formatAccountNumber } from "../../../../packages/api/src/modules/accounts/numbering";
 import { formatNumber, sampleNumbers } from "./account-number";
-import { statusRulesSchema } from "../../../../packages/api/src/modules/accounts/status-rules";
-import { approvalPolicySchema } from "../../../../packages/api/src/kernel/approval-store";
 import {
   SETTING_KEYS,
   activationFromForm,
@@ -25,23 +32,18 @@ import {
   membershipToForm,
   numberingFromForm,
   numberingToForm,
-  startOfDayIn,
   statusRulesFromForm,
   statusRulesToForm,
   summarize,
   toggleChargeType,
   toggleConsumption,
-  type ActivationValue,
-  type ApprovalPolicyValue,
-  type NumberingValue,
-  type StatusRulesValue,
 } from "./account-settings";
 
 const KES = "KES";
 const defaults = {
-  numbering: numberingFormatSchema.parse({}) as NumberingValue,
-  statusRules: statusRulesSchema.parse({}) as StatusRulesValue,
-  activation: activationConfigSchema.parse(undefined) as ActivationValue,
+  numbering: numberingFormatSchema.parse({}),
+  statusRules: statusRulesSchema.parse({}),
+  activation: activationConfigSchema.parse(undefined),
   application: applicationConfigSchema.parse({}),
   membership: membershipConfigSchema.parse({}),
   dataQuality: dataQualityConfigSchema.parse({}),
@@ -172,7 +174,7 @@ describe("accounts.data_quality form (C-12)", () => {
 });
 
 describe("approval policy form (K-05)", () => {
-  const surveyPolicy: ApprovalPolicyValue = { levels: [{ label: "Manager", permission: "accounts:change_status" }], slaHours: 72 };
+  const surveyPolicy: ApprovalPolicy = { levels: [{ label: "Manager", permission: "accounts:change_status" }], slaHours: 72 };
   it("round-trips a policy and keeps reason codes it does not edit", () => {
     const withCodes = { ...surveyPolicy, reasonCodes: [{ code: "OTHER", label: "Other" }] };
     const form = approvalPolicyToForm(withCodes, KES);

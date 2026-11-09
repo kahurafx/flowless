@@ -1,16 +1,16 @@
 "use client";
 
-import { COMMERCIAL_STATUSES, SERVICE_STATES } from "@flowless/shared-types";
+import { COMMERCIAL_STATUSES, SERVICE_STATES, type StatusRules } from "@flowless/shared-types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { commercialStatusLabel, serviceStateLabel } from "@/lib/account-labels";
-import { OTHER_CHARGE_TYPES, statusRulesFromForm, statusRulesToForm, toggleChargeType, toggleConsumption, type StatusRulesValue } from "@/lib/account-settings";
+import { OTHER_CHARGE_TYPES, statusRulesFromForm, statusRulesToForm, toggleChargeType, toggleConsumption } from "@/lib/account-settings";
 import { chargeTypeLabel } from "@/lib/tariff-labels";
 import { SettingShell, type SettingMeta } from "./setting-shell";
 import { useDraft, type FormFrame } from "./use-draft";
 
 /** `accounts.status_rules` (C-04): for each commercial and service status, whether consumption is billed and which charge types apply. */
-export function StatusRulesSettingForm({ meta, value, frame }: { meta: SettingMeta; value: StatusRulesValue; frame: FormFrame }) {
+export function StatusRulesSettingForm({ meta, value, frame }: { meta: SettingMeta; value: StatusRules; frame: FormFrame }) {
   const draft = useDraft(statusRulesToForm(value));
   const form = draft.value;
   return (
