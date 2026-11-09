@@ -10,6 +10,7 @@ import { notificationsRouter } from "./kernel/notifications";
 import { supportRouter } from "./kernel/support";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
+import { accountsRouter } from "./modules/accounts";
 import { createGisRouter } from "./modules/gis";
 import { createWorkOrdersRouter } from "./modules/work-orders";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
@@ -35,6 +36,7 @@ export const appRouter = router({
   // Modules, at the camelCase of their module key (module-matrix.test.ts).
   workOrders: createWorkOrdersRouter(work),
   gis: createGisRouter(work),
+  accounts: accountsRouter,
 });
 
 export type AppRouter = typeof appRouter;
