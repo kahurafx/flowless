@@ -4,9 +4,10 @@ import { TRPCError } from "@trpc/server";
 import type { Viewer } from "./access";
 import { eq } from "drizzle-orm";
 import { planAdvance } from "./application-stages";
-import { configOf, findApplication, placeOf, presentApplication, userOf } from "./application-present";
+import { configOf, findApplication, placeOf, presentApplication } from "./application-present";
 import { applicationLog, moveStage } from "./application-steps";
-import { fingerprintOfRequest, runCommand, type CommandEnv } from "./commands";
+import type { UserActionEnv } from "../../kernel/action-env";
+import { fingerprintOfRequest, runCommand } from "./commands";
 import { applicationConverted } from "./events";
 import { openAccount } from "./open-account";
 import { createServicePoint } from "./service-points";
@@ -24,12 +25,12 @@ import { presentAccount, toServicePointDto } from "./service";
  * invoice, moves the account NEW to PENDING_PAYMENT with the F3a command.
  */
 export async function convertApplication(
-  env: CommandEnv,
+  env: UserActionEnv,
   viewer: Viewer,
   req: { id?: string | undefined; applicationId: string; reason: string },
 ) {
   const { tx } = env;
-  const userId = userOf(env);
+  const userId = env.actor.userId;
   const before = await findApplication(tx, viewer, req.applicationId, true);
   const fingerprint = fingerprintOfRequest({ kind: "stage_changed", action: "convert", applicationId: req.applicationId, reason: req.reason });
   return applicationLog.once(
@@ -43,14 +44,13 @@ export async function convertApplication(
         const plan = planAdvance(before.stage, "convert", config);
         if (!plan.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: plan.problem });
 
-        const userEnv = { tx, organizationId: env.organizationId, userId, audit: env.audit, publish: env.publish };
-        const row = await openAccount(userEnv, viewer, {
+        const row = await openAccount(env, viewer, {
           customerId: before.customerId,
           parentAccountId: before.parentAccountId ?? undefined,
           categoryId: before.requestedCategoryId,
           membershipClass: before.membershipClass,
         });
-        const point = await createServicePoint(userEnv, viewer, {
+        const point = await createServicePoint(env, viewer, {
           accountId: row.id,
           address: before.address,
           location: before.location as LatLng | null,

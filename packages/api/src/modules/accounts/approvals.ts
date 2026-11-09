@@ -1,7 +1,7 @@
 import { account, accountCommand } from "@flowless/db/schema/accounts";
 import { eq } from "drizzle-orm";
 import { defineApproval, defineApprovalConsumer } from "../../kernel/approval-store";
-import { systemEnv } from "./commands";
+import { systemEnv } from "../../kernel/action-env";
 import { WRITE_OFF_KIND } from "./termination";
 
 /**

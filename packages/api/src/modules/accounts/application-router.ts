@@ -12,7 +12,7 @@ import { findApplication, presentApplication, stepsOf, toStepDto } from "./appli
 import { advanceApplication, endApplication, type AdvanceRequest } from "./application-steps";
 import { recordSurvey } from "./application-survey";
 import { activeStages } from "./application-stages";
-import { procedureEnv } from "./commands";
+import { procedureEnv } from "../../kernel/action-env";
 import { NewCustomerInput } from "./customers";
 import type { AccountsProcedures } from "./procedures";
 import { applicationSetting } from "./settings";

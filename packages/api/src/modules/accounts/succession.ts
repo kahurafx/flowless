@@ -5,7 +5,8 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
-import { commandLog, fingerprintOfRequest, runCommand, toCommandDto, type CommandEnv } from "./commands";
+import type { UserActionEnv } from "../../kernel/action-env";
+import { commandLog, fingerprintOfRequest, runCommand, toCommandDto } from "./commands";
 import { createCustomer, type NewCustomer } from "./customers";
 import { accountSucceeded } from "./events";
 import { localToday } from "./holders";
@@ -50,7 +51,7 @@ export interface SucceedRequest {
   reason: string;
 }
 
-export async function succeedAccount(env: CommandEnv, viewer: Viewer, req: SucceedRequest) {
+export async function succeedAccount(env: UserActionEnv, viewer: Viewer, req: SucceedRequest) {
   const { tx } = env;
   const old = await findAccount(tx, viewer, { id: req.accountId }, true);
   const fingerprint = fingerprintOfRequest({ kind: "succeed", ...req });
@@ -69,9 +70,9 @@ export async function succeedAccount(env: CommandEnv, viewer: Viewer, req: Succe
   );
 }
 
-async function applySuccession(env: CommandEnv, viewer: Viewer, old: AccountRow, req: SucceedRequest, fingerprint: string) {
+async function applySuccession(env: UserActionEnv, viewer: Viewer, old: AccountRow, req: SucceedRequest, fingerprint: string) {
   const { tx, organizationId } = env;
-  const userId = env.actor.userId!;
+  const userId = env.actor.userId;
   if (old.commercialStatus !== "ACTIVE" && old.commercialStatus !== "DORMANT") {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Only an active or dormant account has a successor; this one is ${old.commercialStatus.toLowerCase().replace("_", " ")}` });
   }
@@ -82,7 +83,7 @@ async function applySuccession(env: CommandEnv, viewer: Viewer, old: AccountRow,
   if (req.customerId && req.newCustomer) throw new TRPCError({ code: "BAD_REQUEST", message: "Name an existing customer or give new customer details, not both" });
 
   const customerId = req.newCustomer
-    ? (await createCustomer({ tx, organizationId, userId, audit: env.audit, publish: env.publish }, req.newCustomer)).id
+    ? (await createCustomer(env, req.newCustomer)).id
     : req.customerId
       ? (await findCustomer(tx, viewer, req.customerId)).id
       : old.customerId;
@@ -91,7 +92,7 @@ async function applySuccession(env: CommandEnv, viewer: Viewer, old: AccountRow,
   }
 
   const keepsParent = req.basis !== "full_membership" && old.parentAccountId !== null;
-  const successor = await openAccount({ tx, organizationId, userId, audit: env.audit, publish: env.publish }, viewer, {
+  const successor = await openAccount(env, viewer, {
     customerId,
     ...(keepsParent ? { parentAccountId: old.parentAccountId!, numbering: "own" as const, membershipClass: old.membershipClass } : {}),
     categoryId: req.categoryId === undefined ? old.categoryId : req.categoryId,

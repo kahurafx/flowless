@@ -1,7 +1,8 @@
 import { account, accountCommand } from "@flowless/db/schema/accounts";
 import type { AccountCommandKind } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
-import type { CommandEnv, CommandRow } from "./commands";
+import type { ActionEnv } from "../../kernel/action-env";
+import type { CommandRow } from "./commands";
 import { claimingId } from "./idempotent";
 import type { AccountRow } from "./service";
 
@@ -18,7 +19,7 @@ export type ChangeKind = Extract<AccountCommandKind, "succeed" | "change_name" |
 
 /** Writes the log row for a change that leaves the account's status as it is (state read from `row`). */
 export async function logChange(
-  env: CommandEnv,
+  env: ActionEnv,
   row: Pick<AccountRow, "id" | "commercialStatus" | "serviceStatus" | "serviceStatusReason">,
   change: { id?: string | undefined; kind: ChangeKind; reason: string; note?: string | undefined; payload: Record<string, unknown>; fingerprint: string },
 ): Promise<CommandRow> {
@@ -48,7 +49,7 @@ export async function logChange(
 }
 
 /** The account's current row (after earlier steps of the same use case changed it). */
-export async function reload(env: CommandEnv, id: string): Promise<AccountRow> {
+export async function reload(env: ActionEnv, id: string): Promise<AccountRow> {
   const [row] = await env.tx.select().from(account).where(eq(account.id, id));
   return row!;
 }

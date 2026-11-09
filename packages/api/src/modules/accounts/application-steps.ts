@@ -5,7 +5,8 @@ import { eq } from "drizzle-orm";
 import type { Viewer } from "./access";
 import { planAdvance, planEnd, type AdvanceAction } from "./application-stages";
 import { configOf, findApplication, presentApplication, type ApplicationResult, type ApplicationRow, type ApplicationStepRow } from "./application-present";
-import { fingerprintOfRequest, type CommandEnv } from "./commands";
+import type { ActionEnv } from "../../kernel/action-env";
+import { fingerprintOfRequest } from "./commands";
 import { applicationStageChanged } from "./events";
 import { claimingId, loggedStep } from "./idempotent";
 
@@ -35,7 +36,7 @@ interface NewStep {
 }
 
 /** Appends one row to the application's step log. */
-export async function logStep(env: CommandEnv, applicationId: string, e: NewStep): Promise<ApplicationStepRow> {
+export async function logStep(env: ActionEnv, applicationId: string, e: NewStep): Promise<ApplicationStepRow> {
   const [row] = await claimingId(() =>
     env.tx
       .insert(applicationEvent)
@@ -58,7 +59,7 @@ export async function logStep(env: CommandEnv, applicationId: string, e: NewStep
 }
 
 /** Publishes `accounts.application_stage_changed` for a step row. */
-export function publishStageChanged(env: CommandEnv, app: Pick<ApplicationRow, "id" | "customerId">, step: ApplicationStepRow, from: ApplicationStage | null, to: ApplicationStage) {
+export function publishStageChanged(env: ActionEnv, app: Pick<ApplicationRow, "id" | "customerId">, step: ApplicationStepRow, from: ApplicationStage | null, to: ApplicationStage) {
   return env.publish(applicationStageChanged, {
     applicationId: app.id,
     eventId: step.id,
@@ -82,7 +83,7 @@ export interface StageMove {
 }
 
 /** Records a stage move: the step row, the new stage (plus any columns that move with it), the audit entry and the stage event. */
-export async function moveStage(env: CommandEnv, before: ApplicationRow, move: StageMove): Promise<{ row: ApplicationRow; event: ApplicationStepRow }> {
+export async function moveStage(env: ActionEnv, before: ApplicationRow, move: StageMove): Promise<{ row: ApplicationRow; event: ApplicationStepRow }> {
   const event = await logStep(env, before.id, {
     id: move.id,
     kind: "stage_changed",
@@ -117,7 +118,7 @@ type Decision = Pick<StageMove, "to" | "payload" | "set" | "action">;
  * same request, otherwise `decide` the move (it throws when the move is not allowed) and write it.
  */
 async function stageStep(
-  env: CommandEnv,
+  env: ActionEnv,
   viewer: Viewer | null,
   req: { id?: string | undefined; applicationId: string; reason: string },
   fingerprint: string,
@@ -159,7 +160,7 @@ const ACTION_AUDIT: Record<AdvanceRequest["action"], string> = {
 };
 
 /** submitApplication, markInvoiced, markPaid, startInstallation and markReady: each moves the application one stage on. */
-export function advanceApplication(env: CommandEnv, viewer: Viewer | null, req: AdvanceRequest): Promise<ApplicationResult> {
+export function advanceApplication(env: ActionEnv, viewer: Viewer | null, req: AdvanceRequest): Promise<ApplicationResult> {
   const fingerprint = fingerprintOfRequest({ kind: "stage_changed", action: req.action, applicationId: req.applicationId, reason: req.reason, invoiceRef: req.invoiceRef, paymentRef: req.paymentRef });
   return stageStep(env, viewer, req, fingerprint, async (before) => {
     const plan = planAdvance(before.stage, req.action, await configOf(env.tx));
@@ -173,7 +174,7 @@ export function advanceApplication(env: CommandEnv, viewer: Viewer | null, req: 
 
 /** Rejects or cancels an application from any stage that is not final. */
 export function endApplication(
-  env: CommandEnv,
+  env: ActionEnv,
   viewer: Viewer | null,
   req: { id?: string | undefined; applicationId: string; to: "rejected" | "cancelled"; reason: string },
 ): Promise<ApplicationResult> {

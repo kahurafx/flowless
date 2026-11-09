@@ -1,11 +1,9 @@
-import type { Transaction } from "@flowless/db";
 import { account, customer, customerContact } from "@flowless/db/schema/accounts";
 import { CONTACT_CHANNELS, CONTACT_KINDS, CUSTOMER_TYPES, parsePhone } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { EventDef } from "../../kernel/events";
-import type { AuditNote } from "../../trpc";
+import { procedureEnv, type UserActionEnv } from "../../kernel/action-env";
 import { router } from "../../trpc";
 import { accountVisible, customerVisible } from "./access";
 import { customerCreated } from "./events";
@@ -159,17 +157,8 @@ export const NewCustomerInput = z.object({
 });
 export type NewCustomer = z.infer<typeof NewCustomerInput>;
 
-/** Where a customer is created from: a procedure, or another use case (an application, a succession) in its caller's transaction. */
-export interface CustomerEnv {
-  tx: Transaction;
-  organizationId: string;
-  userId: string;
-  audit(note: AuditNote): Promise<void>;
-  publish<T>(event: EventDef<T>, payload: T): Promise<unknown>;
-}
-
 /** Creates a customer with its contacts, audited and announced (C-01). */
-export async function createCustomer(env: CustomerEnv, input: NewCustomer) {
+export async function createCustomer(env: UserActionEnv, input: NewCustomer) {
   assertIdentityFits(input.type, input.nationalId, input.registrationNumber);
   const code = await callingCodeFor(env.tx);
   const prepared = input.contacts.map((c) => ({ ...c, fields: contactFields(c.channel, c.value, code) }));
@@ -183,13 +172,13 @@ export async function createCustomer(env: CustomerEnv, input: NewCustomer) {
       registrationNumber: normalizeIdNumber(input.registrationNumber),
       language: input.language ?? null,
       notes: input.notes ?? null,
-      createdByUserId: env.userId,
+      createdByUserId: env.actor.userId,
     })
     .returning();
   for (const c of prepared) {
     await insertContact(env.tx, {
       organizationId: env.organizationId,
-      userId: env.userId,
+      userId: env.actor.userId,
       customerId: row!.id,
       channel: c.channel,
       kind: c.kind,
@@ -209,7 +198,7 @@ export async function createCustomer(env: CustomerEnv, input: NewCustomer) {
     customerId: row!.id,
     type: row!.type,
     reachableBy: [...new Set(contacts.filter((c) => c.normalized !== null).map((c) => c.channel))],
-    createdByUserId: env.userId,
+    createdByUserId: env.actor.userId,
   });
   return { ...dto, contacts: contacts.map(toContactDto) };
 }
@@ -217,7 +206,7 @@ export async function createCustomer(env: CustomerEnv, input: NewCustomer) {
 /** Customers (C-01). */
 export function customersRouter(p: AccountsProcedures) {
   return router({
-    create: p.create.input(NewCustomerInput).mutation(({ ctx, input }) => createCustomer({ ...ctx, userId: ctx.viewer.userId }, input)),
+    create: p.create.input(NewCustomerInput).mutation(({ ctx, input }) => createCustomer(procedureEnv(ctx), input)),
 
     update: p.update
       .input(

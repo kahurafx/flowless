@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
-import { commandLog, fingerprintOfRequest, toCommandDto, type CommandEnv } from "./commands";
+import type { UserActionEnv } from "../../kernel/action-env";
+import { commandLog, fingerprintOfRequest, toCommandDto } from "./commands";
 import { createCustomer, type NewCustomer } from "./customers";
 import { holderChanged } from "./events";
 import { currentHolder, holdersOf, insertHolder, localToday } from "./holders";
@@ -39,7 +40,7 @@ export interface ChangeNameRequest {
   reason: string;
 }
 
-export async function changeName(env: CommandEnv, viewer: Viewer, req: ChangeNameRequest) {
+export async function changeName(env: UserActionEnv, viewer: Viewer, req: ChangeNameRequest) {
   const acct = await findAccount(env.tx, viewer, { id: req.accountId }, true);
   const fingerprint = fingerprintOfRequest({ kind: "change_name", ...req });
   return commandLog.once(
@@ -53,9 +54,9 @@ export async function changeName(env: CommandEnv, viewer: Viewer, req: ChangeNam
   );
 }
 
-async function applyChangeName(env: CommandEnv, viewer: Viewer, acct: AccountRow, req: ChangeNameRequest, fingerprint: string) {
+async function applyChangeName(env: UserActionEnv, viewer: Viewer, acct: AccountRow, req: ChangeNameRequest, fingerprint: string) {
   const { tx, organizationId } = env;
-  const userId = env.actor.userId!;
+  const userId = env.actor.userId;
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   if ((req.customerId === undefined) === (req.newCustomer === undefined)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Name the new holder: an existing customer or new customer details" });
@@ -67,7 +68,7 @@ async function applyChangeName(env: CommandEnv, viewer: Viewer, acct: AccountRow
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: `The effective date must be after ${current.validFrom}, when the current holder took over` });
   }
   const toCustomerId = req.newCustomer
-    ? (await createCustomer({ tx, organizationId, userId, audit: env.audit, publish: env.publish }, req.newCustomer)).id
+    ? (await createCustomer(env, req.newCustomer)).id
     : (await findCustomer(tx, viewer, req.customerId!)).id;
   if (toCustomerId === acct.customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "That customer already holds the account" });
 

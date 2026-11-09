@@ -8,7 +8,7 @@ import { evaluateGates, gateList, hasPaymentGate, type ActivationConfig, type Ga
 import { findAccount, type AccountRow } from "./service";
 import { activationSetting } from "./settings";
 import { gatherFacts } from "./sources";
-import type { CommandEnv } from "./commands";
+import type { UserActionEnv } from "../../kernel/action-env";
 
 /*
  * Activation's reads and the office checklist (C-06). The decision itself is the pure
@@ -85,7 +85,7 @@ export async function activationStatus(tx: Transaction, organizationId: string, 
  * module decides for this account can be ticked by hand.
  */
 export async function setCheck(
-  env: CommandEnv,
+  env: UserActionEnv,
   viewer: Viewer,
   input: { accountId: string; gateKey: string; action: "tick" | "untick"; note?: string | undefined },
 ) {
@@ -114,7 +114,7 @@ export async function setCheck(
       accountId: row.id,
       gateKey: input.gateKey,
       action: input.action,
-      byUserId: env.actor.userId!,
+      byUserId: env.actor.userId,
       note: input.note ?? null,
     });
     await env.audit({

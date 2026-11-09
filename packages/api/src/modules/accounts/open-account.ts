@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { readSetting } from "../../kernel/config-store";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import type { Viewer } from "./access";
-import type { CustomerEnv } from "./customers";
+import type { UserActionEnv } from "../../kernel/action-env";
 import { accountOpened } from "./events";
 import { insertHolder, localToday } from "./holders";
 import { assertMembershipClass } from "./memberships";
@@ -37,7 +37,7 @@ export interface OpenAccount {
  * number plus the next letter ("1008B"); `"own"` takes a number of its own ("1009") and only
  * records the link. Used by `accounts.create`, converting an application and succession.
  */
-export async function openAccount(env: CustomerEnv, viewer: Viewer, input: OpenAccount): Promise<AccountRow> {
+export async function openAccount(env: UserActionEnv, viewer: Viewer, input: OpenAccount): Promise<AccountRow> {
   const { tx, organizationId } = env;
   await findCustomer(tx, viewer, input.customerId);
   const parent = input.parentAccountId ? await findAccount(tx, viewer, { id: input.parentAccountId }) : null;
@@ -67,7 +67,7 @@ export async function openAccount(env: CustomerEnv, viewer: Viewer, input: OpenA
       commercialStatus: state.commercialStatus,
       serviceStatus: state.serviceStatus,
       serviceStatusReason: state.serviceStatusReason,
-      createdByUserId: env.userId,
+      createdByUserId: env.actor.userId,
     })
     .returning()
     .catch((error: unknown) => {
@@ -79,7 +79,7 @@ export async function openAccount(env: CustomerEnv, viewer: Viewer, input: OpenA
     accountId: row!.id,
     customerId: row!.customerId,
     validFrom: await localToday(tx, row!.openedAt),
-    userId: env.userId,
+    userId: env.actor.userId,
     commandId: input.commandId ?? null,
     reason: input.predecessorAccountId ? "Holder of the successor account" : "Account opened",
   });
@@ -105,7 +105,7 @@ export async function openAccount(env: CustomerEnv, viewer: Viewer, input: OpenA
     parentAccountId: row!.parentAccountId,
     categoryId: row!.categoryId,
     openedAt: row!.openedAt.toISOString(),
-    openedByUserId: env.userId,
+    openedByUserId: env.actor.userId,
   });
   return row!;
 }

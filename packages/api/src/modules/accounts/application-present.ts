@@ -1,11 +1,9 @@
 import type { LatLng, Transaction } from "@flowless/db";
 import { application, applicationEvent, customer } from "@flowless/db/schema/accounts";
-import { TRPCError } from "@trpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { readSetting } from "../../kernel/config-store";
 import { applicationVisible, type Placement, type Viewer } from "./access";
 import type { ApplicationConfig } from "./application-stages";
-import type { CommandEnv } from "./commands";
 import { notFound } from "../../kernel/errors";
 import { applicationSetting } from "./settings";
 
@@ -103,12 +101,6 @@ export async function customerName(tx: Transaction, id: string): Promise<string 
 /** The application with its customer's name, for the caller. */
 export async function presentApplication(tx: Transaction, row: ApplicationRow): Promise<ApplicationDto> {
   return toApplicationDto(row, await customerName(tx, row.customerId));
-}
-
-/** Who does the work: a person for the things that need one (creating customers and accounts). */
-export function userOf(env: CommandEnv): string {
-  if (!env.actor.userId) throw new TRPCError({ code: "FORBIDDEN", message: "This step needs a person" });
-  return env.actor.userId;
 }
 
 export const placeOf = (a: Pick<ApplicationRow, "schemeId" | "zoneId" | "dmaId" | "routeId">): Placement => ({

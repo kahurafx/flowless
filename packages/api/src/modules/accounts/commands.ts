@@ -1,4 +1,4 @@
-import { enqueueEvent, recordAudit, type AuditSource, type Transaction } from "@flowless/db";
+import type { Transaction } from "@flowless/db";
 import { account, accountCommand } from "@flowless/db/schema/accounts";
 import type { AccountCommandKind } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
@@ -7,8 +7,7 @@ import { createHash } from "node:crypto";
 import { approvalOutcome } from "../../kernel/approval-store";
 import { readSetting } from "../../kernel/config-store";
 import { loadEntitlements } from "../../kernel/entitlement-store";
-import type { EventDef } from "../../kernel/events";
-import type { AuditNote } from "../../trpc";
+import { systemEnv, type ActionEnv } from "../../kernel/action-env";
 import type { Viewer } from "./access";
 import { gateReport } from "./activation";
 import { accountActivated, accountStatusChanged, accountTerminated, serviceStatusChanged } from "./events";
@@ -27,49 +26,6 @@ import { settleTermination } from "./termination";
  * append-only command log, applied to the account, audited and published, all in the
  * caller's transaction; the database trigger refuses a status change that skips the log.
  */
-
-/** What a command needs from its caller; `procedureEnv` and `systemEnv` build it. */
-export interface CommandEnv {
-  tx: Transaction;
-  organizationId: string;
-  /** Null for the system (automatic activation, an approval's outcome). */
-  actor: { userId: string | null };
-  source: AuditSource;
-  audit(note: AuditNote): Promise<void>;
-  publish<T>(event: EventDef<T>, payload: T): Promise<unknown>;
-}
-
-/** The env for a procedure's context. */
-export function procedureEnv(ctx: {
-  tx: Transaction;
-  organizationId: string;
-  session: { user: { id: string } };
-  source?: AuditSource | undefined;
-  audit(note: AuditNote): Promise<void>;
-  publish<T>(event: EventDef<T>, payload: T): Promise<unknown>;
-}): CommandEnv {
-  return {
-    tx: ctx.tx,
-    organizationId: ctx.organizationId,
-    actor: { userId: ctx.session.user.id },
-    source: ctx.source ?? "api",
-    audit: (note) => ctx.audit(note),
-    publish: (event, payload) => ctx.publish(event, payload),
-  };
-}
-
-/** The env for work the system does on its own, inside a tenant transaction. */
-export function systemEnv(tx: Transaction, organizationId: string): CommandEnv {
-  return {
-    tx,
-    organizationId,
-    actor: { userId: null },
-    source: "system",
-    audit: (note) => recordAudit(tx, { ...note, organizationId, source: "system", actorUserId: null, actorLabel: "System" }),
-    publish: (event, payload) =>
-      enqueueEvent(tx, { organizationId, type: event.type, version: event.version, payload: event.schema.parse(payload) }),
-  };
-}
 
 export type CommandRow = typeof accountCommand.$inferSelect;
 
@@ -165,7 +121,7 @@ export async function lockAccount(tx: Transaction, viewer: Viewer | null, accoun
  * Repeating a command id with the same request returns the earlier result; with a
  * different request, account or person it is CONFLICT.
  */
-export async function runCommand(env: CommandEnv, viewer: Viewer | null, req: CommandRequest): Promise<CommandResult> {
+export async function runCommand(env: ActionEnv, viewer: Viewer | null, req: CommandRequest): Promise<CommandResult> {
   const row = await lockAccount(env.tx, viewer, req.accountId);
   const fingerprint = fingerprintOf(req);
   return commandLog.once(
@@ -180,7 +136,7 @@ export async function runCommand(env: CommandEnv, viewer: Viewer | null, req: Co
 }
 
 /** Plans and applies one command on the locked account: the effect `runCommand` runs once per id. */
-async function applyCommand(env: CommandEnv, row: AccountRow, req: CommandRequest, fingerprint: string) {
+async function applyCommand(env: ActionEnv, row: AccountRow, req: CommandRequest, fingerprint: string) {
   const { tx, organizationId } = env;
   const config = (await readSetting(tx, activationSetting)).value;
   const override = req.kind === "activate" && req.override === true;
@@ -275,7 +231,7 @@ async function applyCommand(env: CommandEnv, row: AccountRow, req: CommandReques
 }
 
 async function publishFor(
-  env: CommandEnv,
+  env: ActionEnv,
   before: AccountRow,
   after: AccountRow,
   command: CommandRow,

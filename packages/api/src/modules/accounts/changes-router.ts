@@ -6,7 +6,7 @@ import { z } from "zod";
 import { router } from "../../trpc";
 import { relocationVisible } from "./access";
 import { changeName } from "./change-name";
-import { procedureEnv } from "./commands";
+import { procedureEnv } from "../../kernel/action-env";
 import { NewCustomerInput } from "./customers";
 import { holderAt, holdersOf } from "./holders";
 import type { AccountsProcedures } from "./procedures";

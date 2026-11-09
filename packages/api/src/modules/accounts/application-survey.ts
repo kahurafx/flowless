@@ -7,7 +7,8 @@ import type { Viewer } from "./access";
 import { canRecordSurvey, planAdvance } from "./application-stages";
 import { configOf, customerName, findApplication, presentApplication, type ApplicationDto, type ApplicationRow } from "./application-present";
 import { applicationLog, logStep, moveStage } from "./application-steps";
-import { fingerprintOfRequest, type CommandEnv } from "./commands";
+import type { ActionEnv } from "../../kernel/action-env";
+import { fingerprintOfRequest } from "./commands";
 import { surveyApproval } from "./survey-approval";
 
 /*
@@ -28,7 +29,7 @@ export interface SurveyResult {
 export type AskApproval = (input: Omit<RequestApproval, "requestedByUserId">) => Promise<{ id: string; status: "pending" | "approved" | "rejected" | "cancelled" }>;
 
 /** For the system recording a survey (a completed job): asks as `requesterUserId`, audited. */
-export function askAs(env: CommandEnv, requesterUserId: string): AskApproval {
+export function askAs(env: ActionEnv, requesterUserId: string): AskApproval {
   return async (input) => {
     const request = await requestKernelApproval(env.tx, env.organizationId, surveyApproval, { ...input, requestedByUserId: requesterUserId });
     await env.audit({
@@ -63,7 +64,7 @@ interface SurveyOutcome {
  * that is not feasible is recorded and asks for nothing: the office rejects the application
  * or records a new survey. Only an enquiry takes a survey, and not while one is awaiting approval.
  */
-export async function recordSurvey(env: CommandEnv, viewer: Viewer | null, req: SurveyRequest) {
+export async function recordSurvey(env: ActionEnv, viewer: Viewer | null, req: SurveyRequest) {
   const before = await findApplication(env.tx, viewer, req.applicationId, true);
   const fingerprint = fingerprintOfRequest({ kind: "survey_recorded", applicationId: req.applicationId, ...req.result, source: req.source, workOrderId: req.workOrderId });
   return applicationLog.once<SurveyOutcome>(
@@ -80,7 +81,7 @@ export async function recordSurvey(env: CommandEnv, viewer: Viewer | null, req: 
   );
 }
 
-async function applySurvey(env: CommandEnv, before: ApplicationRow, req: SurveyRequest, fingerprint: string): Promise<SurveyOutcome> {
+async function applySurvey(env: ActionEnv, before: ApplicationRow, req: SurveyRequest, fingerprint: string): Promise<SurveyOutcome> {
   const { tx } = env;
   const config = await configOf(tx);
   const allowed = canRecordSurvey(before.stage, before.surveyApprovalState, config);
@@ -157,7 +158,7 @@ async function applySurvey(env: CommandEnv, before: ApplicationRow, req: SurveyR
  * is not the application's current one (a survey recorded again since) is ignored; the
  * pending check makes a second delivery do nothing.
  */
-export async function applySurveyDecision(env: CommandEnv, decided: ApprovalDecided): Promise<void> {
+export async function applySurveyDecision(env: ActionEnv, decided: ApprovalDecided): Promise<void> {
   const { tx } = env;
   const [found] = await tx.select({ id: application.id }).from(application).where(eq(application.id, decided.subjectRef));
   if (!found) return;

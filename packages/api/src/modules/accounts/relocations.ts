@@ -9,7 +9,8 @@ import { tidy } from "../../kernel/text";
 import { chargeItemByCode } from "../tariffs";
 import type { Placement, Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
-import { commandLog, fingerprintOfRequest, toCommandDto, type CommandEnv } from "./commands";
+import type { ActionEnv, UserActionEnv } from "../../kernel/action-env";
+import { commandLog, fingerprintOfRequest, toCommandDto } from "./commands";
 import { servicePointRelocated, type JobCompleted } from "./events";
 import { localToday } from "./holders";
 import { claimingId } from "./idempotent";
@@ -46,16 +47,16 @@ export interface NewRelocation {
   feeItemCodes?: string[] | undefined;
 }
 
-export function requestRelocation(env: CommandEnv, viewer: Viewer, input: NewRelocation): Promise<{ relocation: RelocationDto; replayed: boolean }> {
+export function requestRelocation(env: UserActionEnv, viewer: Viewer, input: NewRelocation): Promise<{ relocation: RelocationDto; replayed: boolean }> {
   return relocationCreation.once(env, input.id, undefined, {
     replay: (existing) => ({ relocation: toRelocationDto(existing) }),
     run: () => applyRequest(env, viewer, input),
   });
 }
 
-async function applyRequest(env: CommandEnv, viewer: Viewer, input: NewRelocation) {
+async function applyRequest(env: UserActionEnv, viewer: Viewer, input: NewRelocation) {
   const { tx, organizationId } = env;
-  const userId = env.actor.userId!;
+  const userId = env.actor.userId;
   const acct = await findAccount(tx, viewer, { id: input.accountId }, true);
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   const from = await findServicePoint(tx, viewer, input.fromServicePointId);
@@ -110,7 +111,7 @@ async function applyRequest(env: CommandEnv, viewer: Viewer, input: NewRelocatio
 /* ---------- survey and work ---------- */
 
 export function recordRelocationSurvey(
-  env: CommandEnv,
+  env: ActionEnv,
   viewer: Viewer,
   req: { id?: string | undefined; relocationId: string; feasibility: SurveyFeasibility; findings: string },
 ) {
@@ -152,7 +153,7 @@ const typedOr = <T>(typed: string | undefined, kept: T) => typed?.trim() || kept
 
 /** Records the readings and the job on an open relocation without changing its status: from the office, or from a completed `relocation` job. */
 export function recordRelocationWork(
-  env: CommandEnv,
+  env: ActionEnv,
   viewer: Viewer | null,
   req: { id?: string | undefined; relocationId: string; finalReading?: string | undefined; initialReading?: string | undefined; workOrderId?: string | undefined },
 ) {
@@ -196,7 +197,7 @@ export function recordRelocationWork(
  * readings. A job that is not about an open relocation of this organization is ignored; the
  * job id makes a second delivery do nothing.
  */
-export async function applyRelocationJob(env: CommandEnv, job: JobCompleted): Promise<void> {
+export async function applyRelocationJob(env: ActionEnv, job: JobCompleted): Promise<void> {
   if (job.assetModule !== "accounts" || !job.assetId) return;
   const [row] = await env.tx.select().from(relocation).where(eq(relocation.id, job.assetId));
   if (!row || !isOpen(row.status) || row.workOrderId === job.workOrderId) return;
@@ -212,7 +213,7 @@ export async function applyRelocationJob(env: CommandEnv, job: JobCompleted): Pr
 /* ---------- complete and cancel ---------- */
 
 export async function completeRelocation(
-  env: CommandEnv,
+  env: UserActionEnv,
   viewer: Viewer,
   req: { id?: string | undefined; relocationId: string; reason?: string | undefined; finalReading?: string | undefined; initialReading?: string | undefined },
 ) {
@@ -233,15 +234,15 @@ export async function completeRelocation(
 }
 
 async function applyCompletion(
-  env: CommandEnv,
+  env: UserActionEnv,
   viewer: Viewer,
   before: RelocationRow,
   acct: AccountRow,
   req: { id?: string | undefined; reason?: string | undefined; finalReading?: string | undefined; initialReading?: string | undefined },
   fingerprint: string,
 ) {
-  const { tx, organizationId } = env;
-  const userId = env.actor.userId!;
+  const { tx } = env;
+  const userId = env.actor.userId;
   if (!isOpen(before.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${before.status}` });
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   const config = (await readSetting(tx, applicationSetting)).value;
@@ -256,8 +257,7 @@ async function applyCompletion(
   const reason = typedOr(req.reason, before.reason);
 
   // The new service point, with the zone, DMA and route of the new place; it takes over the old one's connection state.
-  const userEnv = { tx, organizationId, userId, audit: env.audit, publish: env.publish };
-  const fresh = await createServicePoint(userEnv, viewer, {
+  const fresh = await createServicePoint(env, viewer, {
     accountId: acct.id,
     address: before.toAddress,
     location: before.toLocation as LatLng | null,
@@ -319,7 +319,7 @@ async function applyCompletion(
   return { relocation: toRelocationDto(done!), servicePoint: fresh, command: toCommandDto(command) };
 }
 
-export function cancelRelocation(env: CommandEnv, viewer: Viewer, req: { id?: string | undefined; relocationId: string; reason: string }) {
+export function cancelRelocation(env: ActionEnv, viewer: Viewer, req: { id?: string | undefined; relocationId: string; reason: string }) {
   const fingerprint = fingerprintOfRequest({ kind: "cancelled", ...req });
   return openRelocationStep(env, viewer, req, {
     kind: "cancelled",

@@ -5,9 +5,9 @@ import { eq } from "drizzle-orm";
 import { loadEntitlements } from "../../kernel/entitlement-store";
 import { categoryExists } from "../tariffs";
 import type { Placement, Viewer } from "./access";
-import { presentApplication, userOf, type ApplicationResult } from "./application-present";
+import { presentApplication, type ApplicationResult } from "./application-present";
 import { logStep, publishStageChanged } from "./application-steps";
-import type { CommandEnv } from "./commands";
+import type { UserActionEnv } from "../../kernel/action-env";
 import { createCustomer, type NewCustomer } from "./customers";
 import { claimingId, createdStep } from "./idempotent";
 import { assertMembershipClass } from "./memberships";
@@ -45,16 +45,16 @@ const applicationCreation = createdStep<typeof application.$inferSelect>({
 });
 
 /** Logs an enquiry (C-05): the application starts at `enquiry`. */
-export function createApplication(env: CommandEnv, viewer: Viewer, input: NewApplication): Promise<ApplicationResult> {
-  const userId = userOf(env);
+export function createApplication(env: UserActionEnv, viewer: Viewer, input: NewApplication): Promise<ApplicationResult> {
   return applicationCreation.once(env, input.id, undefined, {
     replay: async (existing) => ({ application: await presentApplication(env.tx, existing) }),
-    run: () => applyCreation(env, viewer, userId, input),
+    run: () => applyCreation(env, viewer, input),
   });
 }
 
-async function applyCreation(env: CommandEnv, viewer: Viewer, userId: string, input: NewApplication) {
+async function applyCreation(env: UserActionEnv, viewer: Viewer, input: NewApplication) {
   const { tx, organizationId } = env;
+  const userId = env.actor.userId;
   if ((input.customerId === undefined) === (input.newCustomer === undefined)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Name the customer: an existing one or new customer details" });
   }
@@ -74,7 +74,7 @@ async function applyCreation(env: CommandEnv, viewer: Viewer, userId: string, in
 
   const customerId = input.customerId
     ? (await findCustomer(tx, viewer, input.customerId)).id
-    : (await createCustomer({ tx, organizationId, userId, audit: env.audit, publish: env.publish }, input.newCustomer!)).id;
+    : (await createCustomer(env, input.newCustomer!)).id;
 
   const [row] = await claimingId(() =>
     tx

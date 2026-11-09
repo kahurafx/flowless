@@ -3,6 +3,7 @@ import { COMMERCIAL_STATUSES, SERVICE_STATES, parsePhone } from "@flowless/share
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { procedureEnv } from "../../kernel/action-env";
 import { descendantsOf } from "../../kernel/scope";
 import { accountVisible, servicePointInScope } from "./access";
 import { openAccount } from "./open-account";
@@ -46,7 +47,7 @@ export function accountProcedureSet(p: AccountsProcedures) {
           membershipClass: z.string().trim().min(1).max(30).optional(),
         }),
       )
-      .mutation(async ({ ctx, input }) => presentAccount(ctx.tx, await openAccount({ ...ctx, userId: ctx.viewer.userId }, ctx.viewer, input))),
+      .mutation(async ({ ctx, input }) => presentAccount(ctx.tx, await openAccount(procedureEnv(ctx), ctx.viewer, input))),
 
     /** An account with its customer's contact details, parent, children and service points, by id or number. */
     get: p.read
