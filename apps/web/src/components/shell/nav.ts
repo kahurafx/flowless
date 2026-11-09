@@ -1,5 +1,8 @@
 import type { Entitlements, ModuleKey, Permission } from "@flowless/shared-types";
 import {
+  BadgeCheckIcon,
+  ContactRoundIcon,
+  FilePlus2Icon,
   ClipboardCheckIcon,
   ClipboardListIcon,
   GitMergeIcon,
@@ -37,7 +40,12 @@ const WORK_PERMISSIONS = ["work_orders:read", "work_orders:execute", "work_order
 const NAV: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: HomeIcon },
   { href: "/exceptions", label: "Exceptions", icon: InboxIcon, permission: "exceptions:read" },
+  // Approvals is a kernel screen (K-05): any member may open it, and sees only requests they are involved in.
+  { href: "/approvals", label: "Approvals", icon: BadgeCheckIcon },
+  // The Accounts group (C-01 to C-12), kept together.
   { href: "/accounts", label: "Accounts", icon: UsersIcon, module: "accounts", permission: "accounts:read" },
+  { href: "/accounts/customers", label: "Customers", icon: ContactRoundIcon, module: "accounts", permission: "accounts:read" },
+  { href: "/accounts/applications", label: "Applications", icon: FilePlus2Icon, module: "accounts", permission: "accounts:read" },
   // Work Orders shows at level basic or full: the Work Orders module or GIS (W-01).
   { href: "/work-orders", label: "Work orders", icon: ClipboardListIcon, anyModule: ["work-orders", "gis"], anyPermission: WORK_PERMISSIONS },
   { href: "/work-orders/reviews", label: "Job reviews", icon: ClipboardCheckIcon, anyModule: ["work-orders", "gis"], permission: "work_orders:review" },

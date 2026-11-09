@@ -23,22 +23,24 @@ interface Props {
   areas: { id: string; name: string; level: string }[];
   crews: { id: string; name: string }[];
   assets: (AssetChoice & { at: { lat: number; lng: number } | null })[];
+  /** A job raised from elsewhere (an application's survey): the kind, its subject and what to fill in. */
+  initial?: { kind: string; assetId: string; title: string; description: string; lat: string; lng: string; locationNote: string } | null;
 }
 
-export function NewJobForm({ kinds, people, assignAnyone, self, areas, crews, assets }: Props) {
+export function NewJobForm({ kinds, people, assignAnyone, self, areas, crews, assets, initial = null }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   // The id is minted once, so a retried submit cannot raise the job twice.
   const [id] = useState(() => crypto.randomUUID());
-  const [kindKey, setKindKey] = useState(kinds[0]?.key ?? "");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [kindKey, setKindKey] = useState(initial?.kind ?? kinds[0]?.key ?? "");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
   const [priority, setPriority] = useState<WorkPriority | "">("");
-  const [assetIds, setAssetIds] = useState<string[]>([]);
+  const [assetIds, setAssetIds] = useState<string[]>(initial ? [initial.assetId] : []);
   const [areaId, setAreaId] = useState("");
-  const [lat, setLat] = useState("");
-  const [lng, setLng] = useState("");
-  const [locationNote, setLocationNote] = useState("");
+  const [lat, setLat] = useState(initial?.lat ?? "");
+  const [lng, setLng] = useState(initial?.lng ?? "");
+  const [locationNote, setLocationNote] = useState(initial?.locationNote ?? "");
   const [assigneeId, setAssigneeId] = useState(assignAnyone ? "" : self.id);
   const [crewId, setCrewId] = useState("");
   const [dueAt, setDueAt] = useState("");

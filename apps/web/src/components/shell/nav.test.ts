@@ -32,6 +32,25 @@ describe("navigation for Work Orders and GIS (W-01, K-04)", () => {
     expect(hrefs(["work-orders"], ["gis:read", "gis:post"])).not.toContain("/map");
   });
 
+  it("shows the Accounts group only with the module and accounts:read", () => {
+    const group = ["/accounts", "/accounts/customers", "/accounts/applications"];
+    expect(hrefs(["accounts"], ["accounts:read"])).toEqual(expect.arrayContaining(group));
+    expect(hrefs(["accounts"], ["exceptions:read"])).not.toContain("/accounts");
+    for (const href of group) expect(hrefs(["work-orders"], ["accounts:read"])).not.toContain(href);
+  });
+
+  it("shows Approvals to every member, whatever is licensed", () => {
+    expect(hrefs([], [])).toContain("/approvals");
+  });
+
+  it("marks the Accounts group's most specific item as current", () => {
+    const items = navFor(["accounts"], ["accounts:read"]);
+    expect(currentHref("/accounts/1008-4", items)).toBe("/accounts");
+    expect(currentHref("/accounts/new", items)).toBe("/accounts");
+    expect(currentHref("/accounts/customers/abc", items)).toBe("/accounts/customers");
+    expect(currentHref("/accounts/applications/abc", items)).toBe("/accounts/applications");
+  });
+
   it("marks only the most specific item as current", () => {
     const items = navFor(["work-orders", "gis"], ["work_orders:review", "gis:read", "gis:post"]);
     expect(currentHref("/work-orders/reviews", items)).toBe("/work-orders/reviews");

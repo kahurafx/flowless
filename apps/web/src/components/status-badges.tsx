@@ -1,5 +1,6 @@
-import type { AgeBucket, CommercialStatus, ExceptionType, ServiceStatus } from "@flowless/shared-types";
+import type { AgeBucket, ApplicationStage, CommercialStatus, ExceptionType, ServiceStatus } from "@flowless/shared-types";
 import { Badge } from "@/components/ui/badge";
+import { applicationStageLabel } from "@/lib/account-labels";
 
 type Tone = "success" | "warning" | "info" | "destructive" | "secondary" | "outline";
 
@@ -26,6 +27,24 @@ export function ServiceStatusBadge({ service }: { service: ServiceStatus }) {
       Disconnected
     </Badge>
   );
+}
+
+const stageTone: Record<ApplicationStage, Tone> = {
+  enquiry: "secondary",
+  survey: "info",
+  application: "info",
+  invoice: "warning",
+  payment: "warning",
+  installation: "info",
+  ready: "success",
+  converted: "success",
+  rejected: "destructive",
+  cancelled: "outline",
+};
+
+/** Where an application for a new connection stands (C-05). */
+export function ApplicationStageBadge({ stage }: { stage: ApplicationStage }) {
+  return <Badge variant={stageTone[stage]}>{applicationStageLabel[stage]}</Badge>;
 }
 
 const age: Record<AgeBucket, Tone> = { fresh: "success", ageing: "warning", overdue: "destructive" };

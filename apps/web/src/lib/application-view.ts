@@ -101,7 +101,7 @@ export function offersFor(app: ApplicationView, active: readonly ApplicationStag
 }
 
 /** The stage an ended application had reached, from its step log (the last move into rejected or cancelled). */
-export function stageBeforeEnd(events: readonly { toStage: ApplicationStage; fromStage: ApplicationStage; kind: string }[]): ApplicationStage | null {
+export function stageBeforeEnd(events: readonly { toStage: ApplicationStage; fromStage: ApplicationStage | null; kind: string }[]): ApplicationStage | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]!;
     if (e.kind === "stage_changed" && (e.toStage === "rejected" || e.toStage === "cancelled")) return e.fromStage;
