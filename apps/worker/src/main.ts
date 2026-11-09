@@ -1,7 +1,7 @@
 // The background process (K-09, NF-12, NF-24): delivers outbox events to their consumers
 // and runs queued jobs until stopped. Runs as the app database role; every consumer and
 // job works inside its organization (RLS). Failures end up in the exception queue, and so
-// do approvals past their SLA (K-05) and work orders past their due time (W-02), checked
+// do approvals past their SLA (K-05), work orders past their due time (W-02) and accounts stuck in NEW or PENDING_PAYMENT (C-06), checked
 // once a minute.
 import { consumers, dispatchOutbox, escalateApprovals, jobs, runJobs, sweepOverdueWorkOrders, sweepStaleAccounts } from "@flowless/api";
 import { createDatabase } from "@flowless/db";
