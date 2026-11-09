@@ -57,6 +57,13 @@ interface AccountsCanary {
   /** A status command on B's account, the checklist tick beside it, and a write-off request (Phase 3 F3a). */
   command: string;
   writeOff: string;
+  /** An application with a survey awaiting approval, a relocation under way, and a succession (Phase 3 F3b). */
+  application: string;
+  surveyApproval: string;
+  relocation: string;
+  predecessor: string;
+  successor: string;
+  succeedCommand: string;
 }
 
 interface GisCanary {
@@ -243,7 +250,31 @@ async function seedAccounts(
   await asB.accounts.markPendingPayment({ id: command, accountId: account.id, reason: `${MARK} invoice issued`, note: `${MARK} note` });
   await asB.accounts.activation.tick({ accountId: account.id, gateKey: "payment_threshold", note: `${MARK} receipt` });
   const writeOff = await asB.accounts.requestWriteOff({ accountId: child.id, amount: 55_000n, reasonCode: "OTHER", note: `${MARK} write-off` });
+  // Applications, relocation and succession (F3b): an application with a survey waiting for approval, a relocation under way, and an account succeeded.
+  const place = { schemeId: at.schemeId, zoneId: at.zoneId, dmaId: at.dmaId, routeId: at.routeId };
+  const applied = await asB.accounts.applications.create({
+    newCustomer: { type: "person", name: `${MARK} applicant`, contacts: [{ channel: "phone", value: "0711 000 999" }] },
+    address: `${MARK} application plot`,
+    location: { lat: -6.79, lng: 39.21 },
+    ...place,
+  });
+  const survey = await asB.accounts.applications.recordSurvey({ applicationId: applied.application.id, feasibility: "feasible", findings: `${MARK} findings` });
+  const moving = await asB.accounts.relocations.request({
+    accountId: account.id,
+    fromServicePointId: servicePoint.id,
+    to: { address: `${MARK} new plot`, ...place },
+    reason: `${MARK} relocation`,
+  });
+  const older = await asB.accounts.create({ customerId: customer.id });
+  await asB.accounts.activate({ accountId: older.id, reason: `${MARK} activated`, override: true });
+  const succeeded = await asB.accounts.succeed({ id: randomUUID(), accountId: older.id, basis: "relocation_new_number", reason: `${MARK} succession` });
   return {
+    application: applied.application.id,
+    surveyApproval: survey.approval!.id,
+    relocation: moving.relocation.id,
+    predecessor: older.id,
+    successor: succeeded.successor.id,
+    succeedCommand: succeeded.command.id,
     customer: customer.id,
     contact: customer.contacts[0]!.id,
     account: account.id,
@@ -612,6 +643,54 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "accounts.activation.tick": (b) => [{ accountId: b.accounts.account, gateKey: "payment_threshold", note: "A tries" }],
   "accounts.activation.untick": (b) => [{ accountId: b.accounts.account, gateKey: "payment_threshold" }],
   "accounts.activation.activate": (b) => [{ accountId: b.accounts.account, reason: "A tries", override: true }],
+  // Applications, memberships, succession, relocation and change of name (Phase 3 F3b): aimed at B's ids.
+  "accounts.applications.create": (b) => [
+    { customerId: b.accounts.customer, address: "A at B's", schemeId: b.scheme, routeId: b.route },
+    { id: b.accounts.application, newCustomer: { type: "person", name: "A applicant", contacts: [] }, address: "A replays B's id" },
+    { newCustomer: { type: "person", name: "A applicant", contacts: [] }, address: "A at B's parent", parentAccountId: b.accounts.account, membershipClass: "member" },
+  ],
+  "accounts.applications.get": (b) => [{ id: b.accounts.application }],
+  "accounts.applications.list": (b) => [undefined, { customerId: b.accounts.customer }, { after: b.accounts.application }, { stage: "enquiry" }],
+  "accounts.applications.stages": () => [undefined],
+  "accounts.applications.recordSurvey": (b) => [
+    { applicationId: b.accounts.application, feasibility: "feasible", findings: "A tries" },
+    { id: b.accounts.surveyApproval, applicationId: b.accounts.application, feasibility: "not_feasible", findings: "A replays" },
+  ],
+  "accounts.applications.submitApplication": (b) => [{ applicationId: b.accounts.application }],
+  "accounts.applications.markInvoiced": (b) => [{ applicationId: b.accounts.application, invoiceRef: "A tries" }],
+  "accounts.applications.markPaid": (b) => [{ applicationId: b.accounts.application, paymentRef: "A tries" }],
+  "accounts.applications.startInstallation": (b) => [{ applicationId: b.accounts.application }],
+  "accounts.applications.markReady": (b) => [{ applicationId: b.accounts.application }],
+  "accounts.applications.convert": (b) => [{ applicationId: b.accounts.application }],
+  "accounts.applications.reject": (b) => [{ applicationId: b.accounts.application, reason: "A tries" }],
+  "accounts.applications.cancel": (b) => [{ applicationId: b.accounts.application, reason: "A tries" }],
+  "accounts.memberships.classes": () => [undefined],
+  "accounts.memberships.get": (b) => [{ accountId: b.accounts.child }],
+  "accounts.memberships.setClass": (b) => [
+    { accountId: b.accounts.child, membershipClass: "member" },
+    { accountId: b.accounts.child, membershipClass: null },
+  ],
+  "accounts.succeed": (b) => [
+    { accountId: b.accounts.account, basis: "relocation_new_number", reason: "A tries" },
+    { accountId: b.accounts.child, basis: "full_membership", customerId: b.accounts.customer, reason: "A tries" },
+    { id: b.accounts.succeedCommand, accountId: b.accounts.predecessor, basis: "relocation_new_number", reason: "A replays B's id" },
+  ],
+  "accounts.changeName": (b) => [
+    { accountId: b.accounts.account, customerId: b.accounts.customer, effectiveDate: "2025-01-01", reason: "A tries" },
+    { id: b.accounts.succeedCommand, accountId: b.accounts.successor, newCustomer: { type: "person", name: "A", contacts: [] }, effectiveDate: "2025-01-01", reason: "A replays B's id" },
+  ],
+  "accounts.holders.list": (b) => [{ accountId: b.accounts.account }, { accountId: b.accounts.successor }],
+  "accounts.holders.at": (b) => [{ accountId: b.accounts.account, date: "2025-01-01" }],
+  "accounts.relocations.request": (b) => [
+    { accountId: b.accounts.account, fromServicePointId: b.accounts.servicePoint, to: { address: "A at B's" }, reason: "A tries" },
+    { id: b.accounts.relocation, accountId: b.accounts.account, fromServicePointId: b.accounts.servicePoint, to: { address: "A replays", schemeId: b.scheme }, reason: "A tries", feeItemCodes: ["x"] },
+  ],
+  "accounts.relocations.recordSurvey": (b) => [{ relocationId: b.accounts.relocation, feasibility: "feasible", findings: "A tries" }],
+  "accounts.relocations.recordWork": (b) => [{ relocationId: b.accounts.relocation, finalReading: "1", initialReading: "2" }],
+  "accounts.relocations.complete": (b) => [{ relocationId: b.accounts.relocation, finalReading: "1" }],
+  "accounts.relocations.cancel": (b) => [{ relocationId: b.accounts.relocation, reason: "A tries" }],
+  "accounts.relocations.get": (b) => [{ id: b.accounts.relocation }],
+  "accounts.relocations.list": (b) => [undefined, { accountId: b.accounts.account }, { after: b.accounts.relocation }, { status: "requested" }],
   "tariffs.list": () => [undefined, { active: true }, { type: "increasing_block" }],
   "tariffs.get": (b) => [{ id: b.tariffs.tariff }],
   "tariffs.create": () => [
@@ -691,7 +770,7 @@ describe("isolation canary", () => {
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
     // Every gis, work_orders, accounts (including the command log and the checklist) and tariffs table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(40);
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(45);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {
@@ -730,6 +809,8 @@ describe("isolation canary", () => {
       "accounts.list",
       "accounts.customers.list",
       "accounts.servicePoints.list",
+      "accounts.applications.list",
+      "accounts.relocations.list",
       "tariffs.list",
       "tariffs.categories.list",
       "tariffs.chargeItems.list",
@@ -738,7 +819,7 @@ describe("isolation canary", () => {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
     expect(seen).toContain(MARK);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 
