@@ -100,6 +100,9 @@ try {
 
     // Licences are set by Flowless, never by the tenant, so there is no procedure for this.
     await setEntitlements(database.db, organizationId, plan.modules);
+    // Licensing publishes entitlements.changed, which is what gives Tariffs its default categories,
+    // charge items and invoice types (and GIS its attachment rules): settle it before the API is used.
+    await drainOutbox(database.db, consumers);
 
     const areas = new Map((await api.hierarchy.areas({ includeArchived: true })).map((a) => [a.code, a.id]));
     for (const a of plan.areas) {
