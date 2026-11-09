@@ -36,6 +36,13 @@ export { registerGateSource, type GateSource } from "./sources";
 export { recheckActivation } from "./commands";
 export { sweepStaleAccounts } from "./stale";
 
+// Data quality (C-12): the catalogue lives in shared-types; the setting, the reports, the Metering port and the exception sweep are here.
+export { dataQualitySetting } from "./settings";
+export { dataQualityConfigSchema, type DataQualityConfig } from "./data-quality-config";
+export { findingsReport as dataQualityFindingsReport, summaryReport as dataQualitySummaryReport } from "./data-quality-queries";
+export { sweepDataQuality, dataQualityKey } from "./data-quality-sweep";
+export { registerDataQualitySource, type DataQualitySource } from "./sources";
+
 // The state machine (C-03), pure: for UIs that show which commands apply.
 export { planCommand, STATUS_COMMANDS, type AccountState, type StatusCommand } from "./lifecycle";
 

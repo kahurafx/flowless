@@ -1,4 +1,5 @@
 import { defineSetting } from "../../kernel/config-store";
+import { dataQualityConfigSchema, type DataQualityConfig } from "./data-quality-config";
 import { applicationConfigSchema, type ApplicationConfig } from "./application-stages";
 import { activationConfigSchema, type ActivationConfig } from "./gates";
 import { membershipConfigSchema, type MembershipConfig } from "./membership";
@@ -74,4 +75,19 @@ export const membershipSetting = defineSetting<MembershipConfig>({
   description: "Classes a child account can belong to (key, label) and, for each, the code of the charge catalog item used as its connection fee.",
   schema: membershipConfigSchema,
   default: membershipConfigSchema.parse({}),
+});
+
+/**
+ * The data-quality rules (C-12): for each rule whether it runs, its severity (info, warning,
+ * critical) and whether the hourly sweep raises an exception per finding. All rules run, with
+ * their catalogue severity and no exceptions, until the organization says otherwise.
+ */
+export const dataQualitySetting = defineSetting<DataQualityConfig>({
+  key: "accounts.data_quality",
+  module: "accounts",
+  label: "Data quality rules",
+  description:
+    "For each data-quality rule (no phone, no service point, no coordinates, active metered account with no meter, zone and route confused, duplicate customers, no tariff category): whether it runs, its severity (info, warning or critical) and whether findings are raised in the exception queue.",
+  schema: dataQualityConfigSchema,
+  default: dataQualityConfigSchema.parse({}),
 });

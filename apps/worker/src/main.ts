@@ -2,8 +2,8 @@
 // and runs queued jobs until stopped. Runs as the app database role; every consumer and
 // job works inside its organization (RLS). Failures end up in the exception queue, and so
 // do approvals past their SLA (K-05), work orders past their due time (W-02) and accounts stuck in NEW or PENDING_PAYMENT (C-06), checked
-// once a minute.
-import { consumers, dispatchOutbox, escalateApprovals, jobs, runJobs, sweepOverdueWorkOrders, sweepStaleAccounts } from "@flowless/api";
+// once a minute; data-quality findings the organization chose to raise (C-12) are swept hourly.
+import { consumers, dispatchOutbox, escalateApprovals, jobs, runJobs, sweepDataQuality, sweepOverdueWorkOrders, sweepStaleAccounts } from "@flowless/api";
 import { createDatabase } from "@flowless/db";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -14,7 +14,9 @@ const BATCH = Number(process.env.WORKER_BATCH ?? 50);
 const JOB_BATCH = Number(process.env.WORKER_JOB_BATCH ?? 5);
 const IDLE_MS = Number(process.env.WORKER_IDLE_MS ?? 1000);
 const ESCALATE_EVERY_MS = 60_000;
+const DATA_QUALITY_EVERY_MS = Number(process.env.WORKER_DATA_QUALITY_EVERY_MS ?? 3_600_000);
 let lastEscalation = 0;
+let lastDataQuality = 0;
 
 const { db, close } = createDatabase(url, { max: 4 });
 const stop = new AbortController();
@@ -37,6 +39,11 @@ while (!stop.signal.aborted) {
       if (overdue) log({ msg: "work orders overdue", overdue });
       const stale = await sweepStaleAccounts(db);
       if (stale) log({ msg: "stale accounts raised", stale });
+    }
+    if (Date.now() - lastDataQuality >= DATA_QUALITY_EVERY_MS) {
+      lastDataQuality = Date.now();
+      const quality = await sweepDataQuality(db);
+      if (quality) log({ msg: "data-quality exceptions raised", quality });
     }
     // A full batch means more may be waiting: go again without pausing.
     if (events.claimed < BATCH && ran.claimed < JOB_BATCH) await sleep(IDLE_MS, undefined, { signal: stop.signal }).catch(() => {});

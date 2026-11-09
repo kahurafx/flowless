@@ -1,5 +1,5 @@
 import type { Transaction } from "@flowless/db";
-import type { ModuleKey } from "@flowless/shared-types";
+import type { DataQualityRuleKey, ModuleKey } from "@flowless/shared-types";
 import { loadEntitlements } from "../../kernel/entitlement-store";
 import type { GateFact } from "./gates";
 import type { Position } from "./termination";
@@ -150,4 +150,32 @@ export async function handOverReadings(
   if (!handler) return { state: "pending_metering", closingReadingRef: null };
   const result = await handler(tx, organizationId, request);
   return { state: "done", closingReadingRef: (result && result.closingReadingRef) || null };
+}
+
+/*
+ * Data-quality sources (C-12). A rule whose facts live in another module (`active_metered_no_meter`:
+ * Metering, Phase 5) asks that module through this port: the source returns the ids of the
+ * organization's accounts that break the rule, inside the caller's tenant transaction. With no
+ * source registered, or one of its `requires` modules unlicensed, the rule reports "no source"
+ * and is skipped, never failed.
+ */
+export type DataQualitySource = (tx: Transaction, organizationId: string) => Promise<readonly string[]>;
+
+const dataQualitySources = new Map<string, RegisteredPort<DataQualitySource>>();
+
+/** Registers the source of a data-quality rule; pass null to remove it (tests do). `requires`: modules that must be licensed (Metering registers with ["metering"]). */
+export function registerDataQualitySource(ruleKey: DataQualityRuleKey, source: DataQualitySource | null, options: { requires?: readonly ModuleKey[] } = {}): void {
+  if (source === null) dataQualitySources.delete(ruleKey);
+  else dataQualitySources.set(ruleKey, { handler: source, requires: options.requires ?? [] });
+}
+
+/** The account ids a rule's source reports, or null when there is no usable source ("no source"). */
+export async function dataQualitySourceIds(tx: Transaction, organizationId: string, ruleKey: DataQualityRuleKey): Promise<string[] | null> {
+  const handler = await usable(tx, dataQualitySources.get(ruleKey) ?? null);
+  return handler ? [...new Set(await handler(tx, organizationId))] : null;
+}
+
+/** Is a source registered for the rule and licensed for this organization (without asking it)? */
+export async function hasUsableDataQualitySource(tx: Transaction, ruleKey: DataQualityRuleKey): Promise<boolean> {
+  return (await usable(tx, dataQualitySources.get(ruleKey) ?? null)) !== null;
 }
