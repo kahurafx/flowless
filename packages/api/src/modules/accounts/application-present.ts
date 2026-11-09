@@ -6,7 +6,7 @@ import { readSetting } from "../../kernel/config-store";
 import { applicationVisible, type Placement, type Viewer } from "./access";
 import type { ApplicationConfig } from "./application-stages";
 import type { CommandEnv } from "./commands";
-import { notFound } from "./service";
+import { notFound } from "../../kernel/errors";
 import { applicationSetting } from "./settings";
 
 /*

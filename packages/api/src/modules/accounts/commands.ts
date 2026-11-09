@@ -15,7 +15,8 @@ import { accountActivated, accountStatusChanged, accountTerminated, serviceStatu
 import { hasPaymentGate } from "./gates";
 import { planCommand, type StatusCommand } from "./lifecycle";
 import { claimingId, loggedStep } from "./idempotent";
-import { findAccount, notFound, presentAccount, type AccountDto, type AccountRow } from "./service";
+import { notFound } from "../../kernel/errors";
+import { findAccount, presentAccount, type AccountDto, type AccountRow } from "./service";
 import { activationSetting } from "./settings";
 import { positionOf } from "./sources";
 import { settleTermination } from "./termination";

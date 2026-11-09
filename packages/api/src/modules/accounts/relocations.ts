@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { readSetting } from "../../kernel/config-store";
 import { loadEntitlements } from "../../kernel/entitlement-store";
+import { tidy } from "../../kernel/text";
 import { chargeItemByCode } from "../tariffs";
 import type { Placement, Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
@@ -82,7 +83,7 @@ async function applyRequest(env: CommandEnv, viewer: Viewer, input: NewRelocatio
           organizationId,
           accountId: acct.id,
           fromServicePointId: from.id,
-          toAddress: input.to.address.trim().replace(/\s+/g, " "),
+          toAddress: tidy(input.to.address),
           toLocation: input.to.location ?? null,
           toSchemeId: place.schemeId,
           toZoneId: place.zoneId,

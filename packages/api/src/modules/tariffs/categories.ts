@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import { isoDateSchema, versionInForce } from "./dating";
 import type { TariffsProcedures } from "./procedures";
+import { plain, tidy } from "../../kernel/text";
 import {
   assignmentsOf,
   chooseEffectiveDate,
@@ -12,8 +13,6 @@ import {
   findChargeItem,
   findTariff,
   organizationToday,
-  plain,
-  tidy,
   toAssignmentDto,
   toCategoryDto,
   type CategoryRow,

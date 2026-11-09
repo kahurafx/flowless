@@ -9,7 +9,8 @@ import { invoiceTypeChanged } from "./events";
 import { invoicePolicyProblems, overdueSchema, termsSchema, type OverduePolicy, type Terms } from "./invoice-policy";
 import { lateFee, lateFeeRuleSchema, type LateFeeRule } from "./late-fee";
 import type { TariffsProcedures } from "./procedures";
-import { findInvoiceType, lateFeeRuleOf, overdueOf, plain, presentInvoiceTypes, previewInvoiceNumber, termsOf, tidy, type InvoiceTypeDto, type InvoiceTypeRow, type WriteContext } from "./service";
+import { plain, tidy } from "../../kernel/text";
+import { findInvoiceType, lateFeeRuleOf, overdueOf, presentInvoiceTypes, previewInvoiceNumber, termsOf, type InvoiceTypeDto, type InvoiceTypeRow, type WriteContext } from "./service";
 
 const Name = z.string().trim().min(1).max(120);
 const Prefix = z.string().trim().regex(/^[A-Za-z0-9/_-]{0,12}$/, "Up to 12 letters, digits, dashes, slashes or underscores");

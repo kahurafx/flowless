@@ -8,13 +8,12 @@ import { CODE } from "./categories";
 import { isoDateSchema, versionInForce, versionSpans } from "./dating";
 import { chargeItemAmountChanged, chargeItemCreated } from "./events";
 import type { TariffsProcedures } from "./procedures";
+import { plain, tidy } from "../../kernel/text";
 import {
   amountsOf,
   chooseEffectiveDate,
   findChargeItem,
   organizationToday,
-  plain,
-  tidy,
   toAmountDto,
   toChargeItemDto,
   type ChargeItemRow,

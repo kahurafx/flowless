@@ -11,7 +11,9 @@ import type { CommandEnv } from "./commands";
 import { createCustomer, type NewCustomer } from "./customers";
 import { claimingId, createdStep } from "./idempotent";
 import { assertMembershipClass } from "./memberships";
-import { assertPlacementInScope, findAccount, findCustomer, notFound, validatePlacement } from "./service";
+import { notFound } from "../../kernel/errors";
+import { tidy } from "../../kernel/text";
+import { assertPlacementInScope, findAccount, findCustomer, validatePlacement } from "./service";
 
 /*
  * Logging an enquiry (C-05). The only step that creates the application row, so it replays
@@ -84,7 +86,7 @@ async function applyCreation(env: CommandEnv, viewer: Viewer, userId: string, in
         requestedCategoryId: input.requestedCategoryId ?? null,
         parentAccountId: parent?.id ?? null,
         membershipClass: input.membershipClass ?? null,
-        address: input.address.trim().replace(/\s+/g, " "),
+        address: tidy(input.address),
         location: input.location ?? null,
         ...place,
         notes: input.notes ?? null,

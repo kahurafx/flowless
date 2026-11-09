@@ -3,7 +3,7 @@ import { relocation, relocationEvent } from "@flowless/db/schema/accounts";
 import type { RelocationStatus } from "@flowless/shared-types";
 import { and, asc, eq } from "drizzle-orm";
 import { relocationVisible, type Placement, type Viewer } from "./access";
-import { notFound } from "./service";
+import { notFound } from "../../kernel/errors";
 
 /*
  * Reading a relocation (C-09): its row, its step log and the DTOs. Nothing here changes data;

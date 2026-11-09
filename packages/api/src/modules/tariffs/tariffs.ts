@@ -9,13 +9,12 @@ import { bandsFor, tariffContentSchema, toLineRows, validateTariffContent, type 
 import { isoDateSchema, nextPeriodStartIso, versionInForce } from "./dating";
 import { tariffVersionCreated } from "./events";
 import type { TariffsProcedures } from "./procedures";
+import { plain, tidy } from "../../kernel/text";
 import {
   chooseEffectiveDate,
   findTariff,
   organizationToday,
-  plain,
   tariffVersions,
-  tidy,
   toTariffDto,
   type TariffRow,
   type WriteContext,

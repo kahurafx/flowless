@@ -8,7 +8,8 @@ import { router } from "../../trpc";
 import { membershipClassChanged } from "./events";
 import { findClass } from "./membership";
 import type { AccountsProcedures } from "./procedures";
-import { findAccount, notFound } from "./service";
+import { notFound } from "../../kernel/errors";
+import { findAccount } from "./service";
 import { membershipSetting } from "./settings";
 
 /*

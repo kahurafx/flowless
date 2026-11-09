@@ -6,6 +6,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { areasById, routesById } from "../../kernel/areas";
 import { readSetting } from "../../kernel/config-store";
+import { notFound } from "../../kernel/errors";
 import { regionalSetting } from "../../kernel/regional";
 import { accountVisible, customerVisible, placementInScope, servicePointInScope, type Placement, type Viewer } from "./access";
 import { childAccountNumber, formatAccountNumber, suffixLetters, type NumberingFormat } from "./numbering";
@@ -20,12 +21,7 @@ export type ContactRow = typeof customerContact.$inferSelect;
 export type AccountRow = typeof account.$inferSelect;
 export type ServicePointRow = typeof servicePoint.$inferSelect;
 
-export const notFound = (what: string) => new TRPCError({ code: "NOT_FOUND", message: `${what} not found` });
-
 /* ---------- text and identifiers ---------- */
-
-/** A name or address as people type it: trimmed, inner runs of spaces collapsed. */
-export const tidy = (text: string) => text.trim().replace(/\s+/g, " ");
 
 /** National ids and registration numbers are compared without spaces, dots or dashes, in upper case. */
 export function normalizeIdNumber(raw: string | null | undefined): string | null {

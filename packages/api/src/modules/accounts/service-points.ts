@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { EventDef } from "../../kernel/events";
+import { tidy } from "../../kernel/text";
 import type { AuditNote } from "../../trpc";
 import { descendantsOf } from "../../kernel/scope";
 import { router } from "../../trpc";
@@ -64,7 +65,7 @@ export async function createServicePoint(env: ServicePointEnv, viewer: Viewer, i
     .values({
       organizationId: env.organizationId,
       accountId: input.accountId,
-      address: input.address.replace(/\s+/g, " "),
+      address: tidy(input.address),
       location: input.location ?? null,
       ...place,
       connectionStatus: input.connectionStatus ?? "PLANNED",
@@ -147,7 +148,7 @@ export function servicePointsRouter(p: AccountsProcedures) {
           assertPlacementInScope(ctx.viewer, place);
         }
         const next = {
-          address: patch.address !== undefined ? patch.address.replace(/\s+/g, " ") : before.address,
+          address: patch.address !== undefined ? tidy(patch.address) : before.address,
           location: patch.location !== undefined ? patch.location : before.location,
           ...place,
           connectionStatus: patch.connectionStatus ?? before.connectionStatus,

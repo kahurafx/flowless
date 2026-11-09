@@ -17,6 +17,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { AuditNote } from "../../trpc";
 import { readSetting } from "../../kernel/config-store";
+import { notFound } from "../../kernel/errors";
 import type { EventDef } from "../../kernel/events";
 import { regionalSetting } from "../../kernel/regional";
 import { closedThrough } from "./closed-period";
@@ -37,8 +38,6 @@ export type CategoryRow = typeof category.$inferSelect;
 export type ChargeItemRow = typeof chargeItem.$inferSelect;
 export type InvoiceTypeRow = typeof invoiceType.$inferSelect;
 
-export const notFound = (what: string) => new TRPCError({ code: "NOT_FOUND", message: `${what} not found` });
-
 /** What a write needs from the procedure context. The tRPC context satisfies it. */
 export interface WriteContext {
   tx: Transaction;
@@ -47,14 +46,6 @@ export interface WriteContext {
   audit(note: AuditNote): Promise<void>;
   publish<T>(event: EventDef<T>, payload: T): Promise<unknown>;
 }
-
-/** Audit and event payloads are JSON: money (bigint) becomes a decimal string, dates ISO strings. */
-export function plain<T>(value: T): unknown {
-  return JSON.parse(JSON.stringify(value, (_key, v: unknown) => (typeof v === "bigint" ? v.toString() : v)));
-}
-
-/** `%` and `_` typed by a person are not wildcards. */
-export const tidy = (text: string) => text.trim().replace(/\s+/g, " ");
 
 /* ---------- effective dates (T-03) ---------- */
 

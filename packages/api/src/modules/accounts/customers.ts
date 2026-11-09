@@ -10,6 +10,8 @@ import { router } from "../../trpc";
 import { accountVisible, customerVisible } from "./access";
 import { customerCreated } from "./events";
 import type { AccountsProcedures } from "./procedures";
+import { notFound } from "../../kernel/errors";
+import { tidy } from "../../kernel/text";
 import {
   callingCodeFor,
   contactFields,
@@ -19,11 +21,9 @@ import {
   insertContact,
   likeEscape,
   normalizeIdNumber,
-  notFound,
   presentAccounts,
   presentCustomers,
   promoteNextPrimary,
-  tidy,
   toContactDto,
   toCustomerDto,
   type CustomerDto,
