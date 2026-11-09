@@ -1,6 +1,7 @@
 import type { ApplicationStage, Permission } from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
-import { areaField, contactInputs, newCustomerInput, parseCoordinates, parseMinorUnits, placeInput } from "./account-forms";
+import { areaChoices, stillOffered } from "./area-options";
+import { areaField,contactInputs, newCustomerInput, parseCoordinates, parseMinorUnits, placeInput } from "./account-forms";
 import { commandKindLabel } from "./account-labels";
 import { canOverrideGates, lifecycleActionsFor } from "./account-lifecycle";
 import { nextUsedStage, offersFor, stageBeforeEnd, stageLine } from "./application-view";
@@ -163,5 +164,32 @@ describe("account forms", () => {
     expect(parseMinorUnits("1.234")).toBeNull();
     expect(parseMinorUnits("-5")).toBeNull();
     expect(parseMinorUnits("abc")).toBeNull();
+  });
+});
+
+describe("place pickers", () => {
+  const areas = [
+    { id: "s1", name: "North scheme", level: "scheme", parentId: null },
+    { id: "s2", name: "South scheme", level: "scheme", parentId: null },
+    { id: "z1", name: "Kahawa", level: "zone", parentId: "s1" },
+    { id: "z2", name: "Ruiru", level: "zone", parentId: "s2" },
+    { id: "sz1", name: "Kahawa West", level: "sub_zone", parentId: "z1" },
+    { id: "d1", name: "DMA 1", level: "dma", parentId: "sz1" },
+  ] as const;
+
+  it("offers only the zones under the chosen scheme", () => {
+    expect(areaChoices(areas, ["zone", "sub_zone"], ["s1"]).map((c) => c.value)).toEqual(["z1", "sz1"]);
+    expect(areaChoices(areas, ["zone", "sub_zone"], ["s2"]).map((c) => c.value)).toEqual(["z2"]);
+    expect(areaChoices(areas, ["zone", "sub_zone"], [""]).map((c) => c.value)).toEqual(["z1", "sz1", "z2"]);
+  });
+
+  it("offers DMAs under every chosen ancestor, however many levels apart", () => {
+    expect(areaChoices(areas, ["dma"], ["s1", "z1"]).map((c) => c.value)).toEqual(["d1"]);
+    expect(areaChoices(areas, ["dma"], ["s2"])).toEqual([]);
+  });
+
+  it("notices a selection that is no longer offered", () => {
+    expect(stillOffered([{ value: "z1" }], "z2")).toBe(false);
+    expect(stillOffered([{ value: "z1" }], "")).toBe(true);
   });
 });

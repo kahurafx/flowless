@@ -69,6 +69,32 @@ export function newCustomerInput(draft: NewCustomerDraft): NewCustomerInput {
   };
 }
 
+/** Who the customer is in a form: someone already known, or details to create. */
+export type CustomerChoice =
+  | { mode: "existing"; customer: { id: string; name: string } | null }
+  | { mode: "new"; draft: NewCustomerDraft };
+
+export const emptyDraft: NewCustomerDraft = {
+  type: "person",
+  name: "",
+  identity: "",
+  language: "",
+  notes: "",
+  contacts: [{ channel: "phone", value: "", kind: "personal", isPrimary: false }],
+};
+
+/** What is missing from the choice, or null when it can be sent. */
+export function customerChoiceProblem(choice: CustomerChoice): string | null {
+  if (choice.mode === "existing") return choice.customer ? null : "Choose a customer";
+  return choice.draft.name.trim() === "" ? "Enter the customer's name" : null;
+}
+
+/** The API's way to name a customer: an id, or details. Null while the choice is incomplete. */
+export function customerChoiceInput(choice: CustomerChoice): { customerId: string } | { newCustomer: NewCustomerInput } | null {
+  if (customerChoiceProblem(choice) !== null) return null;
+  return choice.mode === "existing" ? { customerId: choice.customer!.id } : { newCustomer: newCustomerInput(choice.draft) };
+}
+
 /** The placement fields of a service point or application as the API takes them: blank ids are left out. */
 export function placeInput(place: { address: string; schemeId?: string; zoneId?: string; dmaId?: string; routeId?: string }, coordinates: Coordinates | null) {
   return {
@@ -79,6 +105,26 @@ export function placeInput(place: { address: string; schemeId?: string; zoneId?:
     ...(place.routeId ? { routeId: place.routeId } : {}),
     ...(coordinates ? { location: coordinates } : {}),
   };
+}
+
+/** A place as the form holds it: text fields and picked ids ("" for none). */
+export interface PlaceState {
+  address: string;
+  schemeId: string;
+  zoneId: string;
+  dmaId: string;
+  routeId: string;
+  lat: string;
+  lng: string;
+}
+export const emptyPlace: PlaceState = { address: "", schemeId: "", zoneId: "", dmaId: "", routeId: "", lat: "", lng: "" };
+
+/** The place as the API takes it, or what is wrong with it. An address is required. */
+export function placeFromState(state: PlaceState): { ok: true; value: ReturnType<typeof placeInput> } | { ok: false; problem: string } {
+  if (state.address.trim() === "") return { ok: false, problem: "Enter the address" };
+  const coordinates = parseCoordinates(state.lat, state.lng);
+  if (!coordinates.ok) return coordinates;
+  return { ok: true, value: placeInput(state, coordinates.value) };
 }
 
 /** Which hierarchy field an area belongs in: the API wants scheme, zone and DMA separately; a sub-zone goes in the zone field's place. */

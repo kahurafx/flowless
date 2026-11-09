@@ -13,7 +13,7 @@ export interface StageStep {
 }
 
 /** Milestones from enquiry to converted; rejected and cancelled are ends, not steps. */
-export const MILESTONES = APPLICATION_STAGES.filter((s) => s !== "rejected" && s !== "cancelled");
+export const MILESTONES: readonly ApplicationStage[] = APPLICATION_STAGES.filter((s) => s !== "rejected" && s !== "cancelled");
 
 const isFinal = (stage: ApplicationStage) => (TERMINAL_APPLICATION_STAGES as readonly ApplicationStage[]).includes(stage);
 

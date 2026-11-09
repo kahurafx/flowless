@@ -7,7 +7,6 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { listAccounts } from "@/data/accounts";
 import { getInbox } from "@/data/notifications";
 import { getSession } from "@/data/session";
 
@@ -25,10 +24,7 @@ export default function StaffLayout({ children }: LayoutProps<"/">) {
 
 async function Shell({ children }: { children: React.ReactNode }) {
   const { organization, user, access } = await getSession();
-  const [accounts, inbox] = await Promise.all([
-    organization.entitlements.includes("accounts") && access.permissions.includes("accounts:read") ? listAccounts() : [],
-    getInbox(),
-  ]);
+  const inbox = await getInbox();
   return (
     <SidebarProvider>
       <AppSidebar
@@ -44,7 +40,6 @@ async function Shell({ children }: { children: React.ReactNode }) {
           <CommandPalette
             entitlements={organization.entitlements}
             permissions={access.permissions}
-            accounts={accounts.map(({ number, customerName }) => ({ number, customerName }))}
           />
           <div className="ml-auto flex items-center gap-1">
             <NotificationBell initial={inbox} locale={organization.settings.locale} timeZone={organization.settings.timeZone} />
