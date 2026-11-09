@@ -33,7 +33,7 @@ describe("navigation for Work Orders and GIS (W-01, K-04)", () => {
   });
 
   it("shows the Accounts group only with the module and accounts:read", () => {
-    const group = ["/accounts", "/accounts/customers", "/accounts/applications"];
+    const group = ["/accounts", "/accounts/customers", "/accounts/applications", "/accounts/data-quality"];
     expect(hrefs(["accounts"], ["accounts:read"])).toEqual(expect.arrayContaining(group));
     expect(hrefs(["accounts"], ["exceptions:read"])).not.toContain("/accounts");
     for (const href of group) expect(hrefs(["work-orders"], ["accounts:read"])).not.toContain(href);
@@ -57,5 +57,38 @@ describe("navigation for Work Orders and GIS (W-01, K-04)", () => {
     expect(currentHref("/work-orders/abc", items)).toBe("/work-orders");
     expect(currentHref("/map/reconcile/wo-1", items)).toBe("/map/reconcile");
     expect(currentHref("/map", items)).toBe("/map");
+  });
+});
+
+describe("navigation for Tariffs and the Accounts settings (F5b)", () => {
+  const tariffs = ["/tariffs", "/tariffs/categories", "/tariffs/charges", "/tariffs/invoice-types"];
+
+  it("shows the Tariffs group only with the module and tariffs:read", () => {
+    expect(hrefs(["tariffs"], ["tariffs:read"])).toEqual(expect.arrayContaining(tariffs));
+    for (const href of tariffs) {
+      expect(hrefs(["accounts"], ["tariffs:read"])).not.toContain(href);
+      expect(hrefs(["tariffs"], ["accounts:read"])).not.toContain(href);
+    }
+  });
+
+  it("shows Data quality with Accounts and accounts:read, whatever else is licensed", () => {
+    expect(hrefs(["accounts"], ["accounts:read"])).toContain("/accounts/data-quality");
+    expect(hrefs(["tariffs"], ["accounts:read"])).not.toContain("/accounts/data-quality");
+    expect(hrefs(["accounts"], ["tariffs:read"])).not.toContain("/accounts/data-quality");
+  });
+
+  it("shows Accounts settings to settings:manage with Accounts licensed", () => {
+    expect(hrefs(["accounts"], ["settings:manage"])).toContain("/settings/accounts");
+    expect(hrefs(["accounts"], ["accounts:read"])).not.toContain("/settings/accounts");
+    expect(hrefs(["tariffs"], ["settings:manage"])).not.toContain("/settings/accounts");
+  });
+
+  it("marks the most specific Tariffs item as current", () => {
+    const items = navFor(["tariffs", "accounts"], ["tariffs:read", "accounts:read"]);
+    expect(currentHref("/tariffs/abc", items)).toBe("/tariffs");
+    expect(currentHref("/tariffs/new", items)).toBe("/tariffs");
+    expect(currentHref("/tariffs/categories", items)).toBe("/tariffs/categories");
+    expect(currentHref("/tariffs/invoice-types/abc", items)).toBe("/tariffs/invoice-types");
+    expect(currentHref("/accounts/data-quality", items)).toBe("/accounts/data-quality");
   });
 });

@@ -2,6 +2,12 @@ import type { Entitlements, ModuleKey, Permission } from "@flowless/shared-types
 import {
   BadgeCheckIcon,
   ContactRoundIcon,
+  CoinsIcon,
+  DatabaseZapIcon,
+  FileTextIcon,
+  GaugeIcon,
+  LayersIcon,
+  ReceiptTextIcon,
   FilePlus2Icon,
   ClipboardCheckIcon,
   ClipboardListIcon,
@@ -46,6 +52,12 @@ const NAV: readonly NavItem[] = [
   { href: "/accounts", label: "Accounts", icon: UsersIcon, module: "accounts", permission: "accounts:read" },
   { href: "/accounts/customers", label: "Customers", icon: ContactRoundIcon, module: "accounts", permission: "accounts:read" },
   { href: "/accounts/applications", label: "Applications", icon: FilePlus2Icon, module: "accounts", permission: "accounts:read" },
+  { href: "/accounts/data-quality", label: "Data quality", icon: DatabaseZapIcon, module: "accounts", permission: "accounts:read" },
+  // The Tariffs group (T-01 to T-10): tariffs, categories, the charge catalog and invoice types.
+  { href: "/tariffs", label: "Tariffs", icon: GaugeIcon, module: "tariffs", permission: "tariffs:read" },
+  { href: "/tariffs/categories", label: "Categories", icon: LayersIcon, module: "tariffs", permission: "tariffs:read" },
+  { href: "/tariffs/charges", label: "Charge catalog", icon: CoinsIcon, module: "tariffs", permission: "tariffs:read" },
+  { href: "/tariffs/invoice-types", label: "Invoice types", icon: ReceiptTextIcon, module: "tariffs", permission: "tariffs:read" },
   // Work Orders shows at level basic or full: the Work Orders module or GIS (W-01).
   { href: "/work-orders", label: "Work orders", icon: ClipboardListIcon, anyModule: ["work-orders", "gis"], anyPermission: WORK_PERMISSIONS },
   { href: "/work-orders/reviews", label: "Job reviews", icon: ClipboardCheckIcon, anyModule: ["work-orders", "gis"], permission: "work_orders:review" },
@@ -54,6 +66,7 @@ const NAV: readonly NavItem[] = [
   { href: "/map/reconcile", label: "Pending changes", icon: GitMergeIcon, module: "gis", permission: "gis:post" },
   { href: "/settings/organization", label: "Organization", icon: SettingsIcon },
   { href: "/settings/areas", label: "Areas and routes", icon: MapIcon },
+  { href: "/settings/accounts", label: "Accounts settings", icon: FileTextIcon, module: "accounts", permission: "settings:manage" },
   { href: "/settings/team", label: "Team and permissions", icon: ShieldCheckIcon, permission: "access:manage" },
   { href: "/settings/audit", label: "Audit log", icon: HistoryIcon, permission: "audit:read" },
   { href: "/settings/support", label: "Support access", icon: LifeBuoyIcon, permission: "access:manage" },
