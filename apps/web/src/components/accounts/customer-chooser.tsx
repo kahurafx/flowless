@@ -156,7 +156,7 @@ function NewCustomer({
       ...(phone ? { phone } : {}),
       ...(identity.length >= 3 ? (draft.type === "person" ? { nationalId: identity } : { registrationNumber: identity }) : {}),
     });
-    return result.error === null ? (result.data as unknown as Found[]) : null;
+    return result.error === null ? result.data.map((d) => d.customer) : null;
   });
   const matches = dupes.key === key ? (dupes.value ?? []) : [];
 
