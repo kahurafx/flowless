@@ -1,0 +1,97 @@
+# Accounts module (`packages/api/src/modules/accounts`)
+
+Module-specific notes moved out of `packages/api/CLAUDE.md`. Requirements C-01 to C-12; phases F1 (core), F3a (lifecycle), F3b (applications, memberships, succession, relocation, change of name), F4 (data quality), F4b (refactor: one idempotent-step helper, one port registry, applications split by concern).
+
+## Idempotent steps (`idempotent.ts`)
+
+One mechanism for "client-mintable id plus request fingerprint": the same id with the same request replays the earlier result (`replayed: true`) and anything else under that id is CONFLICT. A use case is `step.once(env, id, expected, { replay, run })`: the descriptor looks up the earlier row, applies the same-request rule and CONFLICT, and the use case holds only its plan and effect (`run`) and how to rebuild a result from the earlier row (`replay`). Descriptors:
+
+- `loggedStep` for the append-only logs: `commandLog` (`commands.ts`; `account_command`, used by status commands, `succeed`, `change_name` and `relocate`), `applicationLog` (`application-steps.ts`) and `relocationLog` (`relocation-steps.ts`). The same id replays only for the same parent (account, application, relocation), kind, actor and request fingerprint.
+- `createdStep` for the steps that create the row under the client's id (`createApplication`, `requestRelocation`): a repeat by the person who created it replays, the id under anyone else's row is CONFLICT.
+- `claimingId(insert, message?)` wraps the insert that carries the client id and maps a unique violation to CONFLICT (default message "That id is already in use"; relocation requests say "This service point already has a relocation under way, or that id is in use").
+- `presentAccount(tx, row)` in `service.ts` is the single-row `presentAccounts`.
+- Messages: a different request under a used id answers "That id was already used for a different request" everywhere.
+
+Work Orders keeps its own `lockAndReplay` (a separate module).
+
+## Core (F1)
+
+### Procedures
+`accountsRouter` mounted at `accounts`: `customers.create/update/get/list/search/duplicates`, `contacts.add/update/remove`, `servicePoints.create/update/get/list`, and `create`/`get`/`list`/`search`/`nextNumberPreview` for accounts at the router's root. Procedures come from `accountsProcedures` (`procedures.ts`): `read` (`accounts:read`), `create` (`accounts:create`), `update` (`accounts:update`), each adding `ctx.viewer` (`userId` and `scope`).
+
+### Scope
+Scope (`access.ts`): a limited member sees service points whose scheme, zone, DMA or route is in scope, accounts through their service points and customers through their accounts; an account or customer with no service point or account yet is its creator's, so an enquiry can be finished; they may place a service point only inside their scope; everything else is NOT_FOUND.
+
+### Numbering, tables and contacts
+`numbering.ts` is pure (format schema, Luhn and mod 11 check digits, child letters `A..Z, AA`, `parseAccountNumber`); the `accounts.numbering` setting (`settings.ts`) is registered in `kernel/config-registry.ts`. `service.ts` is the only code touching the tables: numbers come from `issueAccountNumber` / `issueChildNumber` (locked counter row; sequences with no mod 11 digit or an already used number are skipped), contacts are normalised with `parsePhone` from shared-types (calling code from `kernel.regional`'s locale; placeholders are stored flagged and count as no phone, the first real contact of a channel becomes primary), and a service point's scheme, zone, DMA and route are checked with the kernel's `areasById` / `routesById` (`kernel/areas.ts`).
+
+### Audit, events and status
+Audit actions `accounts.customer_create/update`, `accounts.contact_add/update/remove`, `accounts.account_create`, `accounts.service_point_create/update`; events `accounts.customer_created`, `.account_opened`, `.service_point_created` (`events.ts`, JSON payloads, dates as ISO strings). Status changes are the lifecycle below (F3a); the category is an opaque uuid for Tariffs (F2).
+
+### Tests
+Tests: `modules/accounts/test/test-support.ts` (`setupAccountsEnv`: tenants A, B and an unlicensed C, roles, a scheme > zone > DMA chain, routes).
+
+## Lifecycle (F3a: C-03, C-04, C-06, C-11)
+
+### Procedures and commands
+the `status` procedure (`accounts:change_status`: owner, admin, manager) carries `markPendingPayment`, `activate` (same as `activation.activate`), `makeDormant`, `reactivate`, `terminate`, `disconnectService`, `reconnectService`, `requestWriteOff`, `activation.tick/untick`; reads (`accounts:read`) are `commands.list`, `statusRules` and `activation.status`. `lifecycle-router.ts` holds the procedures, `commands.ts` the only code that changes a status (`runCommand(env, viewer, request)`: lock the account row, replay or CONFLICT on a repeated client id by fingerprint through `commandLog.once` (`idempotent.ts`, below), plan with the pure `lifecycle.ts`, check gates or settlement, insert the `account_command`, update the account with `status_command_id`, audit `accounts.<kind>`, publish `accounts.account_status_changed`/`.service_status_changed`/`.account_activated`/`.account_terminated`); the database trigger refuses any other change of the status columns. `CommandEnv` (`procedureEnv(ctx)` or `systemEnv(tx, orgId)`) lets the system act with no user (source `system`).
+
+### Pure files and settings
+Pure files: `lifecycle.ts` (state machine), `gates.ts` (`activationConfigSchema`, `evaluateGates`), `status-rules.ts` (`chargesApplying`), `termination.ts` (`settleTermination`). Settings `accounts.status_rules` and `accounts.activation` are in `settings.ts` and the config registry.
+
+### Ports (`sources.ts`)
+Ports in `sources.ts`, exported from the index: `registerGateSource(gateKey, source, { requires })` (asked only while every module in `requires` is licensed) and `registerTerminationCheck(check, { requires })` (Billing registers with `["billing"]`; while a required module is unlicensed for an organization the check is not asked and that organization terminates as if there were no ledger yet, NF-31); tests reset them with null. Every port in this module is built on the kernel's `definePort` / `defineKeyedPort` (`kernel/port-registry.ts`): the registry stores `{ handler, requires }`, `resolve(tx)` applies the licence check (entitlements loaded lazily and at most once per resolve call), `register(null)` removes and `has()` says whether a handler is registered. `recheckActivation(tx, orgId, accountId)` is what other modules' consumers call in auto mode.
+
+### Activation and termination
+`activate` needs the gates met; `override: true` needs `settings:manage`. `terminate` needs a settled position or `acknowledgeNoLedger`; the write-off approval kind `accounts.write_off` (`approvals.ts`, registered in `kernel/approval-registry.ts`, consumer `accounts.record_write_off_decision` in `kernel/consumers.ts`) is cited with `approvalId` and read with the kernel's `approvalOutcome`.
+
+### Stale-account sweep
+`sweepStaleAccounts(db)` (`stale.ts`) runs in the worker with the finder `accounts.sweep_organizations`; it raises `STALE_ACTIVATION` and `ACCOUNT_NOT_ACTIVE_WITH_METER` (keys `account_stale:<id>`, `account_not_active_with_meter:<id>`, raised once, resolved by themselves; `openDedupeKeys` in `kernel/exception-store.ts`).
+
+### Tests
+Tests: `test/lifecycle.test.ts` (integration), `lifecycle.test.ts` and `rules.test.ts` (pure).
+
+## Applications, memberships, succession, relocation and change of name (F3b: C-05, C-07 to C-10)
+
+Routers: `accounts.applications.*` (`application-router.ts`), `accounts.memberships.*`, `accounts.relocations.*`, `accounts.holders.*`, and at the root `succeed` and `changeName` (`changes-router.ts`).
+
+### Applications
+`application-create.ts`, `application-steps.ts` (`advanceApplication`, `endApplication`, `moveStage`), `application-survey.ts` and `application-convert.ts` are the only code changing one (`application-present.ts` reads and presents it); the pure `application-stages.ts` is the stage machine (milestones `enquiry > survey > application > invoice > payment > installation > ready > converted`, a stage is a milestone reached, `rejected`/`cancelled` from any open stage, final stages final, only a stage waived by config is skipped) with the `accounts.application` setting (`survey`, `invoice` which covers invoice and payment, `installation`, each `required`; `relocation.surveyRequired`). Each step is a row of the application's step log (table `application_event`; the kinds `created` and `stage_changed` move the stage, `survey_recorded` and `survey_decided` leave it as it was) with a client-mintable `id`, fingerprint like account commands (same id and request replays, anything else CONFLICT, through `applicationLog.once` from `idempotent.ts`; `createApplication` replays by its creator through `createdStep`), and a trigger refuses a stage change without one. `create` takes an existing customer or `newCustomer` (created together, `createCustomer` in `customers.ts`), the opaque requested category (checked with Tariffs' `categoryExists` only while Tariffs is licensed), the place (checked and scope-asserted like a service point; an enquiry may have no place yet), and optionally a parent account with a `membershipClass`. `recordSurvey` (office, `accounts:update`; findings, `feasible`/`not_feasible`, materials note) asks for approval with `ctx.requestApproval(surveyApproval)` (K-05 kind `accounts.connection_survey`, `survey-approval.ts`, registered in `kernel/approval-registry.ts`; default policy ONE level `accounts:change_status`; a second level such as `billing:approve` or none at all is the organization's policy `approvals.accounts.connection_survey`, so 0, 1 or 2 approvals are configuration; a policy with no level approves at once). The application stays at `enquiry` with `survey_approval_state` pending until the consumer `accounts.apply_survey_decision` (`defineApprovalConsumer`, in `kernel/consumers.ts`) moves it to `survey` (idempotent: only a pending request that is the application's current one counts; a rejected one asks for a new survey). Not feasible: recorded, no approval, the office rejects. `submitApplication`, `markInvoiced(invoiceRef)`, `markPaid(paymentRef)`, `startInstallation`, `markReady` (`accounts:update`), `reject`, `cancel`, and `convert` (`accounts:create`): `markInvoiced`/`markPaid` take opaque references until Billing (Phase 4) and Payments (Phase 6) replace them with events consuming `accounts.application_stage_changed` and calling these use cases as the system. `convert` runs `openAccount` (`open-account.ts`, shared with `accounts.create` and succession: number, child letters, first holder row), `createServicePoint` (shared with `servicePoints.create`) and, when the invoice stage is used, the F3a `mark_pending_payment` command; activation stays F3a's gates. Pending survey approvals are not cancelled when an application ends (the consumer ignores them).
+
+### Work Orders
+(`work-kinds.ts`, `register(work)` in the index, called from `wiring.ts`): kinds `connection_survey` (target location, review optional, GPS evidence, capture `feasibility`/`findings`/`materials`, completion event `accounts.connection_survey_completed`) and `relocation` (target account, capture `finalReading`/`initialReading`, event `accounts.relocation_work_completed`), both tier full, so offered only with Accounts and Work Orders licensed; an asset resolver (module `accounts`) answers for application and relocation ids, so the office raises the job in Work Orders with `workOrders.create({ kind, assetId: <application or relocation id> })` (Accounts does not create jobs itself: there is no published way for a module to raise one and none was added). Consumers `accounts.record_survey_from_job` (records the survey as the system and asks for approval as the technician; skipped when the application is no longer an enquiry or the job is already recorded) and `accounts.record_relocation_from_job` (readings and job id on an open relocation). The office path works with Work Orders and Inventory unlicensed (tested end to end).
+
+### Memberships
+(`membership.ts`, `memberships.ts`): setting `accounts.membership` (classes with `key`, `label`, optional `connectionFeeChargeItemCode`, by code with no foreign key), `account.membership_class` validated against it and only on a child; `memberships.setClass` (`accounts:update`, audited, event `accounts.membership_class_changed`), `membershipFor(tx, accountId)` published for Billing.
+
+### Succession
+(`succession.ts`, `succeed`, `accounts:change_status`): needs an ACTIVE or DORMANT account; opens a successor in the same state with its own number (no parent for `full_membership`, which needs a child; otherwise the parent is kept), the same or a new customer and category; the old account goes DORMANT through the F3a `make_dormant` command; service points move to the successor (or `servicePoints: "leave"`); `predecessor_account_id`/`successor_account_id` are set once; a `succeed` row in both command logs (the old one's payload has the result) and event `accounts.account_succeeded`. The balance transfer and reading handover are ports in `sources.ts` (`registerBalanceTransfer`, `registerReadingHandover`, optional `requires` modules, run inside the command's transaction keyed by the command id, a failure rolls everything back); with none the payload says `transfer: "pending_ledger"` and `readingHandover: "pending_metering"` for Phase 4 and 5 to reconcile.
+
+### Change of name
+(`change-name.ts`, `changeName`): the holder changes from `effectiveDate` (today or earlier, after the current holder started) in the insert-only `account_holder` history (`holders.ts`: `holderAt(tx, accountId, date)`, `holdersOf`, published for Billing's split), `account.customer_id` follows only through a trigger-checked newest holder row; payload `closing_reading_pending: true` unless the reading port or the office (`closingReadingRef`) supplied the closing reading; event `accounts.holder_changed`.
+
+### Relocation
+(`relocations.ts`, with `relocation-present.ts` for reads and `relocation-steps.ts` for the step log `relocation_event`, `relocations.*`, `accounts:change_status`): `request` > `recordSurvey` (required by default) > `recordWork` (final and initial readings as text) > `complete` (creates the new service point from the new place with its zone/DMA/route, decommissions the old, `relocate` command row, event `accounts.service_point_relocated`; the tariff is re-derived by whoever reacts to that event; account number and status unchanged) or `cancel`; fee item codes are recorded, not invoiced.
+
+### Non-status commands
+Non-status commands (`succeed`, `change_name`, `relocate`) use `account-changes.ts` (`logChange`, `reload`) and replay through the same `commandLog` as status commands.
+
+### Tests
+Tests: `test/applications.test.ts`, `test/changes.test.ts`, pure `application-stages.test.ts`.
+
+## Data quality (F4: C-12)
+
+### Procedures
+`accounts.dataQuality.rules` (catalogue with the effective configuration and `state`: `enabled`, `disabled` or `no_source`), `.summary` (examined = accounts not terminated within the member's scope, flagged, clean, `cleanPercent`, a count per rule, `categoriesChecked`), `.findings({ rule, after?, limit })` (accounts in number order with customer, area and route labels and `why`; PRECONDITION_FAILED for a disabled rule or one with no source) and `.customerDuplicates({ after?, limit })` (groups by shared normalised phone, national id or registration number); all `accounts:read`, scope applies like the account lists (a limited member's duplicate groups only hold customers they can see).
+
+### Rules and configuration
+The catalogue (`DATA_QUALITY_RULES`) is in shared-types; the per-organization choices are the `accounts.data_quality` setting (`data-quality-config.ts`: per rule `enabled`, `severity` info|warning|critical, `raiseExceptions`, all optional, unknown keys ignored). Each rule is an indexed predicate on `accounts.account` in `data-quality-queries.ts`; the summary is one `count(*) filter` per rule in a single pass, the findings page is keyset on the account number. Both are reports (`accounts.data_quality_summary`, `accounts.data_quality_findings`, registered in `kernel/report-registry.ts`, X-04 guard and canary apply); a report cannot know the viewer, so the scope arrives as a parameter (`scopeOf(viewer)`) and becomes the same `accountVisible` filter.
+
+### Facts and ports
+What SQL cannot know is gathered once per request by `data-quality-facts.ts`, only for the rules switched on: `zone_equals_route` reads the distinct (scheme, zone, DMA, route) placements of live service points and judges each with the kernel's published `routesById`/`areasById` (pure `data-quality-placement.ts`; interpretation: the route has the same name as the point's zone, scheme or DMA, or the route's `area_id` is neither the point's most specific area nor above nor below it); `account_category_missing` checks `category_id is null` and, only with Tariffs licensed, ids that Tariffs' `categoriesById` says are unknown or deactivated. `active_metered_no_meter` and any other rule another module decides use the port `registerDataQualitySource(ruleKey, source, { requires })` (source returns the account ids that break the rule; without a registered, licensed source the rule is `no_source` and skipped, never failed; tests reset it with null). Terminated accounts are never examined; each rule has its own `appliesTo` statuses.
+
+### Sweep
+`sweepDataQuality(db, { limit = 100, batch = 50 })` (`data-quality-sweep.ts`, worker, hourly, finder `accounts.data_quality_organizations`) raises one `DATA_QUALITY` exception per account and rule for rules with `raiseExceptions` (key `dq:<rule>:<accountId>`, owner = who opened the account, area and route of the first (for `zone_equals_route`, first offending) service point, severity in the detail), only for findings not already open and at most `limit` per organization per run in account-number order; open ones resolve by themselves when the finding clears, the account ends or the rule stops raising; a rule with no source is left alone.
+
+### Tests
+Tests: `test/data-quality.test.ts` (integration), `data-quality.test.ts` (pure) and shared-types `data-quality.test.ts`.
