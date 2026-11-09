@@ -240,7 +240,7 @@ async function applyCompletion(
   const fresh = await createServicePoint(env, viewer, {
     accountId: acct.id,
     address: before.toAddress,
-    location: before.toLocation as LatLng | null,
+    location: before.toLocation,
     ...placeOf(before),
     connectionStatus: oldPoint.connectionStatus,
   });
@@ -277,7 +277,7 @@ async function applyCompletion(
     toServicePointId: fresh.id,
     finalReading,
     initialReading,
-    feeItemCodes: before.feeItemCodes as string[],
+    feeItemCodes: before.feeItemCodes,
   };
   const command = await logChange(env, await reload(env, acct.id), { id: req.id, kind: "relocate", reason, payload, fingerprint });
   await env.audit({ action: "accounts.relocate", subjectType: "account", subjectId: acct.id, after: { ...payload, commandId: command.id }, reason });
@@ -288,9 +288,9 @@ async function applyCompletion(
     number: acct.number,
     fromServicePointId: oldPoint.id,
     toServicePointId: fresh.id,
-    from: { schemeId: oldPoint.schemeId, zoneId: oldPoint.zoneId, dmaId: oldPoint.dmaId, routeId: oldPoint.routeId, location: oldPoint.location as LatLng | null },
+    from: { schemeId: oldPoint.schemeId, zoneId: oldPoint.zoneId, dmaId: oldPoint.dmaId, routeId: oldPoint.routeId, location: oldPoint.location },
     to: { ...placeOf(before), location: fresh.location },
-    feeItemCodes: before.feeItemCodes as string[],
+    feeItemCodes: before.feeItemCodes,
     finalReading,
     initialReading,
     actorUserId: userId,

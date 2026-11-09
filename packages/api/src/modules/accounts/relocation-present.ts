@@ -1,4 +1,4 @@
-import type { LatLng, Transaction } from "@flowless/db";
+import type { Transaction } from "@flowless/db";
 import { relocation, relocationEvent } from "@flowless/db/schema/accounts";
 import type { RelocationStatus } from "@flowless/shared-types";
 import { and, asc, eq } from "drizzle-orm";
@@ -26,7 +26,7 @@ export function toRelocationDto(r: RelocationRow) {
     newServicePointId: r.newServicePointId,
     to: {
       address: r.toAddress,
-      location: r.toLocation as LatLng | null,
+      location: r.toLocation,
       schemeId: r.toSchemeId,
       zoneId: r.toZoneId,
       dmaId: r.toDmaId,
@@ -34,7 +34,7 @@ export function toRelocationDto(r: RelocationRow) {
     },
     status: r.status,
     reason: r.reason,
-    feeItemCodes: r.feeItemCodes as string[],
+    feeItemCodes: r.feeItemCodes,
     survey: r.surveyFeasibility ? { feasibility: r.surveyFeasibility, findings: r.surveyFindings ?? "" } : null,
     finalReading: r.finalReading,
     initialReading: r.initialReading,
@@ -57,7 +57,7 @@ export function toRelocationStepDto(e: RelocationStepRow) {
     actorUserId: e.actorUserId,
     source: e.source,
     reason: e.reason,
-    payload: e.payload as Record<string, unknown>,
+    payload: e.payload,
     occurredAt: e.occurredAt,
   };
 }

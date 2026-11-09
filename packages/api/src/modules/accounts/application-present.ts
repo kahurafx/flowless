@@ -1,4 +1,4 @@
-import type { LatLng, Transaction } from "@flowless/db";
+import type { Transaction } from "@flowless/db";
 import { application, applicationEvent, customer } from "@flowless/db/schema/accounts";
 import { and, asc, eq } from "drizzle-orm";
 import { readSetting } from "../../kernel/config-store";
@@ -31,7 +31,7 @@ export function toApplicationDto(a: ApplicationRow, customerName: string | null 
     parentAccountId: a.parentAccountId,
     membershipClass: a.membershipClass,
     address: a.address,
-    location: a.location as LatLng | null,
+    location: a.location,
     schemeId: a.schemeId,
     zoneId: a.zoneId,
     dmaId: a.dmaId,
@@ -72,7 +72,7 @@ export function toStepDto(e: ApplicationStepRow) {
     actorUserId: e.actorUserId,
     source: e.source,
     reason: e.reason,
-    payload: e.payload as Record<string, unknown>,
+    payload: e.payload,
     occurredAt: e.occurredAt,
   };
 }

@@ -1,4 +1,4 @@
-import type { LatLng, Transaction } from "@flowless/db";
+import type { Transaction } from "@flowless/db";
 import { account, customer, servicePoint } from "@flowless/db/schema/accounts";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { notFound } from "../../kernel/errors";
@@ -149,7 +149,7 @@ export function toServicePointDto(s: ServicePointRow) {
     id: s.id,
     accountId: s.accountId,
     address: s.address,
-    location: s.location as LatLng | null,
+    location: s.location,
     schemeId: s.schemeId,
     zoneId: s.zoneId,
     dmaId: s.dmaId,

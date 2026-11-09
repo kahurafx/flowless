@@ -1,4 +1,4 @@
-import type { LatLng, Transaction } from "@flowless/db";
+import type { Transaction } from "@flowless/db";
 import { account, servicePoint } from "@flowless/db/schema/accounts";
 import { TRPCError } from "@trpc/server";
 import type { Viewer } from "./access";
@@ -54,7 +54,7 @@ export async function convertApplication(
         const point = await createServicePoint(env, viewer, {
           accountId: row.id,
           address: before.address,
-          location: before.location as LatLng | null,
+          location: before.location,
           ...placeOf(before),
           connectionStatus: "PLANNED",
         });

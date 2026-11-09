@@ -49,7 +49,7 @@ export function toCommandDto(c: CommandRow) {
     source: c.source,
     occurredAt: c.occurredAt,
     note: c.note,
-    payload: c.payload as Record<string, unknown>,
+    payload: c.payload,
   };
 }
 export type CommandDto = ReturnType<typeof toCommandDto>;
