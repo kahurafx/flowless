@@ -197,6 +197,20 @@
       "when": 1794194137265,
       "tag": "0027_accounts_access",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794195994785,
+      "tag": "0028_tariffs",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794195995560,
+      "tag": "0029_tariffs_access",
+      "breakpoints": true
     }
   ]
 }
