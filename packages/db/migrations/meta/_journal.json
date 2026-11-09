@@ -183,6 +183,20 @@
       "when": 1794133864093,
       "tag": "0025_work_orders_overdue",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794194132786,
+      "tag": "0026_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794194137265,
+      "tag": "0027_accounts_access",
+      "breakpoints": true
     }
   ]
 }
