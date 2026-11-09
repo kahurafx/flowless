@@ -39,6 +39,7 @@ const todayNairobi = () => new Date().toLocaleDateString("en-CA", { timeZone: "A
 
 export async function seedAccountsData(cx: AccountsSeedContext) {
   const { api } = cx;
+  await restoreHierarchy(cx);
   await seedTariffs(api);
   await seedSettings(api);
   const accounts = await seedAccounts(cx);
@@ -49,6 +50,23 @@ export async function seedAccountsData(cx: AccountsSeedContext) {
   const stale = await sweepStaleAccounts(cx.db);
   const quality = await sweepDataQuality(cx.db);
   return { staleRaised: stale, dataQualityRaised: quality };
+}
+
+/** Someone testing the hierarchy may have archived what the accounts sit on: bring back the zones and routes used here, parents first. */
+async function restoreHierarchy(cx: AccountsSeedContext) {
+  const areas = await cx.api.hierarchy.areas({ includeArchived: true });
+  const routes = await cx.api.hierarchy.routes({ includeArchived: true });
+  const chain = <T extends { id: string; parentId: string | null }>(all: T[], code: string, codeOf: (x: T) => string): T[] => {
+    const out: T[] = [];
+    for (let x = all.find((a) => codeOf(a) === code); x; x = all.find((a) => a.id === x!.parentId)) out.unshift(x);
+    return out;
+  };
+  for (const code of ["RUI", "KW", "G45", "DMA-KW1"]) {
+    for (const a of chain(areas, code, (x) => x.code)) if (a.archivedAt) await cx.api.hierarchy.restoreArea({ id: a.id });
+  }
+  for (const code of ["R-07", "R-02"]) {
+    for (const r of chain(routes, code, (x) => x.code)) if (r.archivedAt) await cx.api.hierarchy.restoreRoute({ id: r.id });
+  }
 }
 
 /* ---------- tariffs and the charge catalog (T-01 to T-03, T-07 to T-10) ---------- */
@@ -280,12 +298,10 @@ async function seedAccounts(cx: AccountsSeedContext) {
     };
   };
 
-  for (const spec of ACCOUNTS) {
-    const known = have.get(spec.name);
-    if (known) {
-      created[spec.name] = known as never;
-      continue;
-    }
+  /** The customer of this name (a stopped run may have made it without its account), else a new one. */
+  const customerFor = async (spec: AccountSpec) => {
+    const same = (await api.accounts.customers.search({ q: spec.name })).find((c) => c.name === spec.name);
+    if (same) return same.id;
     const phone = spec.phone === undefined ? nextPhone() : spec.phone === "placeholder" ? "0000 000 000" : spec.phone;
     const customer = await api.accounts.customers.create({
       type: spec.type ?? "person",
@@ -294,13 +310,26 @@ async function seedAccounts(cx: AccountsSeedContext) {
       ...(spec.registrationNumber ? { registrationNumber: spec.registrationNumber } : {}),
       contacts: phone ? [{ channel: "phone", value: phone, kind: "personal", isPrimary: spec.phone !== "placeholder" }] : [],
     });
+    return customer.id;
+  };
+
+  for (const spec of ACCOUNTS) {
+    const known = have.get(spec.name);
+    // An earlier run that stopped between the account and its service point (an archived route, say) is finished here.
+    const unfinished = known && known.commercialStatus === "NEW" && !known.successorAccountId && (await api.accounts.servicePoints.list({ accountId: known.id })).length === 0;
+    if (known && !unfinished) {
+      created[spec.name] = known as never;
+      continue;
+    }
     const parent = spec.parent ? created[spec.parent] : undefined;
-    const account = await api.accounts.create({
-      customerId: customer.id,
-      ...(parent ? { parentAccountId: parent.id, numbering: "suffix" as const } : {}),
-      ...(spec.category ? { categoryId: categories.get(spec.category)! } : {}),
-      ...(spec.membershipClass ? { membershipClass: spec.membershipClass } : {}),
-    });
+    const account =
+      known ??
+      (await api.accounts.create({
+        customerId: await customerFor(spec),
+        ...(parent ? { parentAccountId: parent.id, numbering: "suffix" as const } : {}),
+        ...(spec.category ? { categoryId: categories.get(spec.category)! } : {}),
+        ...(spec.membershipClass ? { membershipClass: spec.membershipClass } : {}),
+      }));
     created[spec.name] = account as never;
     const place = spec.at ? near(centre[spec.area], ...spec.at) : undefined;
     const point = await api.accounts.servicePoints.create({

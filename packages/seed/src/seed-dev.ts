@@ -113,6 +113,14 @@ try {
     // Licensing publishes entitlements.changed, which is what gives Tariffs its default categories,
     // charge items and invoice types (and GIS its attachment rules): settle it before the API is used.
     await drainOutbox(database.db, consumers);
+    // A database licensed for Tariffs before Tariffs could seed its defaults never got the licence event, so the
+    // catalog is empty and no change of licence will come: license again from nothing so the event fires once.
+    if (plan.modules.includes("tariffs") && (await api.tariffs.categories.list({ includeInactive: true })).length === 0) {
+      await setEntitlements(database.db, organizationId, [], { label: "Flowless", reason: "Dev seed: re-license so Tariffs adds its defaults" });
+      await drainOutbox(database.db, consumers);
+      await setEntitlements(database.db, organizationId, plan.modules, { label: "Flowless", reason: "Dev seed: re-license so Tariffs adds its defaults" });
+      await drainOutbox(database.db, consumers);
+    }
 
     const areas = new Map((await api.hierarchy.areas({ includeArchived: true })).map((a) => [a.code, a.id]));
     for (const a of plan.areas) {
