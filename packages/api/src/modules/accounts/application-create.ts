@@ -6,7 +6,7 @@ import { loadEntitlements } from "../../kernel/entitlement-store";
 import { categoryExists } from "../tariffs";
 import type { Placement, Viewer } from "./access";
 import { presentApplication, type ApplicationResult } from "./application-present";
-import { logStep, publishStageChanged } from "./application-steps";
+import { applicationLog, publishStageChanged } from "./application-steps";
 import type { UserActionEnv } from "../../kernel/action-env";
 import { createCustomer, type NewCustomer } from "./customers";
 import { claimingId, createdStep } from "./idempotent";
@@ -95,7 +95,7 @@ async function applyCreation(env: UserActionEnv, viewer: Viewer, input: NewAppli
       })
       .returning(),
   );
-  const step = await logStep(env, row!.id, { kind: "created", from: null, to: "enquiry", reason: "Enquiry logged" });
+  const step = await applicationLog.append(env, row!.id, { kind: "created", fromStage: null, toStage: "enquiry", reason: "Enquiry logged" });
   await env.audit({
     action: "accounts.application_create",
     subjectType: "application",

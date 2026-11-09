@@ -1,9 +1,8 @@
-import { account, accountCommand } from "@flowless/db/schema/accounts";
+import { account } from "@flowless/db/schema/accounts";
 import type { AccountCommandKind } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import type { ActionEnv } from "../../kernel/action-env";
-import type { CommandRow } from "./commands";
-import { claimingId } from "./idempotent";
+import { commandLog, type CommandRow } from "./commands";
 import type { AccountRow } from "./service";
 
 /*
@@ -11,7 +10,7 @@ import type { AccountRow } from "./service";
  * name C-10) still get a place in the account's command log: a `succeed`, `relocate` or
  * `change_name` row with from-state = to-state. That gives them what status commands have: a
  * client-mintable id (a retry returns the earlier result, a different request under the id is
- * CONFLICT, both through `commandLog.once` in `commands.ts`), an actor and a reason, and a row in `commands.list`. The use case then audits
+ * CONFLICT, both through `commandLog.once` in `commands.ts`; the row is `commandLog.append`), an actor and a reason, and a row in `commands.list`. The use case then audits
  * and publishes itself.
  */
 
@@ -23,29 +22,19 @@ export async function logChange(
   row: Pick<AccountRow, "id" | "commercialStatus" | "serviceStatus" | "serviceStatusReason">,
   change: { id?: string | undefined; kind: ChangeKind; reason: string; note?: string | undefined; payload: Record<string, unknown>; fingerprint: string },
 ): Promise<CommandRow> {
-  const [command] = await claimingId(() =>
-    env.tx
-      .insert(accountCommand)
-      .values({
-        ...(change.id ? { id: change.id } : {}),
-        organizationId: env.organizationId,
-        accountId: row.id,
-        kind: change.kind,
-        fromCommercialStatus: row.commercialStatus,
-        toCommercialStatus: row.commercialStatus,
-        fromServiceStatus: row.serviceStatus,
-        toServiceStatus: row.serviceStatus,
-        serviceReason: row.serviceStatusReason,
-        reason: change.reason.trim(),
-        actorUserId: env.actor.userId,
-        source: env.source,
-        note: change.note ?? null,
-        payload: change.payload,
-        fingerprint: change.fingerprint,
-      })
-      .returning(),
-  );
-  return command!;
+  return commandLog.append(env, row.id, {
+    id: change.id,
+    kind: change.kind,
+    fromCommercialStatus: row.commercialStatus,
+    toCommercialStatus: row.commercialStatus,
+    fromServiceStatus: row.serviceStatus,
+    toServiceStatus: row.serviceStatus,
+    serviceReason: row.serviceStatusReason,
+    reason: change.reason,
+    note: change.note,
+    payload: change.payload,
+    fingerprint: change.fingerprint,
+  });
 }
 
 /** The account's current row (after earlier steps of the same use case changed it). */

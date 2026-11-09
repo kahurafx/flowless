@@ -13,7 +13,7 @@ import { gateReport } from "./activation";
 import { accountActivated, accountStatusChanged, accountTerminated, serviceStatusChanged } from "./events";
 import { hasPaymentGate } from "./gates";
 import { planCommand, type StatusCommand } from "./lifecycle";
-import { claimingId, loggedStep } from "./idempotent";
+import { defineStepLog } from "./idempotent";
 import { notFound } from "../../kernel/errors";
 import { findAccount, presentAccount, type AccountDto, type AccountRow } from "./service";
 import { activationSetting } from "./settings";
@@ -34,11 +34,7 @@ export type CommandRow = typeof accountCommand.$inferSelect;
  * actor and request fingerprint, and is CONFLICT for anything else. Every account step
  * (status commands, `succeed`, `change_name`, `relocate`) goes through it.
  */
-export const commandLog = loggedStep<CommandRow>({
-  find: async (tx, id) => (await tx.select().from(accountCommand).where(eq(accountCommand.id, id)))[0],
-  parentOf: (c) => c.accountId,
-  conflict: "That id was already used for a different request",
-});
+export const commandLog = defineStepLog(accountCommand, "accountId");
 
 export function toCommandDto(c: CommandRow) {
   return {
@@ -186,34 +182,24 @@ async function applyCommand(env: ActionEnv, row: AccountRow, req: CommandRequest
   }
 
   const to = plan.to;
-  const commandId = req.id ?? undefined;
-  const [command] = await claimingId(() =>
-    tx
-      .insert(accountCommand)
-      .values({
-        ...(commandId ? { id: commandId } : {}),
-        organizationId,
-        accountId: row.id,
-        kind: req.kind,
-        fromCommercialStatus: row.commercialStatus,
-        toCommercialStatus: to.commercial,
-        fromServiceStatus: row.serviceStatus,
-        toServiceStatus: to.service,
-        serviceReason: to.serviceReason,
-        reason: req.reason.trim(),
-        reasonCode: req.reasonCode ?? null,
-        actorUserId: env.actor.userId,
-        source: env.source,
-        note: req.note ?? null,
-        payload,
-        fingerprint,
-      })
-      .returning(),
-  );
+  const command = await commandLog.append(env, row.id, {
+    id: req.id,
+    kind: req.kind,
+    fromCommercialStatus: row.commercialStatus,
+    toCommercialStatus: to.commercial,
+    fromServiceStatus: row.serviceStatus,
+    toServiceStatus: to.service,
+    serviceReason: to.serviceReason,
+    reason: req.reason,
+    reasonCode: req.reasonCode,
+    note: req.note,
+    payload,
+    fingerprint,
+  });
 
   const [updated] = await tx
     .update(account)
-    .set({ commercialStatus: to.commercial, serviceStatus: to.service, serviceStatusReason: to.serviceReason, statusCommandId: command!.id })
+    .set({ commercialStatus: to.commercial, serviceStatus: to.service, serviceStatusReason: to.serviceReason, statusCommandId: command.id })
     .where(eq(account.id, row.id))
     .returning();
 
@@ -222,12 +208,12 @@ async function applyCommand(env: ActionEnv, row: AccountRow, req: CommandRequest
     subjectType: "account",
     subjectId: row.id,
     before: statusOf(row),
-    after: { ...statusOf(updated!), commandId: command!.id, ...payload },
+    after: { ...statusOf(updated!), commandId: command.id, ...payload },
     reason: req.reason.trim(),
   });
-  await publishFor(env, row, updated!, command!, via, settlement && settlement.ok ? settlement : null, req.approvalId);
+  await publishFor(env, row, updated!, command, via, settlement && settlement.ok ? settlement : null, req.approvalId);
 
-  return { command: toCommandDto(command!), account: await presentAccount(tx, updated!) };
+  return { command: toCommandDto(command), account: await presentAccount(tx, updated!) };
 }
 
 async function publishFor(

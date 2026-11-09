@@ -1,5 +1,5 @@
 import { application, applicationEvent } from "@flowless/db/schema/accounts";
-import type { ApplicationEventKind, ApplicationStage } from "@flowless/shared-types";
+import type { ApplicationStage } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import type { Viewer } from "./access";
@@ -8,7 +8,7 @@ import { configOf, findApplication, presentApplication, type ApplicationResult, 
 import type { ActionEnv } from "../../kernel/action-env";
 import { fingerprintOfRequest } from "./commands";
 import { applicationStageChanged } from "./events";
-import { claimingId, loggedStep } from "./idempotent";
+import { defineStepLog } from "./idempotent";
 
 /*
  * The application's step log (table `application_event`) and the stage moves written to it
@@ -19,44 +19,8 @@ import { claimingId, loggedStep } from "./idempotent";
  * that leaves it where it was.
  */
 
-/** The idempotency of the application step log: the same id replays for the same application, kind, actor and request. */
-export const applicationLog = loggedStep<ApplicationStepRow>({
-  find: async (tx, id) => (await tx.select().from(applicationEvent).where(eq(applicationEvent.id, id)))[0],
-  parentOf: (e) => e.applicationId,
-});
-
-interface NewStep {
-  id?: string | undefined;
-  kind: ApplicationEventKind;
-  from: ApplicationStage | null;
-  to: ApplicationStage;
-  reason: string;
-  payload?: Record<string, unknown>;
-  fingerprint?: string | undefined;
-}
-
-/** Appends one row to the application's step log. */
-export async function logStep(env: ActionEnv, applicationId: string, e: NewStep): Promise<ApplicationStepRow> {
-  const [row] = await claimingId(() =>
-    env.tx
-      .insert(applicationEvent)
-      .values({
-        ...(e.id ? { id: e.id } : {}),
-        organizationId: env.organizationId,
-        applicationId,
-        kind: e.kind,
-        fromStage: e.from,
-        toStage: e.to,
-        actorUserId: env.actor.userId,
-        source: env.source,
-        reason: e.reason.trim(),
-        payload: e.payload ?? {},
-        fingerprint: e.fingerprint ?? null,
-      })
-      .returning(),
-  );
-  return row!;
-}
+/** The application step log: append a step, replay a repeat (the same id for the same application, kind, actor and request). */
+export const applicationLog = defineStepLog(applicationEvent, "applicationId");
 
 /** Publishes `accounts.application_stage_changed` for a step row. */
 export function publishStageChanged(env: ActionEnv, app: Pick<ApplicationRow, "id" | "customerId">, step: ApplicationStepRow, from: ApplicationStage | null, to: ApplicationStage) {
@@ -84,13 +48,13 @@ export interface StageMove {
 
 /** Records a stage move: the step row, the new stage (plus any columns that move with it), the audit entry and the stage event. */
 export async function moveStage(env: ActionEnv, before: ApplicationRow, move: StageMove): Promise<{ row: ApplicationRow; event: ApplicationStepRow }> {
-  const event = await logStep(env, before.id, {
+  const event = await applicationLog.append(env, before.id, {
     id: move.id,
     kind: "stage_changed",
-    from: before.stage,
-    to: move.to,
+    fromStage: before.stage,
+    toStage: move.to,
     reason: move.reason,
-    ...(move.payload ? { payload: move.payload } : {}),
+    payload: move.payload,
     fingerprint: move.fingerprint,
   });
   const [row] = await env.tx

@@ -1,15 +1,18 @@
 import type { Transaction } from "@flowless/db";
 import { TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
+import type { ActionEnv } from "../../kernel/action-env";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 
 /*
  * The one idempotent-step mechanism (C-03, C-05, C-08 to C-10). A use case takes a
  * client-mintable id; the same id with the same request replays the earlier result and
- * anything else under that id is CONFLICT. The step log (`account_command`,
- * `application_event`, `relocation_event`) and the created rows (`application`,
- * `relocation`) differ only in the table and in what "the same request" means, so each is
- * a small `IdempotentStep` descriptor and every use case is `step.once(...)`: the descriptor
- * does the earlier-row lookup and the CONFLICT rule, the use case holds only its plan and effect.
+ * anything else under that id is CONFLICT. The step logs (`account_command`,
+ * `application_event`, `relocation_event`: one `defineStepLog` each) and the created rows
+ * (`application`, `relocation`: `createdStep`) differ only in the table and in what "the
+ * same request" means, and every use case is `log.once(...)`: the descriptor does the
+ * earlier-row lookup and the CONFLICT rule, the use case holds only its plan and effect.
  */
 
 /** Who is acting: the system has no user. */
@@ -43,7 +46,7 @@ export interface IdempotentStepRunner<Row, Expected> {
   ): Promise<Replayable<R>>;
 }
 
-export function idempotentStep<Row, Expected>(step: IdempotentStep<Row, Expected>): IdempotentStepRunner<Row, Expected> {
+function idempotentStep<Row, Expected>(step: IdempotentStep<Row, Expected>): IdempotentStepRunner<Row, Expected> {
   return {
     async once(env, id, expected, { replay, run }) {
       if (id) {
@@ -66,24 +69,48 @@ export interface LoggedStepExpected {
   fingerprint: string;
 }
 
+/** What every step-log table has in common; each also has its own parent column and its own state columns. */
+type StepLogTable = PgTable & {
+  id: PgColumn;
+  organizationId: PgColumn;
+  $inferSelect: { id: string; kind: string; actorUserId: string | null; fingerprint: string | null };
+};
+
+/** The columns `append` fills itself; the caller gives the rest of the table's row (kind, reason, state columns, payload, fingerprint, optional client id). */
+type Filled = "organizationId" | "actorUserId" | "source" | "occurredAt";
+
 /**
- * A step in an append-only log (`account_command`, `application_event`, `relocation_event`):
- * the same id replays only for the same parent, kind, actor and request fingerprint.
+ * One append-only step log with a client-mintable id (`account_command`, `application_event`,
+ * `relocation_event`): `table` is the log's table and `parent` the name of its column for the
+ * row a step belongs to (account, application or relocation). The tables name their state
+ * columns differently (two status axes, a stage, a status), so a step carries those columns
+ * itself, typed by the table.
+ *
+ * - `append(env, parentId, step)` inserts the row for the acting user or the system; a unique
+ *   violation on the client's id is CONFLICT.
+ * - `once(env, id, expected, { replay, run })` is the idempotent wrapper: the same id replays
+ *   only for the same parent, kind, actor and request fingerprint; anything else is CONFLICT.
  */
-export function loggedStep<Row extends { kind: string; actorUserId: string | null; fingerprint: string | null }>(log: {
-  find(tx: Transaction, id: string): Promise<Row | undefined>;
-  parentOf(row: Row): string;
-  conflict?: string;
-}): IdempotentStepRunner<Row, LoggedStepExpected> {
-  return idempotentStep<Row, LoggedStepExpected>({
-    find: log.find,
+export function defineStepLog<T extends StepLogTable, P extends keyof T["$inferSelect"] & keyof T["$inferInsert"] & string>(table: T, parent: P) {
+  type Row = T["$inferSelect"];
+  type Step = { reason: string } & Omit<T["$inferInsert"], Filled | P>;
+  const runner = idempotentStep<Row, LoggedStepExpected>({
+    find: async (tx, id) => (await tx.select().from(table as PgTable).where(eq(table.id, id)))[0] as Row | undefined,
     same: (earlier, expected, actorUserId) =>
-      log.parentOf(earlier) === expected.parentId &&
+      (earlier[parent] as unknown as string) === expected.parentId &&
       earlier.kind === expected.kind &&
       earlier.actorUserId === actorUserId &&
       earlier.fingerprint === expected.fingerprint,
-    conflict: log.conflict ?? "That id was already used for a different request",
+    conflict: "That id was already used for a different request",
   });
+  return {
+    once: runner.once,
+    async append(env: ActionEnv, parentId: string, step: Step): Promise<Row> {
+      const values = { ...step, reason: step.reason.trim(), organizationId: env.organizationId, [parent]: parentId, actorUserId: env.actor.userId, source: env.source };
+      const [row] = await claimingId(() => env.tx.insert(table as PgTable).values(values as never).returning());
+      return row as Row;
+    },
+  };
 }
 
 /**

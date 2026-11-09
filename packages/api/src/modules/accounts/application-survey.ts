@@ -6,7 +6,7 @@ import { requestApproval as requestKernelApproval, type ApprovalDecided, type Re
 import type { Viewer } from "./access";
 import { canRecordSurvey, planAdvance } from "./application-stages";
 import { configOf, customerName, findApplication, presentApplication, type ApplicationDto, type ApplicationRow } from "./application-present";
-import { applicationLog, logStep, moveStage } from "./application-steps";
+import { applicationLog, moveStage } from "./application-steps";
 import type { ActionEnv } from "../../kernel/action-env";
 import { fingerprintOfRequest } from "./commands";
 import { surveyApproval } from "./survey-approval";
@@ -104,11 +104,11 @@ async function applySurvey(env: ActionEnv, before: ApplicationRow, req: SurveyRe
     })
     .where(eq(application.id, before.id))
     .returning();
-  await logStep(env, before.id, {
+  await applicationLog.append(env, before.id, {
     id: req.id,
     kind: "survey_recorded",
-    from: before.stage,
-    to: before.stage,
+    fromStage: before.stage,
+    toStage: before.stage,
     reason: `Survey recorded: ${req.result.feasibility.replace("_", " ")}`,
     payload: { ...req.result, source: req.source, workOrderId: req.workOrderId ?? null },
     fingerprint,
@@ -170,7 +170,7 @@ export async function applySurveyDecision(env: ActionEnv, decided: ApprovalDecid
     if (!next.ok) {
       // Ended meanwhile (rejected or cancelled): note the outcome, change nothing else.
       await tx.update(application).set({ surveyApprovalState: "approved", updatedAt: new Date() }).where(eq(application.id, before.id));
-      await logStep(env, before.id, { kind: "survey_decided", from: before.stage, to: before.stage, reason: "Survey approved after the application ended", payload: { approvalId: decided.requestId, outcome: "approved" } });
+      await applicationLog.append(env, before.id, { kind: "survey_decided", fromStage: before.stage, toStage: before.stage, reason: "Survey approved after the application ended", payload: { approvalId: decided.requestId, outcome: "approved" } });
       return;
     }
     await moveStage(env, before, {
@@ -183,10 +183,10 @@ export async function applySurveyDecision(env: ActionEnv, decided: ApprovalDecid
     return;
   }
   await tx.update(application).set({ surveyApprovalState: "rejected", updatedAt: new Date() }).where(eq(application.id, before.id));
-  await logStep(env, before.id, {
+  await applicationLog.append(env, before.id, {
     kind: "survey_decided",
-    from: before.stage,
-    to: before.stage,
+    fromStage: before.stage,
+    toStage: before.stage,
     reason: `Survey ${decided.outcome}: record a new survey`,
     payload: { approvalId: decided.requestId, outcome: decided.outcome },
   });

@@ -15,7 +15,7 @@ import { servicePointRelocated, type JobCompleted } from "./events";
 import { localToday } from "./holders";
 import { claimingId } from "./idempotent";
 import { isOpen, placeOf, toRelocationDto, type RelocationDto, type RelocationRow } from "./relocation-present";
-import { logStep, lockedRelocation, openRelocationStep, relocationCreation } from "./relocation-steps";
+import { assertOpen, lockedRelocation, openRelocationStep, relocationCreation, relocationLog } from "./relocation-steps";
 import { createServicePoint } from "./service-points";
 import { assertPlacementInScope, findAccount, findServicePoint, toServicePointDto, validatePlacement, type AccountRow } from "./service";
 import { applicationSetting } from "./settings";
@@ -97,7 +97,7 @@ async function applyRequest(env: UserActionEnv, viewer: Viewer, input: NewReloca
         .returning(),
     "This service point already has a relocation under way, or that id is in use",
   );
-  await logStep(env, row!.id, { kind: "requested", from: null, to: "requested", reason: input.reason, payload: { feeItemCodes: codes } });
+  await relocationLog.append(env, row!.id, { kind: "requested", fromStatus: null, toStatus: "requested", reason: input.reason, payload: { feeItemCodes: codes } });
   await env.audit({
     action: "accounts.relocation_request",
     subjectType: "relocation",
@@ -119,31 +119,22 @@ export function recordRelocationSurvey(
   return openRelocationStep(env, viewer, req, {
     kind: "survey_recorded",
     fingerprint,
-    async apply(before) {
+    plan: (before) => {
       const to: RelocationStatus = req.feasibility === "feasible" ? "surveyed" : "requested";
-      await logStep(env, before.id, {
-        id: req.id,
-        kind: "survey_recorded",
-        from: before.status,
+      return {
         to,
         reason: `Survey recorded: ${req.feasibility.replace("_", " ")}`,
         payload: { feasibility: req.feasibility, findings: req.findings },
-        fingerprint,
-      });
-      const [row] = await env.tx
-        .update(relocation)
-        .set({ surveyFeasibility: req.feasibility, surveyFindings: req.findings.trim(), status: to, updatedAt: new Date() })
-        .where(eq(relocation.id, before.id))
-        .returning();
-      await env.audit({
-        action: "accounts.relocation_survey",
-        subjectType: "relocation",
-        subjectId: before.id,
-        before: { status: before.status },
-        after: { status: to, feasibility: req.feasibility },
-        reason: req.findings.trim(),
-      });
-      return row!;
+        set: { surveyFeasibility: req.feasibility, surveyFindings: req.findings.trim() },
+        audit: () => ({
+          action: "accounts.relocation_survey",
+          subjectType: "relocation",
+          subjectId: before.id,
+          before: { status: before.status },
+          after: { status: to, feasibility: req.feasibility },
+          reason: req.findings.trim(),
+        }),
+      };
     },
   });
 }
@@ -161,34 +152,22 @@ export function recordRelocationWork(
   return openRelocationStep(env, viewer, req, {
     kind: "work_recorded",
     fingerprint,
-    async apply(before) {
-      const [row] = await env.tx
-        .update(relocation)
-        .set({
-          finalReading: typedOr(req.finalReading, before.finalReading),
-          initialReading: typedOr(req.initialReading, before.initialReading),
-          workOrderId: req.workOrderId ?? before.workOrderId,
-          updatedAt: new Date(),
-        })
-        .where(eq(relocation.id, before.id))
-        .returning();
-      await logStep(env, before.id, {
-        id: req.id,
-        kind: "work_recorded",
-        from: before.status,
-        to: before.status,
-        reason: req.workOrderId ? "Relocation job completed" : "Readings recorded",
-        payload: { finalReading: req.finalReading ?? null, initialReading: req.initialReading ?? null, workOrderId: req.workOrderId ?? null },
-        fingerprint,
-      });
-      await env.audit({
+    plan: (before) => ({
+      to: before.status,
+      reason: req.workOrderId ? "Relocation job completed" : "Readings recorded",
+      payload: { finalReading: req.finalReading ?? null, initialReading: req.initialReading ?? null, workOrderId: req.workOrderId ?? null },
+      set: {
+        finalReading: typedOr(req.finalReading, before.finalReading),
+        initialReading: typedOr(req.initialReading, before.initialReading),
+        workOrderId: req.workOrderId ?? before.workOrderId,
+      },
+      audit: (row) => ({
         action: "accounts.relocation_work",
         subjectType: "relocation",
         subjectId: before.id,
-        after: { finalReading: row!.finalReading, initialReading: row!.initialReading, workOrderId: row!.workOrderId },
-      });
-      return row!;
-    },
+        after: { finalReading: row.finalReading, initialReading: row.initialReading, workOrderId: row.workOrderId },
+      }),
+    }),
   });
 }
 
@@ -243,7 +222,7 @@ async function applyCompletion(
 ) {
   const { tx } = env;
   const userId = env.actor.userId;
-  if (!isOpen(before.status)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `This relocation is ${before.status}` });
+  assertOpen(before);
   if (acct.commercialStatus === "TERMINATED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is terminated" });
   const config = (await readSetting(tx, applicationSetting)).value;
   if (config.relocation.surveyRequired && (before.status !== "surveyed" || before.surveyFeasibility !== "feasible")) {
@@ -278,10 +257,10 @@ async function applyCompletion(
     reason,
   });
 
-  await logStep(env, before.id, {
+  await relocationLog.append(env, before.id, {
     kind: "completed",
-    from: before.status,
-    to: "completed",
+    fromStatus: before.status,
+    toStatus: "completed",
     reason,
     payload: { newServicePointId: fresh.id, finalReading, initialReading },
   });
@@ -324,11 +303,11 @@ export function cancelRelocation(env: ActionEnv, viewer: Viewer, req: { id?: str
   return openRelocationStep(env, viewer, req, {
     kind: "cancelled",
     fingerprint,
-    async apply(before) {
-      await logStep(env, before.id, { id: req.id, kind: "cancelled", from: before.status, to: "cancelled", reason: req.reason, fingerprint });
-      const [row] = await env.tx.update(relocation).set({ status: "cancelled", updatedAt: new Date() }).where(eq(relocation.id, before.id)).returning();
-      await env.audit({ action: "accounts.relocation_cancel", subjectType: "relocation", subjectId: before.id, before: { status: before.status }, after: { status: "cancelled" }, reason: req.reason.trim() });
-      return row!;
-    },
+    plan: (before) => ({
+      to: "cancelled",
+      reason: req.reason,
+      set: {},
+      audit: () => ({ action: "accounts.relocation_cancel", subjectType: "relocation", subjectId: before.id, before: { status: before.status }, after: { status: "cancelled" }, reason: req.reason.trim() }),
+    }),
   });
 }
