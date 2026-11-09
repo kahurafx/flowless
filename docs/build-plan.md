@@ -182,6 +182,15 @@ Brought forward from the old Phases 9 and 10 and ported from Majimap (`majimap-v
 
 Activation gates that depend on later modules work by office checklist until those modules exist. The meter-installed gate is satisfied through Work Orders and Inventory in Phase 10, and the initial-reading gate through Metering in Phase 5.
 
+**Steps (each on its own branch, merged into local `main` when lint, types and tests are green):**
+
+- F1 Accounts core: `accounts` schema with RLS, customers and contacts (C-01), account numbers with check digit, configurable format and parent/child numbering (C-02), service points with GPS and the kernel scheme, zone, DMA and route (glossary), `accounts:*` procedures, events, audit, canary.
+- F2 Tariffs: `tariffs` schema, per-organization categories (T-02), tariff versions effective-dated for every type (T-01, T-03), the charge catalog (T-07), invoice types with payment terms, overdue policy and late-fee rules (T-08 to T-10).
+- F3 Account lifecycle: the two status axes and logged commands with actor and reason (C-03), the configurable status-by-charge table (C-04), the enquiry-to-active workflow with configurable gates and office checklist (C-05, C-06), memberships (C-07), succession, relocation, change of name and termination (C-08 to C-11) as far as they can go before the ledger and meters exist.
+- F4 Data quality: the C-12 rules as reports and an exception sweep, plus stale `NEW` and `PENDING_PAYMENT` accounts in the exception queue (C-06).
+- F5 Web: customers, accounts, service points, tariffs, charge catalog, invoice types and the data-quality dashboard, replacing the mocks.
+- F6 Dev seed and the acceptance run.
+
 **Done when:**
 
 - An account can go from enquiry to `ACTIVE` through configurable gates, with Work Orders and Inventory off.
