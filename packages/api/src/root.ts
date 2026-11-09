@@ -12,6 +12,7 @@ import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
 import { accountsRouter } from "./modules/accounts";
 import { createGisRouter } from "./modules/gis";
+import { tariffsRouter } from "./modules/tariffs";
 import { createWorkOrdersRouter } from "./modules/work-orders";
 import { createCallerFactory, publicProcedure, router } from "./trpc";
 import { work } from "./wiring";
@@ -37,6 +38,7 @@ export const appRouter = router({
   workOrders: createWorkOrdersRouter(work),
   gis: createGisRouter(work),
   accounts: accountsRouter,
+  tariffs: tariffsRouter,
 });
 
 export type AppRouter = typeof appRouter;
