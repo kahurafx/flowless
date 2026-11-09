@@ -1,14 +1,13 @@
 import { withTenant } from "@flowless/db";
 import { account, accountCommand } from "@flowless/db/schema/accounts";
-import { tariffVersion, tariffVersionLine } from "@flowless/db/schema/tariffs";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { consumers } from "../../../kernel/consumers";
+import { setEntitlements } from "../../../kernel/entitlement-store";
 import { drainOutbox } from "../../../kernel/events";
 import { sweepStaleAccounts } from "..";
 import { activationConfigSchema } from "../gates";
-import { nextPeriodStartIso } from "../../tariffs/dating";
-import { REFERENCE_BANDS, expectCode, increasingContent, setupTariffsEnv, type TariffsEnv } from "../../tariffs/test/test-support";
+import { expectCode, setupAccountsEnv, type AccountsEnv } from "./test-support";
 
 /*
  * Phase 3 acceptance (docs/build-plan.md → Phase 3 "Done when"), one test per bullet, run end to
@@ -17,11 +16,32 @@ import { REFERENCE_BANDS, expectCode, increasingContent, setupTariffsEnv, type T
  * coverage of every `accounts` and `tariffs` table is its own test file (`isolation-canary.test.ts`).
  */
 
-let env: TariffsEnv;
+// Organization A of the Accounts test environment, licensed for Accounts and Tariffs only (Tariffs is another module, so it is
+// reached through its public procedures and the database, never its files).
+let env: AccountsEnv;
 beforeAll(async () => {
-  env = await setupTariffsEnv();
+  env = await setupAccountsEnv();
+  await setEntitlements(env.t.app, env.orgA, ["accounts", "tariffs"]);
 });
 afterAll(() => env?.t.stop());
+
+/** The reference bands from requirements section 6 (minor units per unit; the top band's rate is a placeholder, OQ-1). */
+const REFERENCE_BANDS = [
+  { from: 0, to: 6, rate: 8250n },
+  { from: 6, to: 20, rate: 9600n },
+  { from: 20, to: 50, rate: 11000n },
+  { from: 50, to: 100, rate: 13100n },
+  { from: 100, to: 300, rate: 17250n },
+  { from: 300, to: null, rate: 24000n },
+];
+const increasingContent = (bands = REFERENCE_BANDS) => ({ type: "increasing_block" as const, bands });
+const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });
+const inDays = (days: number) => shift(today(), days);
+/** The first day of next month: the default period start (`tariffs.policy` day 1). */
+const nextPeriodStart = () => {
+  const [y, m] = today().split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+};
 
 const drain = () => drainOutbox(env.t.app, consumers);
 const ACTIVATION_KEY = "accounts.activation";
@@ -97,7 +117,7 @@ describe("Phase 3 acceptance", () => {
 
   // Done when 2: a tariff change effective next period is stored as a new version.
   it("stores a tariff change effective next period as a new version and leaves the old one untouched", async () => {
-    const since = env.inDays(-60);
+    const since = inDays(-60);
     const created = await env.admin.tariffs.create({ name: "Acceptance block tariff", type: "increasing_block", content: increasingContent(), effectiveFrom: since });
     const before = await versionRows(created.id);
     expect(before.versions).toHaveLength(1);
@@ -106,14 +126,14 @@ describe("Phase 3 acceptance", () => {
     // The change: the first band rises from 82.50 to 95.00, from the next period start (the default).
     const raised = increasingContent(REFERENCE_BANDS.map((b, i) => (i === 0 ? { ...b, rate: 9500n } : b)));
     const added = await env.admin.tariffs.addVersion({ tariffId: created.id, content: raised });
-    const periodStart = nextPeriodStartIso(env.today(), { periodStartDay: 1 });
+    const periodStart = nextPeriodStart();
     expect(added).toMatchObject({ versionNo: 2, effectiveFrom: periodStart });
 
     // A new row; the old version row and its lines are exactly as they were.
     const after = await versionRows(created.id);
     expect(after.versions).toHaveLength(2);
-    expect(after.versions.find((v) => v.versionNo === 1)).toEqual(before.versions[0]);
-    expect(after.lines.filter((l) => l.versionId === before.versions[0]!.id)).toEqual(before.lines);
+    expect(after.versions.find((v) => v.version_no === 1)).toEqual(before.versions[0]);
+    expect(after.lines.filter((l) => l.version_id === before.versions[0]!.id)).toEqual(before.lines);
 
     // `inForce` answers the old rates before the effective date and the new ones from it.
     const dayBefore = shift(periodStart, -1);
@@ -129,12 +149,12 @@ describe("Phase 3 acceptance", () => {
     // The database itself refuses to change or remove a version, even for the application's own role.
     const id = before.versions[0]!.id;
     const denied = { cause: { message: expect.stringMatching(/permission denied/) } };
-    const asApp = <T>(fn: Parameters<typeof withTenant<T>>[2]) => withTenant(env.t.app, env.orgA, fn);
-    await expect(asApp((tx) => tx.update(tariffVersion).set({ effectiveFrom: "2030-01-01" }).where(eq(tariffVersion.id, id)))).rejects.toMatchObject(denied);
-    await expect(asApp((tx) => tx.delete(tariffVersion).where(eq(tariffVersion.id, id)))).rejects.toMatchObject(denied);
-    await expect(asApp((tx) => tx.update(tariffVersionLine).set({ rate: 1n }).where(eq(tariffVersionLine.versionId, id)))).rejects.toMatchObject(denied);
-    await expect(asApp((tx) => tx.delete(tariffVersionLine).where(eq(tariffVersionLine.versionId, id)))).rejects.toMatchObject(denied);
-    expect((await versionRows(created.id)).versions.find((v) => v.versionNo === 1)).toEqual(before.versions[0]);
+    const asApp = (statement: ReturnType<typeof sql>) => withTenant(env.t.app, env.orgA, (tx) => tx.execute(statement));
+    await expect(asApp(sql`update tariffs.tariff_version set effective_from = date '2030-01-01' where id = ${id}`)).rejects.toMatchObject(denied);
+    await expect(asApp(sql`delete from tariffs.tariff_version where id = ${id}`)).rejects.toMatchObject(denied);
+    await expect(asApp(sql`update tariffs.tariff_version_line set rate = 1 where version_id = ${id}`)).rejects.toMatchObject(denied);
+    await expect(asApp(sql`delete from tariffs.tariff_version_line where version_id = ${id}`)).rejects.toMatchObject(denied);
+    expect((await versionRows(created.id)).versions.find((v) => v.version_no === 1)).toEqual(before.versions[0]);
   });
 
   // Done when 3: stale NEW or PENDING_PAYMENT accounts appear in the exception queue.
@@ -179,13 +199,13 @@ describe("Phase 3 acceptance", () => {
 });
 
 async function versionRows(tariffId: string) {
-  const versions = await env.db.select().from(tariffVersion).where(eq(tariffVersion.tariffId, tariffId)).orderBy(tariffVersion.versionNo);
-  const lines = await env.db
-    .select()
-    .from(tariffVersionLine)
-    .where(sql`${tariffVersionLine.versionId} in (select id from tariffs.tariff_version where tariff_id = ${tariffId})`)
-    .orderBy(tariffVersionLine.versionId, tariffVersionLine.position);
-  return { versions, lines };
+  const versions = await env.db.execute<{ id: string; version_no: number } & Record<string, unknown>>(
+    sql`select * from tariffs.tariff_version where tariff_id = ${tariffId} order by version_no`,
+  );
+  const lines = await env.db.execute<{ version_id: string } & Record<string, unknown>>(
+    sql`select * from tariffs.tariff_version_line where version_id in (select id from tariffs.tariff_version where tariff_id = ${tariffId}) order by version_id, position`,
+  );
+  return { versions: [...versions], lines: [...lines] };
 }
 
 /** A `YYYY-MM-DD` date shifted by whole days. */
