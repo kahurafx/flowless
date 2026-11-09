@@ -9,7 +9,7 @@ import { setEntitlements } from "./kernel/entitlement-store";
 import { raiseException } from "./kernel/exception-store";
 import { notify } from "./kernel/notification-store";
 import { reportPublishProblems } from "./kernel/report-guard";
-import { reports } from "./kernel/report-registry";
+import { reports } from "./wiring";
 import { allocateInvoiceNumber } from "./modules/tariffs";
 import { addMember, callerFor, callPath, procedures, type Member } from "./test-support";
 

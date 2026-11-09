@@ -1,26 +1,19 @@
 import type { Consumer } from "./events";
-import { seedAttachmentRulesOnLicence } from "../modules/gis";
-import { applySurveyOutcome, recordRelocationFromJob, recordSurveyFromJob, recordWriteOffDecision } from "../modules/accounts";
-import { seedDefaultsOnCreation, seedDefaultsOnLicence } from "../modules/tariffs";
 import { createOrganizationSettings } from "./organization-events";
 
 /**
  * Every event consumer, kernel and modules (K-09). `apps/worker` runs these. A module adds
- * its consumers here from its own `events.ts`; an unlicensed module's are skipped.
+ * its consumers from its `registerKernel` (called in `src/wiring.ts`) with `registerConsumer`;
+ * an unlicensed module's are skipped. Live: read it only after wiring (import it from
+ * `wiring.ts` or the package index).
  */
-export const consumers: readonly Consumer[] = [
-  createOrganizationSettings as Consumer,
-  seedAttachmentRulesOnLicence as Consumer,
-  seedDefaultsOnCreation as Consumer,
-  seedDefaultsOnLicence as Consumer,
-  recordWriteOffDecision as Consumer,
-  applySurveyOutcome as Consumer,
-  recordSurveyFromJob as Consumer,
-  recordRelocationFromJob as Consumer,
-];
+export const consumers: readonly Consumer[] = [createOrganizationSettings as Consumer];
 
-const names = new Set<string>();
-for (const c of consumers) {
-  if (names.has(c.name)) throw new Error(`Consumer "${c.name}" is registered twice`);
-  names.add(c.name);
+const list = consumers as Consumer[];
+const names = new Set<string>(list.map((c) => c.name));
+
+export function registerConsumer<T>(consumer: Consumer<T>): void {
+  if (names.has(consumer.name)) throw new Error(`Consumer "${consumer.name}" is registered twice`);
+  names.add(consumer.name);
+  list.push(consumer as Consumer);
 }

@@ -3,7 +3,7 @@ import { account, application, applicationEvent } from "@flowless/db/schema/acco
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { consumers } from "../../../kernel/consumers";
+import { consumers } from "../../../wiring";
 import { setEntitlements } from "../../../kernel/entitlement-store";
 import { drainOutbox } from "../../../kernel/events";
 import { addMember } from "../../../test-support";

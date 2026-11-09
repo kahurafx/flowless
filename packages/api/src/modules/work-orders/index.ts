@@ -1,4 +1,7 @@
+import type { KernelRegistrar } from "../../kernel/registrar";
 import type { WorkRegistry } from "../../kernel/work";
+import { workOrderFileSubject as jobFiles } from "./files";
+import { kindPolicySetting as kindPolicy } from "./policy";
 import { WORK_ORDER_KINDS } from "./kinds";
 import { workOrderAssetWork } from "./link/asset-work";
 import { workOrderBranchGuard } from "./link/branch-guard";
@@ -25,3 +28,9 @@ export { sweepOverdueWorkOrders } from "./sla";
 export { WORK_ORDER_KINDS } from "./kinds";
 export { WORK_ORDER_BRANCH_PREFIX } from "./link/branch-guard";
 export { workOrderAssigned, workOrderCompleted, workOrderCreated, workOrderStatusChanged, type WorkOrderCompleted } from "./events";
+
+/** Adds Work Orders' setting and file subject to the kernel's registries; called in `wiring.ts`. */
+export function registerKernel(kernel: KernelRegistrar) {
+  kernel.setting(kindPolicy);
+  kernel.fileSubject(jobFiles);
+}

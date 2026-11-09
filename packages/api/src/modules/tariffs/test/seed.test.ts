@@ -3,7 +3,7 @@ import { DEFAULT_CATEGORIES } from "@flowless/shared-types";
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { consumers } from "../../../kernel/consumers";
+import { consumers } from "../../../wiring";
 import { setEntitlements } from "../../../kernel/entitlement-store";
 import { drainOutbox, replayEvents, type Consumer } from "../../../kernel/events";
 import { DEFAULT_CHARGE_ITEMS, DEFAULT_INVOICE_TYPES, ensureDefaults, seedDefaultsOnCreation } from "../index";

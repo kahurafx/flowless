@@ -1,3 +1,10 @@
+import type { KernelRegistrar } from "../../kernel/registrar";
+import { recordWriteOffDecision as writeOffConsumer, writeOffApproval as writeOffKind } from "./approvals";
+import { findingsReport, summaryReport } from "./data-quality-queries";
+import { activationSetting as activation, applicationSetting as application, dataQualitySetting as dataQuality, membershipSetting as membership, numberingSetting as numbering, statusRulesSetting as statusRules } from "./settings";
+import { surveyApproval as surveyKind } from "./survey-approval";
+import { applySurveyOutcome as surveyConsumer, recordRelocationFromJob as relocationConsumer, recordSurveyFromJob as surveyJobConsumer } from "./work-kinds";
+
 /*
  * The Accounts module's published interface (NF-30): what `root.ts`, the kernel registries
  * and the worker use. Other modules learn about customers, accounts and service points
@@ -70,3 +77,21 @@ export {
   type ReadingHandover,
   type ReadingHandoverRequest,
 } from "./sources";
+
+/** Adds Accounts' settings, approval kinds, consumers and reports to the kernel's registries; called in `wiring.ts`. */
+export function registerKernel(kernel: KernelRegistrar) {
+  kernel.setting(numbering);
+  kernel.setting(statusRules);
+  kernel.setting(activation);
+  kernel.setting(application);
+  kernel.setting(membership);
+  kernel.setting(dataQuality);
+  kernel.approval(writeOffKind);
+  kernel.approval(surveyKind);
+  kernel.consumer(writeOffConsumer);
+  kernel.consumer(surveyConsumer);
+  kernel.consumer(surveyJobConsumer);
+  kernel.consumer(relocationConsumer);
+  kernel.report(summaryReport);
+  kernel.report(findingsReport);
+}

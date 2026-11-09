@@ -3,10 +3,9 @@ import { DATA_QUALITY_RULE_KEYS, MODULE_KEYS, moduleMatrix, type ModuleKey } fro
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { escalateApprovals } from "./kernel/approval-store";
-import { consumers } from "./kernel/consumers";
 import { setEntitlements } from "./kernel/entitlement-store";
 import { dispatchOutbox } from "./kernel/events";
-import { jobs } from "./kernel/job-registry";
+import { consumers, jobs } from "./wiring";
 import { runJobs } from "./kernel/jobs";
 import { sweepDataQuality, sweepStaleAccounts } from "./modules/accounts";
 import { sweepOverdueWorkOrders } from "./modules/work-orders";

@@ -2,7 +2,7 @@ import { withTenant } from "@flowless/db";
 import { account, accountCommand } from "@flowless/db/schema/accounts";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { consumers } from "../../../kernel/consumers";
+import { consumers } from "../../../wiring";
 import { setEntitlements } from "../../../kernel/entitlement-store";
 import { drainOutbox } from "../../../kernel/events";
 import { sweepStaleAccounts } from "..";

@@ -1,3 +1,7 @@
+import type { KernelRegistrar } from "../../kernel/registrar";
+import { seedAttachmentRulesOnLicence as seedRules } from "./events";
+import { gisAssetFileSubject as assetFiles } from "./files";
+import { conditionTrendReport as conditionTrend, recentFindingsReport as recentFindings } from "./reports";
 import type { WorkRegistry } from "../../kernel/work";
 import { GIS_WORK_KINDS } from "./kinds";
 import { LEGACY_FIELD_PREFIX, personalBranchGuard } from "./link/branch-guard";
@@ -36,3 +40,11 @@ export {
   gisConnectionPosted,
   seedAttachmentRulesOnLicence,
 } from "./events";
+
+/** Adds GIS' file subject, reports and licence consumer to the kernel's registries; called in `wiring.ts`. */
+export function registerKernel(kernel: KernelRegistrar) {
+  kernel.fileSubject(assetFiles);
+  kernel.report(recentFindings);
+  kernel.report(conditionTrend);
+  kernel.consumer(seedRules);
+}

@@ -6,7 +6,7 @@ import { and, eq, like, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setEntitlements } from "../../../kernel/entitlement-store";
 import { reportPublishProblems } from "../../../kernel/report-guard";
-import { reports } from "../../../kernel/report-registry";
+import { reports } from "../../../wiring";
 import { addMember } from "../../../test-support";
 import { dataQualityFindingsReport, dataQualitySummaryReport, registerDataQualitySource, sweepDataQuality } from "..";
 import { dataQualitySetting } from "../settings";

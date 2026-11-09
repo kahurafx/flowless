@@ -1,3 +1,7 @@
+import type { KernelRegistrar } from "../../kernel/registrar";
+import { seedDefaultsOnCreation as creationConsumer, seedDefaultsOnLicence as licenceConsumer } from "./events";
+import { tariffPolicySetting as policy } from "./settings";
+
 /*
  * The Tariffs module's published interface (NF-30): what `root.ts` and the kernel registries
  * use, and what other modules may call. Accounts keeps `category_id` as an opaque uuid and
@@ -44,3 +48,10 @@ export {
 export { nextPeriodStart, planEffectiveDate, versionInForce, versionSpans } from "./dating";
 export { installmentAmounts, minimumDeposit, formatInvoiceNumber } from "./invoice-policy";
 export { lateFee, lateFeeRuleSchema, type LateFeeResult, type LateFeeRule } from "./late-fee";
+
+/** Adds Tariffs' setting and default-seeding consumers to the kernel's registries; called in `wiring.ts`. */
+export function registerKernel(kernel: KernelRegistrar) {
+  kernel.setting(policy);
+  kernel.consumer(creationConsumer);
+  kernel.consumer(licenceConsumer);
+}

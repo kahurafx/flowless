@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { withTenant } from "@flowless/db";
 import { reportPublishProblems } from "../../../kernel/report-guard";
-import { reports } from "../../../kernel/report-registry";
+import { reports } from "../../../wiring";
 import { expectCode, setupTestEnv, type TestEnv } from "./test-support";
 
 describe("reports", () => {

@@ -1,25 +1,29 @@
-import { approvalPolicySetting } from "./approval-store";
-import { approvals } from "./approval-registry";
 import type { SettingDef } from "./config-store";
-import { activationSetting, applicationSetting, dataQualitySetting, membershipSetting, numberingSetting, statusRulesSetting } from "../modules/accounts";
-import { tariffPolicySetting } from "../modules/tariffs";
-import { kindPolicySetting } from "../modules/work-orders";
 import { regionalSetting } from "./regional";
 
 /**
- * Every setting in the configuration store (K-10). A module adds its own when it ships
- * (billing policy, estimation policy, statuses, templates), defined in its module folder.
- * Each approval kind brings its policy (`approvals.<kind>`).
+ * Every setting in the configuration store (K-10). A module adds its own from its
+ * `registerKernel` (called in `src/wiring.ts`) with `registerSetting`, defined in its module
+ * folder; settings come in registration order, then each approval kind's policy
+ * (`approvals.<kind>`, added by `registerApproval`). Live: read it only after wiring.
  */
-export const settings: readonly SettingDef[] = [
-  regionalSetting as SettingDef,
-  kindPolicySetting as SettingDef,
-  numberingSetting as SettingDef,
-  statusRulesSetting as SettingDef,
-  activationSetting as SettingDef,
-  applicationSetting as SettingDef,
-  membershipSetting as SettingDef,
-  dataQualitySetting as SettingDef,
-  tariffPolicySetting as SettingDef,
-  ...approvals.map((a) => approvalPolicySetting(a) as SettingDef),
-];
+export const settings: readonly SettingDef[] = [regionalSetting as SettingDef];
+
+const list = settings as SettingDef[];
+const keys = new Set<string>(list.map((s) => s.key));
+let own = list.length;
+
+function add(def: SettingDef, at: number): void {
+  if (keys.has(def.key)) throw new Error(`Setting "${def.key}" is registered twice`);
+  keys.add(def.key);
+  list.splice(at, 0, def);
+}
+
+export function registerSetting<T>(def: SettingDef<T>): void {
+  add(def as SettingDef, own++);
+}
+
+/** An approval kind's policy setting, kept after the module settings. Called by `registerApproval`. */
+export function registerApprovalSetting(def: SettingDef): void {
+  add(def, list.length);
+}
