@@ -1,6 +1,6 @@
 import { COMMERCIAL_STATUSES, SERVICE_STATES, type CommercialStatus, type ServiceState } from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
-import { COMMERCIAL_MOVES, planCommand, stateIsValid, STATUS_COMMANDS, type AccountState, type PlanContext, type StatusCommand } from "./lifecycle";
+import { COMMERCIAL_MOVES, planCommand, planStatusCommand, stateIsValid, STATUS_COMMANDS, type AccountState, type PlanContext, type StatusCommand } from "./lifecycle";
 
 // C-03: the account state machine.
 
@@ -83,6 +83,23 @@ describe("account state machine (C-03)", () => {
         if (!plan.ok) continue;
         expect(plan.to.commercial).toBe(expected[kind] ?? state.commercial);
         expect(COMMERCIAL_MOVES[kind].from).toContain(state.commercial);
+      }
+    }
+  });
+
+  it("planStatusCommand is planCommand plus the kind and the status it starts from", () => {
+    for (const state of validStates) {
+      for (const kind of STATUS_COMMANDS) {
+        for (const ctx of contexts) {
+          const input = { kind, reason: "Because" };
+          const plain = planCommand(state, input, ctx);
+          const plan = planStatusCommand(state, input, ctx);
+          if (!plain.ok) {
+            expect(plan).toEqual(plain);
+            continue;
+          }
+          expect(plan).toEqual({ ok: true, kind, from: state.commercial, to: plain.to });
+        }
       }
     }
   });

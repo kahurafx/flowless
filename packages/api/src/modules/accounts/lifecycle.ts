@@ -3,7 +3,7 @@ import type { AccountCommandKind, CommercialStatus, ServiceState } from "@flowle
 /*
  * The account state machine (C-03), pure: no I/O, no clock. It decides, for an account's
  * current state and a command, the state that results or why the command is refused.
- * `service.ts` runs it under the account's row lock, writes the command row and updates the
+ * `commands.ts` runs it under the account's row lock, writes the command row and updates the
  * account; nothing else may change a status (the database trigger enforces that too).
  *
  * Commercial status moves
@@ -38,8 +38,7 @@ export const STATUS_COMMANDS = [
 ] as const satisfies readonly AccountCommandKind[];
 export type StatusCommand = (typeof STATUS_COMMANDS)[number];
 
-/** Where each command may start and end on the commercial axis (activate from NEW has a further condition). */
-export const COMMERCIAL_MOVES: Record<StatusCommand, { from: readonly CommercialStatus[]; to: CommercialStatus | null }> = {
+const MOVES = {
   mark_pending_payment: { from: ["NEW"], to: "PENDING_PAYMENT" },
   activate: { from: ["NEW", "PENDING_PAYMENT"], to: "ACTIVE" },
   make_dormant: { from: ["ACTIVE"], to: "DORMANT" },
@@ -48,7 +47,13 @@ export const COMMERCIAL_MOVES: Record<StatusCommand, { from: readonly Commercial
   // Service commands leave the commercial status as it is.
   disconnect_service: { from: ["ACTIVE", "DORMANT"], to: null },
   reconnect_service: { from: ["ACTIVE"], to: null },
-};
+} as const satisfies Record<StatusCommand, { from: readonly CommercialStatus[]; to: CommercialStatus | null }>;
+
+/** Where each command may start and end on the commercial axis (activate from NEW has a further condition). */
+export const COMMERCIAL_MOVES: Record<StatusCommand, { from: readonly CommercialStatus[]; to: CommercialStatus | null }> = MOVES;
+
+/** The commercial statuses command `K` may start from, as literals. */
+export type Origin<K extends StatusCommand> = (typeof MOVES)[K]["from"][number];
 
 export interface PlanContext {
   /** The organization requires payment before activation (the payment gate is enabled and required). */
@@ -67,6 +72,11 @@ export interface PlanInput {
 }
 
 export type Plan = { ok: true; to: AccountState } | { ok: false; problem: string };
+
+/** The move a command makes, per kind: `from` is typed by what that kind allows, so nothing downstream casts it. */
+export type Move = { [K in StatusCommand]: { kind: K; from: Origin<K>; to: AccountState } }[StatusCommand];
+export type MoveOf<K extends StatusCommand> = Extract<Move, { kind: K }>;
+export type StatusPlan = ({ ok: true } & Move) | { ok: false; problem: string };
 
 const refuse = (problem: string): Plan => ({ ok: false, problem });
 const words = (status: CommercialStatus) => status.toLowerCase().replace("_", " ");
@@ -123,6 +133,18 @@ export function planCommand(state: AccountState, input: PlanInput, ctx: PlanCont
       if (state.service === "CONNECTED") return refuse("The service is already connected");
       return { ok: true, to: { ...state, service: "CONNECTED", serviceReason: null } };
   }
+}
+
+/**
+ * `planCommand`, with the move it makes: the kind and the commercial status it starts from,
+ * narrowed to what that kind allows (`plan.kind === "terminate"` gives `plan.from` as one of
+ * the four statuses termination starts from).
+ */
+export function planStatusCommand(state: AccountState, input: PlanInput, ctx: PlanContext): StatusPlan {
+  const plan = planCommand(state, input, ctx);
+  if (!plan.ok) return plan;
+  // `planCommand` checked `state.commercial` against COMMERCIAL_MOVES[input.kind].from, which MOVES types per kind.
+  return { ok: true, kind: input.kind, from: state.commercial, to: plan.to } as StatusPlan;
 }
 
 function actionName(kind: StatusCommand): string {
