@@ -15,7 +15,7 @@ import { listEffective } from "./versioning/engine";
  * reports.ts. Everything is about the live network (main): a branch isn't the network yet.
  *
  * The two tabular queries are reports (X-01): `defineReport`, registered in
- * kernel/report-registry.ts, so the X-04 guard plans them and the isolation canary runs
+ * the module's `registerKernel` (see `src/wiring.ts`), so the X-04 guard plans them and the isolation canary runs
  * them; they rely on RLS, never on an organization filter. `summary` and `alerts` stay
  * procedures: they combine several versioned tables through the branch overlay and the
  * DMA valve sets in code, which no single query expresses. Majimap's `technicianActivity`

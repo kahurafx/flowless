@@ -13,7 +13,7 @@ import { accountVisible, type Viewer } from "./access";
  * `facts`, gathered once per request by `data-quality-facts.ts`: the account ids another
  * module's source reported, the service-point placements the kernel hierarchy says are
  * confused, and the category ids that are unknown or deactivated. The two queries are
- * reports (`defineReport`, registered in `kernel/report-registry.ts`), so the X-04 guard plans
+ * reports (`defineReport`, registered by `registerKernel` in the index), so the X-04 guard plans
  * them and the isolation canary runs them. A report cannot know who is asking, so the member's
  * scope arrives as a parameter and becomes the same `accountVisible` filter the lists use.
  */

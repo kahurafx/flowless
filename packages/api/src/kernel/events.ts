@@ -8,7 +8,7 @@ import { raiseException, resolveByDedupeKey } from "./exception-store";
 /**
  * Event bus (K-09). Modules define events in their `events.ts` and publish them with
  * `ctx.publish(event, payload)` inside the transaction of the change. Consumers are
- * registered in `kernel/consumers.ts` and run by `apps/worker`, each event delivered to
+ * registered with `registerConsumer` by each module's `registerKernel` and run by `apps/worker`, each event delivered to
  * each consumer at most once (receipts), inside the event's tenant.
  */
 export interface EventDef<T> {
