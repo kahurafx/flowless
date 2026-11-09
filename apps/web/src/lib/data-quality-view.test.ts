@@ -1,6 +1,6 @@
 import { DATA_QUALITY_RULES } from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
-import { cleanHeadline, duplicateKeyText, ruleSourceLabel, ruleTiles, type SummaryRule } from "./data-quality-view";
+import { cleanHeadline, defaultRule, duplicateKeyText, ruleSourceLabel, ruleTiles, type SummaryRule } from "./data-quality-view";
 
 const rule = (over: Partial<SummaryRule> & Pick<SummaryRule, "key">): SummaryRule => ({ label: over.key, severity: "warning", state: "enabled", count: 0, ...over });
 
@@ -40,5 +40,17 @@ describe("duplicate groups", () => {
   it("shows phones with a plus and ids as they are", () => {
     expect(duplicateKeyText("phone", "254712345678")).toBe("+254712345678");
     expect(duplicateKeyText("national_id", "12345678")).toBe("12345678");
+  });
+});
+
+describe("default rule", () => {
+  it("lists the most serious rule that has findings first", () => {
+    const tiles = ruleTiles([
+      rule({ key: "account_no_phone", count: 9, severity: "warning" }),
+      rule({ key: "account_no_coordinates", count: 20, severity: "info" }),
+      rule({ key: "account_category_missing", count: 1, severity: "critical" }),
+    ]);
+    expect(defaultRule(tiles)).toBe("account_category_missing");
+    expect(defaultRule(ruleTiles([rule({ key: "account_no_phone", count: 0 }), rule({ key: "zone_equals_route", state: "disabled", count: null })]))).toBeNull();
   });
 });

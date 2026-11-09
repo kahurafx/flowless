@@ -96,3 +96,12 @@ export const duplicateMatchLabel: Record<"national_id" | "registration_number" |
 export function duplicateKeyText(matchedOn: keyof typeof duplicateMatchLabel, key: string): string {
   return matchedOn === "phone" && !key.startsWith("+") ? `+${key}` : key;
 }
+
+const severityRank: Record<DataQualitySeverity, number> = { critical: 0, warning: 1, info: 2 };
+
+/** The rule to list findings for when none is chosen: the most serious one with findings, ties in catalogue order. */
+export function defaultRule(tiles: readonly RuleTile[]): DataQualityRuleKey | null {
+  const flagged = tiles.filter((t) => t.browsable);
+  if (flagged.length === 0) return null;
+  return [...flagged].sort((a, b) => severityRank[a.severity] - severityRank[b.severity])[0]!.key;
+}
