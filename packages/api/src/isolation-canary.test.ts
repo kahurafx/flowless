@@ -28,6 +28,17 @@ interface Canary {
   comment: string;
   /** Tenant B's GIS network, built through the GIS API (Phase 2 W3). */
   gis: GisCanary;
+  /** Tenant B's customer, account, child account and service point, built through the Accounts API (Phase 3 F1). */
+  accounts: AccountsCanary;
+}
+
+interface AccountsCanary {
+  customer: string;
+  contact: string;
+  account: string;
+  accountNumber: string;
+  child: string;
+  servicePoint: string;
 }
 
 interface GisCanary {
@@ -66,7 +77,7 @@ let bIdentifiers: Set<string>;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 /** Schemas holding tenant tables: the kernel and every module schema. */
-const TENANT_SCHEMAS = ["kernel", "gis", "work_orders"];
+const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts"];
 
 async function tenantTables(): Promise<{ schema: string; table: string }[]> {
   const rows = await t.admin.execute<{ table_schema: string; table_name: string }>(sql`
@@ -160,6 +171,7 @@ async function seedB(): Promise<Canary> {
     position: { latitude: -6.7924, longitude: 39.2083 },
   });
   const gis = await seedNetwork(asB, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
+  const accounts = await seedAccounts(asB, { schemeId: scheme.id, zoneId: zone.id, dmaId: dmaArea.id, routeId: route.id, connectionId: gis.connection.id });
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -171,7 +183,48 @@ async function seedB(): Promise<Canary> {
     crew: team.id,
     comment,
     gis,
+    accounts,
     ...seeded,
+  };
+}
+
+/**
+ * Tenant B's Accounts records, through the Accounts API: a customer with a phone and an email,
+ * an account and a child of it (which also fill the counter), and a service point placed in
+ * B's hierarchy and linked to B's GIS connection.
+ */
+async function seedAccounts(
+  asB: ReturnType<typeof callerFor>,
+  at: { schemeId: string; zoneId: string; dmaId: string; routeId: string; connectionId: string },
+): Promise<AccountsCanary> {
+  const customer = await asB.accounts.customers.create({
+    type: "person",
+    name: `${MARK} customer`,
+    nationalId: "CANARYID1",
+    contacts: [
+      { channel: "phone", value: "0733 999 888" },
+      { channel: "email", value: "canary-b@example.test" },
+    ],
+  });
+  const account = await asB.accounts.create({ customerId: customer.id });
+  const child = await asB.accounts.create({ customerId: customer.id, parentAccountId: account.id });
+  const servicePoint = await asB.accounts.servicePoints.create({
+    accountId: account.id,
+    address: `${MARK} plot`,
+    location: { lat: -6.7924, lng: 39.2083 },
+    schemeId: at.schemeId,
+    zoneId: at.zoneId,
+    dmaId: at.dmaId,
+    routeId: at.routeId,
+    gisConnectionId: at.connectionId,
+  });
+  return {
+    customer: customer.id,
+    contact: customer.contacts[0]!.id,
+    account: account.id,
+    accountNumber: account.number,
+    child: child.id,
+    servicePoint: servicePoint.id,
   };
 }
 
@@ -429,6 +482,44 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "gis.reports.conditionTrend": () => [undefined],
   "gis.reports.recentFindings": () => [undefined],
   "gis.reports.alerts": () => [undefined],
+  // Accounts (Phase 3 F1): A's own calls, and calls aimed at B's customer, contact, accounts and service point.
+  "accounts.create": (b) => [
+    { customerId: b.accounts.customer },
+    { customerId: b.accounts.customer, parentAccountId: b.accounts.account },
+    { customerId: b.accounts.customer, parentAccountId: b.accounts.account, numbering: "own" },
+  ],
+  "accounts.get": (b) => [{ id: b.accounts.account }, { number: b.accounts.accountNumber }, { id: b.accounts.child }],
+  "accounts.list": (b) => [
+    undefined,
+    { customerId: b.accounts.customer },
+    { parentAccountId: b.accounts.account },
+    { areaId: b.scheme },
+    { routeId: b.route },
+    { after: b.accounts.accountNumber },
+  ],
+  "accounts.search": (b) => [{ q: "customer" }, { q: b.accounts.accountNumber }, { q: "0733 999 888" }, { q: "canary-b@example.test" }],
+  "accounts.nextNumberPreview": (b) => [undefined, { parentAccountId: b.accounts.account }],
+  "accounts.customers.create": () => [
+    { type: "person", name: "A's customer", nationalId: "CANARYID1", contacts: [{ channel: "phone", value: "0733 999 888" }] },
+  ],
+  "accounts.customers.update": (b) => [{ id: b.accounts.customer, patch: { name: "Renamed by A" } }],
+  "accounts.customers.get": (b) => [{ id: b.accounts.customer }],
+  "accounts.customers.list": (b) => [undefined, { after: b.accounts.customer }, { type: "person" }],
+  "accounts.customers.search": () => [{ q: "customer" }, { q: "0733 999 888" }, { q: "canary-b@example.test" }, { q: "CANARYID1" }],
+  "accounts.customers.duplicates": (b) => [{ customerId: b.accounts.customer }, { phone: "0733 999 888" }, { nationalId: "CANARYID1" }],
+  "accounts.contacts.add": (b) => [{ customerId: b.accounts.customer, channel: "email", value: "a@a.test" }],
+  "accounts.contacts.update": (b) => [{ id: b.accounts.contact, patch: { kind: "work" } }],
+  "accounts.contacts.remove": (b) => [{ id: b.accounts.contact }],
+  "accounts.servicePoints.create": (b) => [
+    { accountId: b.accounts.account, address: "A at B's" },
+    { accountId: b.accounts.account, address: "A at B's", schemeId: b.scheme, routeId: b.route, gisConnectionId: b.gis.connection.id },
+  ],
+  "accounts.servicePoints.update": (b) => [
+    { id: b.accounts.servicePoint, patch: { address: "Renamed by A" } },
+    { id: b.accounts.servicePoint, patch: { schemeId: b.scheme, routeId: b.route } },
+  ],
+  "accounts.servicePoints.get": (b) => [{ id: b.accounts.servicePoint }],
+  "accounts.servicePoints.list": (b) => [undefined, { accountId: b.accounts.account }, { areaId: b.scheme }, { routeId: b.route }, { after: b.accounts.servicePoint }],
 };
 
 beforeAll(async () => {
@@ -466,8 +557,8 @@ describe("isolation canary", () => {
     const empty = Object.entries(await snapshotB()).filter(([, rows]) => rows.length === 0).map(([table]) => table);
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
-    // Every gis and work_orders table is covered (Phase 2: "the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(22);
+    // Every gis, work_orders and accounts table is covered ("the canary covers every table").
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(27);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {
@@ -503,11 +594,14 @@ describe("isolation canary", () => {
       "gis.nodes.list",
       "gis.dmas.list",
       "gis.logs.conditionFeed",
+      "accounts.list",
+      "accounts.customers.list",
+      "accounts.servicePoints.list",
     ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
     expect(seen).toContain(MARK);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 
