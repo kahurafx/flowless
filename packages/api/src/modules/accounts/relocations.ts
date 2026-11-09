@@ -147,6 +147,9 @@ export function recordRelocationSurvey(
   });
 }
 
+/** What the office typed, trimmed, or what the relocation already holds when nothing (or only blanks) was typed. */
+const typedOr = <T>(typed: string | undefined, kept: T) => typed?.trim() || kept;
+
 /** Records the readings and the job on an open relocation without changing its status: from the office, or from a completed `relocation` job. */
 export function recordRelocationWork(
   env: CommandEnv,
@@ -161,8 +164,8 @@ export function recordRelocationWork(
       const [row] = await env.tx
         .update(relocation)
         .set({
-          finalReading: req.finalReading?.trim() || before.finalReading,
-          initialReading: req.initialReading?.trim() || before.initialReading,
+          finalReading: typedOr(req.finalReading, before.finalReading),
+          initialReading: typedOr(req.initialReading, before.initialReading),
           workOrderId: req.workOrderId ?? before.workOrderId,
           updatedAt: new Date(),
         })
@@ -248,9 +251,9 @@ async function applyCompletion(
   const [oldPoint] = await tx.select().from(servicePoint).where(eq(servicePoint.id, before.fromServicePointId)).for("update");
   if (!oldPoint || oldPoint.connectionStatus === "DECOMMISSIONED") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The old service point is already decommissioned" });
 
-  const finalReading = req.finalReading?.trim() || before.finalReading;
-  const initialReading = req.initialReading?.trim() || before.initialReading;
-  const reason = req.reason?.trim() || before.reason;
+  const finalReading = typedOr(req.finalReading, before.finalReading);
+  const initialReading = typedOr(req.initialReading, before.initialReading);
+  const reason = typedOr(req.reason, before.reason);
 
   // The new service point, with the zone, DMA and route of the new place; it takes over the old one's connection state.
   const userEnv = { tx, organizationId, userId, audit: env.audit, publish: env.publish };
