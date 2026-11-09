@@ -23,13 +23,21 @@ Work Orders keeps its own `lockAndReplay` (a separate module).
 Scope (`access.ts`): a limited member sees service points whose scheme, zone, DMA or route is in scope, accounts through their service points and customers through their accounts; an account or customer with no service point or account yet is its creator's, so an enquiry can be finished; they may place a service point only inside their scope; everything else is NOT_FOUND.
 
 ### Numbering, tables and contacts
-`numbering.ts` is pure (format schema, Luhn and mod 11 check digits, child letters `A..Z, AA`, `parseAccountNumber`); the `accounts.numbering` setting (`settings.ts`) is registered by `registerKernel` in the index. `service.ts` is the only code touching the tables: numbers come from `issueAccountNumber` / `issueChildNumber` (locked counter row; sequences with no mod 11 digit or an already used number are skipped), contacts are normalised with `parsePhone` from shared-types (calling code from `kernel.regional`'s locale; placeholders are stored flagged and count as no phone, the first real contact of a channel becomes primary), and a service point's scheme, zone, DMA and route are checked with the kernel's `areasById` / `routesById` (`kernel/areas.ts`).
+`numbering.ts` is pure (format schema, Luhn and mod 11 check digits, child letters `A..Z, AA`, `parseAccountNumber`); the `accounts.numbering` setting (`settings.ts`) is registered by `registerKernel` in the index. Files by concern (no one file owns the tables; each use case queries what it changes):
+
+- `service.ts`: the customer, account and service point rows as the module reads them: `CustomerRow`/`AccountRow`/`ServicePointRow`, the finders that apply the viewer's scope (`findCustomer`, `findAccount`, `lockAccount`, `findServicePoint`, `firstPlacement`; `lock = true` takes the row lock), the DTO mappers and presenters (`toCustomerDto`, `presentCustomers`, `toAccountDto`, `presentAccounts`, `presentAccount`, `toServicePointDto`).
+- `contact-values.ts`: what a contact is: `contactFields` (placeholders are stored flagged and count as no phone; calling code from `callingCodeFor`, i.e. `kernel.regional`'s locale, via `parsePhone` from shared-types), `contactsOf`, `usablePhone`/`usableEmail`, `toContactDto`. No writes.
+- `contacts.ts`: the contact use cases `addContact`, `updateContact`, `removeContact` (each takes `UserActionEnv` and the viewer, locks the customer through `findCustomer`; the router only validates) and `insertContact`, which `createCustomer` also uses. The first real contact of a channel becomes primary; making another primary demotes the old one; a placeholder is never primary; when the primary is removed or becomes a placeholder the oldest real contact takes over; `accounts.contact_update` is audited only when something changed.
+- `customers.ts`: the customers and contacts routers, `createCustomer` and the search.
+- `duplicates.ts`: `findDuplicates`. `account-numbers.ts`: the counter row (`issueAccountNumber` / `issueChildNumber`, locked counter row; sequences with no mod 11 digit or an already used number are skipped; `previewNextNumber`). `placement.ts`: `validatePlacement` / `assertPlacementInScope`, which check a service point's scheme, zone, DMA and route with the kernel's `areasById` / `routesById` (`kernel/areas.ts`) and the viewer's scope.
+- Free text helpers (`tidy`, `likeEscape`) are in `kernel/text.ts`.
+- The jsonb columns `payload` (command and step logs) and `fee_item_codes` are typed at the schema (`$type<...>()`, TypeScript only), so reads need no casts; a job capture or an event payload is untrusted and is still parsed where it enters.
 
 ### Audit, events and status
 Audit actions `accounts.customer_create/update`, `accounts.contact_add/update/remove`, `accounts.account_create`, `accounts.service_point_create/update`; events `accounts.customer_created`, `.account_opened`, `.service_point_created` (`events.ts`, JSON payloads, dates as ISO strings). Status changes are the lifecycle below (F3a); the category is an opaque uuid for Tariffs (F2).
 
 ### Tests
-Tests: `modules/accounts/test/test-support.ts` (`setupAccountsEnv`: tenants A, B and an unlicensed C, roles, a scheme > zone > DMA chain, routes).
+Tests: `modules/accounts/test/test-support.ts` (`setupAccountsEnv`: tenants A, B and an unlicensed C, roles, a scheme > zone > DMA chain, routes); `test/customers.test.ts` covers customers, contacts (primary demotion and promotion, placeholders, audit only when changed) and duplicates; `test/accounts.test.ts` and `test/service-points.test.ts` the numbers and placement checks.
 
 ## Lifecycle (F3a: C-03, C-04, C-06, C-11)
 
