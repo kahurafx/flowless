@@ -79,6 +79,34 @@ describe("customers and contacts (C-01)", () => {
     expect(actions).toEqual(expect.arrayContaining(["accounts.customer_create", "accounts.contact_add", "accounts.contact_update", "accounts.contact_remove"]));
   });
 
+  it("updating a contact demotes the old primary, refuses a placeholder primary, and audits before and after only when something changed", async () => {
+    const c = await env.person(env.clerk(), "Contact audit");
+    const first = await env.clerk().accounts.contacts.add({ customerId: c.id, channel: "phone", value: "0711 100 001" });
+    const second = await env.clerk().accounts.contacts.add({ customerId: c.id, channel: "phone", value: "0711 100 002" });
+    const updates = async () => (await env.audit(c.id)).filter((e) => e.action === "accounts.contact_update");
+
+    await expectCode(env.clerk().accounts.contacts.update({ id: second.id, patch: { value: "25400000000", isPrimary: true } }), "BAD_REQUEST");
+    await expectCode(env.clerk().accounts.contacts.update({ id: second.id, patch: { value: "call me" } }), "BAD_REQUEST");
+    await expectCode(env.clerk().accounts.contacts.update({ id: second.id, patch: {} }), "BAD_REQUEST");
+    expect(await updates()).toHaveLength(0);
+
+    // Nothing changes: the same primary flag, the same kind, the same value.
+    await env.clerk().accounts.contacts.update({ id: first.id, patch: { isPrimary: true, kind: "personal" } });
+    expect(await updates()).toHaveLength(0);
+
+    const moved = await env.clerk().accounts.contacts.update({ id: second.id, patch: { isPrimary: true, kind: "work" } });
+    expect(moved).toMatchObject({ id: second.id, kind: "work", isPrimary: true });
+    const customer = await env.clerk().accounts.customers.get({ id: c.id });
+    expect(customer.contacts.map((x) => [x.id === first.id ? "first" : "second", x.isPrimary])).toEqual([
+      ["first", false],
+      ["second", true],
+    ]);
+    const entries = await updates();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.before).toEqual({ contactId: second.id, value: "0711 100 002", kind: "personal", isPlaceholder: false, isPrimary: false });
+    expect(entries[0]!.after).toEqual({ contactId: second.id, value: "0711 100 002", kind: "work", isPlaceholder: false, isPrimary: true });
+  });
+
   it("promotes the next real contact when the primary is removed", async () => {
     const c = await env.person(env.clerk(), "Promoted", { contacts: [{ channel: "email", value: "a@one.test" }, { channel: "email", value: "b@two.test" }] });
     await env.clerk().accounts.contacts.remove({ id: c.contacts[0]!.id });
