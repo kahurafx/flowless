@@ -17,7 +17,6 @@ export default function NewTariffPage() {
         <ArrowLeftIcon />
         Tariffs
       </Button>
-      <PageHeader title="New tariff" description="Choose how consumption is priced and enter the first version. Later changes are new versions, never edits." />
       <Suspense fallback={<Skeleton className="h-96 max-w-3xl" />}>
         <Form />
       </Suspense>
@@ -27,5 +26,10 @@ export default function NewTariffPage() {
 
 async function Form() {
   const form = await getNewTariffForm();
-  return <NewTariffForm next={form.next} currency={form.currency} locale={form.locale} />;
+  return (
+    <>
+      <PageHeader title="New tariff" description="Choose how consumption is priced and enter the first version. Later changes are new versions, never edits." />
+      <NewTariffForm next={form.next} currency={form.currency} locale={form.locale} />
+    </>
+  );
 }

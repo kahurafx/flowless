@@ -15,15 +15,9 @@ export const metadata = { title: "Accounts settings" };
 // K-10: the Accounts configuration, one new version per save.
 export default function AccountsSettingsPage() {
   return (
-    <>
-      <PageHeader
-        title="Accounts settings"
-        description="How accounts are numbered, billed by status, activated and applied for, which membership classes exist, which data-quality rules run and who approves what. Every save is a new version with its history; nothing is overwritten."
-      />
-      <Suspense fallback={<Skeleton className="h-96 max-w-4xl" />}>
-        <Settings />
-      </Suspense>
-    </>
+    <Suspense fallback={<Skeleton className="h-96 max-w-4xl" />}>
+      <Settings />
+    </Suspense>
   );
 }
 
@@ -46,7 +40,12 @@ async function Settings() {
   const writeOff = present(SETTING_KEYS.writeOffApproval);
 
   return (
-    <div className="grid max-w-4xl gap-6">
+    <>
+      <PageHeader
+        title="Accounts settings"
+        description="How accounts are numbered, billed by status, activated and applied for, which membership classes exist, which data-quality rules run and who approves what. Every save is a new version with its history; nothing is overwritten."
+      />
+      <div className="grid max-w-4xl gap-6">
       {numbering && <NumberingSettingForm key={at(numbering.key)} meta={metaOf(numbering)} value={numbering.value as NumberingValue} nextNumber={data.nextNumber} frame={frame} />}
       {rules && <StatusRulesSettingForm key={at(rules.key)} meta={metaOf(rules)} value={rules.value as StatusRulesValue} frame={frame} />}
       {activation && <ActivationSettingForm key={at(activation.key)} meta={metaOf(activation)} value={activation.value as ActivationValue} frame={frame} />}
@@ -75,6 +74,7 @@ async function Settings() {
           amountHint="for write-offs"
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }

@@ -14,6 +14,9 @@ export type ChargeItemDetail = Awaited<ReturnType<Api["tariffs"]["chargeItems"][
 export type InvoiceTypeRow = Awaited<ReturnType<Api["tariffs"]["invoiceTypes"]["list"]>>[number];
 export type InvoiceTypeDetail = Awaited<ReturnType<Api["tariffs"]["invoiceTypes"]["get"]>>;
 
+/** The shape the procedures accept for an id (zod's uuid); anything else is simply not found. */
+const UUID = /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
+
 /** Tariffs is licensed and the member may read it; anything else is not found (K-03, K-04). */
 export const requireTariffs = () => requireModule("tariffs", "tariffs:read");
 
@@ -44,6 +47,7 @@ export async function listTariffs() {
 /** Everything the tariff page shows: the versions with content, who made each, and the date a new one would start. */
 export async function getTariffPage(id: string) {
   const session = await requireTariffs();
+  if (!UUID.test(id)) notFound();
   const { api } = await getApi();
   const [tariff, next, people] = await Promise.all([orNull(api.tariffs.get({ id })), nextEffective(api), listPeople()]);
   if (!tariff) notFound();
@@ -129,6 +133,7 @@ export async function listInvoiceTypes() {
 
 export async function getInvoiceTypePage(id: string) {
   const session = await requireTariffs();
+  if (!UUID.test(id)) notFound();
   const { api } = await getApi();
   const [type, items] = await Promise.all([orNull(api.tariffs.invoiceTypes.get({ id })), api.tariffs.chargeItems.list()]);
   if (!type) notFound();
