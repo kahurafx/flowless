@@ -124,11 +124,12 @@ const stable = (value: unknown): string =>
     v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v,
   );
 
-/** The request as it must repeat to count as a retry: everything but the id. */
-function fingerprintOf(req: CommandRequest): string {
+/** A request as it must repeat to count as a retry: everything but the id. */
+export function fingerprintOfRequest(req: Record<string, unknown>): string {
   const defined = Object.fromEntries(Object.entries(req).filter(([k, v]) => k !== "id" && v !== undefined));
   return createHash("sha256").update(stable(defined)).digest("hex");
 }
+const fingerprintOf = (req: CommandRequest): string => fingerprintOfRequest({ ...req });
 
 const state = (a: AccountRow) => ({ commercial: a.commercialStatus, service: a.serviceStatus, serviceReason: a.serviceStatusReason });
 const statusOf = (a: Pick<AccountRow, "commercialStatus" | "serviceStatus" | "serviceStatusReason">) => ({

@@ -1,19 +1,16 @@
+import type { Transaction } from "@flowless/db";
 import { account, customer, customerContact, servicePoint } from "@flowless/db/schema/accounts";
 import { COMMERCIAL_STATUSES, SERVICE_STATES, parsePhone } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { isUniqueViolation } from "../../kernel/pg-errors";
 import { descendantsOf } from "../../kernel/scope";
 import { accountVisible, servicePointInScope } from "./access";
-import { accountOpened } from "./events";
+import { openAccount } from "./open-account";
 import type { AccountsProcedures } from "./procedures";
 import {
   callingCodeFor,
   findAccount,
-  findCustomer,
-  issueAccountNumber,
-  issueChildNumber,
   likeEscape,
   presentAccounts,
   previewNextNumber,
@@ -24,11 +21,10 @@ import {
 } from "./service";
 import { numberingSetting } from "./settings";
 
-/** The reason a new account starts DISCONNECTED: service begins at activation (C-05, Phase 3 F3). */
-export const NEW_ACCOUNT_SERVICE_REASON = "New account: service starts when it is activated";
-
 const Number_ = z.string().trim().min(1).max(40);
 const Page = z.number().int().min(1).max(200).default(50);
+
+const presentOne = async (tx: Transaction, row: Parameters<typeof presentAccounts>[1][number]) => (await presentAccounts(tx, [row]))[0]!;
 
 /** Accounts (C-02, C-03), mounted at the module's root: `accounts.create`, `accounts.get`, ... */
 export function accountProcedureSet(p: AccountsProcedures) {
@@ -48,64 +44,11 @@ export function accountProcedureSet(p: AccountsProcedures) {
           numbering: z.enum(["suffix", "own"]).optional(),
           /** Tariffs' category (T-02); validated by Tariffs once it ships, opaque here. */
           categoryId: z.uuid().optional(),
+          /** A membership class (C-07) of this organization; the account must be a child. */
+          membershipClass: z.string().trim().min(1).max(30).optional(),
         }),
       )
-      .mutation(async ({ ctx, input }) => {
-        await findCustomer(ctx.tx, ctx.viewer, input.customerId);
-        const parent = input.parentAccountId ? await findAccount(ctx.tx, ctx.viewer, { id: input.parentAccountId }) : null;
-        if (!parent && input.numbering) throw new TRPCError({ code: "BAD_REQUEST", message: "Numbering applies to a child account: name its parent" });
-        const mode = input.numbering ?? (parent && parent.parentAccountId === null ? "suffix" : "own");
-        if (parent && mode === "suffix" && parent.parentAccountId !== null) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Letters extend a top-level account's number; this parent is itself a child, so give the new account its own number" });
-        }
-        const format = await ctx.config(numberingSetting);
-        const issued =
-          parent && mode === "suffix"
-            ? await issueChildNumber(ctx.tx, ctx.organizationId, parent)
-            : { number: await issueAccountNumber(ctx.tx, ctx.organizationId, format), suffixIndex: null };
-        const [row] = await ctx.tx
-          .insert(account)
-          .values({
-            organizationId: ctx.organizationId,
-            number: issued.number,
-            customerId: input.customerId,
-            parentAccountId: parent?.id ?? null,
-            suffixIndex: issued.suffixIndex,
-            categoryId: input.categoryId ?? null,
-            commercialStatus: "NEW",
-            serviceStatus: "DISCONNECTED",
-            serviceStatusReason: NEW_ACCOUNT_SERVICE_REASON,
-            createdByUserId: ctx.viewer.userId,
-          })
-          .returning()
-          .catch((error: unknown) => {
-            if (isUniqueViolation(error)) throw new TRPCError({ code: "CONFLICT", message: "That account number is already used" });
-            throw error;
-          });
-        await ctx.audit({
-          action: "accounts.account_create",
-          subjectType: "account",
-          subjectId: row!.id,
-          after: {
-            number: row!.number,
-            customerId: row!.customerId,
-            parentAccountId: row!.parentAccountId,
-            categoryId: row!.categoryId,
-            commercialStatus: row!.commercialStatus,
-            serviceStatus: row!.serviceStatus,
-          },
-        });
-        await ctx.publish(accountOpened, {
-          accountId: row!.id,
-          number: row!.number,
-          customerId: row!.customerId,
-          parentAccountId: row!.parentAccountId,
-          categoryId: row!.categoryId,
-          openedAt: row!.openedAt.toISOString(),
-          openedByUserId: ctx.viewer.userId,
-        });
-        return (await presentAccounts(ctx.tx, [row!]))[0]!;
-      }),
+      .mutation(async ({ ctx, input }) => presentOne(ctx.tx, await openAccount({ ...ctx, userId: ctx.viewer.userId }, ctx.viewer, input))),
 
     /** An account with its customer's contact details, parent, children and service points, by id or number. */
     get: p.read

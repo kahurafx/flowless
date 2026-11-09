@@ -1,4 +1,4 @@
-import { writeOffApproval } from "../modules/accounts";
+import { surveyApproval, writeOffApproval } from "../modules/accounts";
 import type { ApprovalDef } from "./approval-store";
 
 /**
@@ -6,4 +6,4 @@ import type { ApprovalDef } from "./approval-store";
  * cancellation, a write-off), defined in its module folder, with a consumer of
  * `approval.decided` (`defineApprovalConsumer`) in `kernel/consumers.ts` to apply outcomes.
  */
-export const approvals: readonly ApprovalDef[] = [writeOffApproval];
+export const approvals: readonly ApprovalDef[] = [writeOffApproval, surveyApproval];

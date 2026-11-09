@@ -1,7 +1,7 @@
 import { approvalPolicySetting } from "./approval-store";
 import { approvals } from "./approval-registry";
 import type { SettingDef } from "./config-store";
-import { activationSetting, numberingSetting, statusRulesSetting } from "../modules/accounts";
+import { activationSetting, applicationSetting, membershipSetting, numberingSetting, statusRulesSetting } from "../modules/accounts";
 import { tariffPolicySetting } from "../modules/tariffs";
 import { kindPolicySetting } from "../modules/work-orders";
 import { regionalSetting } from "./regional";
@@ -17,6 +17,8 @@ export const settings: readonly SettingDef[] = [
   numberingSetting as SettingDef,
   statusRulesSetting as SettingDef,
   activationSetting as SettingDef,
+  applicationSetting as SettingDef,
+  membershipSetting as SettingDef,
   tariffPolicySetting as SettingDef,
   ...approvals.map((a) => approvalPolicySetting(a) as SettingDef),
 ];

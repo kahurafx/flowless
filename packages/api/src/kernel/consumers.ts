@@ -1,6 +1,6 @@
 import type { Consumer } from "./events";
 import { seedAttachmentRulesOnLicence } from "../modules/gis";
-import { recordWriteOffDecision } from "../modules/accounts";
+import { applySurveyOutcome, recordRelocationFromJob, recordSurveyFromJob, recordWriteOffDecision } from "../modules/accounts";
 import { seedDefaultsOnCreation, seedDefaultsOnLicence } from "../modules/tariffs";
 import { createOrganizationSettings } from "./organization-events";
 
@@ -14,6 +14,9 @@ export const consumers: readonly Consumer[] = [
   seedDefaultsOnCreation as Consumer,
   seedDefaultsOnLicence as Consumer,
   recordWriteOffDecision as Consumer,
+  applySurveyOutcome as Consumer,
+  recordSurveyFromJob as Consumer,
+  recordRelocationFromJob as Consumer,
 ];
 
 const names = new Set<string>();

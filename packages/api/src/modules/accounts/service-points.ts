@@ -1,11 +1,14 @@
+import type { Transaction } from "@flowless/db";
 import { servicePoint } from "@flowless/db/schema/accounts";
 import { SERVICE_POINT_STATUSES } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { EventDef } from "../../kernel/events";
+import type { AuditNote } from "../../trpc";
 import { descendantsOf } from "../../kernel/scope";
 import { router } from "../../trpc";
-import { servicePointInScope, type Placement } from "./access";
+import { servicePointInScope, type Placement, type Viewer } from "./access";
 import { servicePointCreated } from "./events";
 import type { AccountsProcedures } from "./procedures";
 import { assertPlacementInScope, findAccount, findServicePoint, toServicePointDto, validatePlacement } from "./service";
@@ -25,6 +28,63 @@ const audited = (s: ReturnType<typeof toServicePointDto>) => ({
   connectionStatus: s.connectionStatus,
   gisConnectionId: s.gisConnectionId,
 });
+
+export interface ServicePointEnv {
+  tx: Transaction;
+  organizationId: string;
+  userId: string;
+  audit(note: AuditNote): Promise<void>;
+  publish<T>(event: EventDef<T>, payload: T): Promise<unknown>;
+}
+
+export interface NewServicePoint {
+  accountId: string;
+  address: string;
+  location?: { lat: number; lng: number } | null | undefined;
+  schemeId?: string | null | undefined;
+  zoneId?: string | null | undefined;
+  dmaId?: string | null | undefined;
+  routeId?: string | null | undefined;
+  connectionStatus?: (typeof SERVICE_POINT_STATUSES)[number] | undefined;
+  gisConnectionId?: string | null | undefined;
+}
+
+/**
+ * Creates a service point on an account the viewer can see, with its place checked against
+ * the kernel hierarchy and the viewer's scope. Shared by `servicePoints.create`, converting
+ * an application and completing a relocation.
+ */
+export async function createServicePoint(env: ServicePointEnv, viewer: Viewer, input: NewServicePoint) {
+  await findAccount(env.tx, viewer, { id: input.accountId });
+  const place: Placement = { schemeId: input.schemeId ?? null, zoneId: input.zoneId ?? null, dmaId: input.dmaId ?? null, routeId: input.routeId ?? null };
+  await validatePlacement(env.tx, place, new Set(["schemeId", "zoneId", "dmaId", "routeId"]));
+  assertPlacementInScope(viewer, place);
+  const [row] = await env.tx
+    .insert(servicePoint)
+    .values({
+      organizationId: env.organizationId,
+      accountId: input.accountId,
+      address: input.address.replace(/\s+/g, " "),
+      location: input.location ?? null,
+      ...place,
+      connectionStatus: input.connectionStatus ?? "PLANNED",
+      gisConnectionId: input.gisConnectionId ?? null,
+      createdByUserId: env.userId,
+    })
+    .returning();
+  const dto = toServicePointDto(row!);
+  await env.audit({ action: "accounts.service_point_create", subjectType: "service_point", subjectId: row!.id, after: audited(dto) });
+  await env.publish(servicePointCreated, {
+    servicePointId: row!.id,
+    accountId: row!.accountId,
+    ...place,
+    location: dto.location,
+    connectionStatus: row!.connectionStatus,
+    gisConnectionId: row!.gisConnectionId,
+    createdByUserId: env.userId,
+  });
+  return dto;
+}
 
 /**
  * Service points (glossary, C-12 inputs): the physical connection of an account, with its
@@ -49,37 +109,7 @@ export function servicePointsRouter(p: AccountsProcedures) {
           gisConnectionId: z.uuid().optional(),
         }),
       )
-      .mutation(async ({ ctx, input }) => {
-        await findAccount(ctx.tx, ctx.viewer, { id: input.accountId });
-        const place: Placement = { schemeId: input.schemeId ?? null, zoneId: input.zoneId ?? null, dmaId: input.dmaId ?? null, routeId: input.routeId ?? null };
-        await validatePlacement(ctx.tx, place, new Set(["schemeId", "zoneId", "dmaId", "routeId"]));
-        assertPlacementInScope(ctx.viewer, place);
-        const [row] = await ctx.tx
-          .insert(servicePoint)
-          .values({
-            organizationId: ctx.organizationId,
-            accountId: input.accountId,
-            address: input.address.replace(/\s+/g, " "),
-            location: input.location ?? null,
-            ...place,
-            connectionStatus: input.connectionStatus,
-            gisConnectionId: input.gisConnectionId ?? null,
-            createdByUserId: ctx.viewer.userId,
-          })
-          .returning();
-        const dto = toServicePointDto(row!);
-        await ctx.audit({ action: "accounts.service_point_create", subjectType: "service_point", subjectId: row!.id, after: audited(dto) });
-        await ctx.publish(servicePointCreated, {
-          servicePointId: row!.id,
-          accountId: row!.accountId,
-          ...place,
-          location: dto.location,
-          connectionStatus: row!.connectionStatus,
-          gisConnectionId: row!.gisConnectionId,
-          createdByUserId: ctx.viewer.userId,
-        });
-        return dto;
-      }),
+      .mutation(({ ctx, input }) => createServicePoint({ ...ctx, userId: ctx.viewer.userId }, ctx.viewer, input)),
 
     /** Null clears a place, GPS point or GIS link. The account cannot change here: that is succession or relocation (C-08, C-10). */
     update: p.update

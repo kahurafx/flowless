@@ -1,4 +1,5 @@
 import { WorkRegistry } from "./kernel/work";
+import { register as registerAccounts } from "./modules/accounts";
 import { register as registerGis } from "./modules/gis";
 import { register as registerWorkOrders } from "./modules/work-orders";
 
@@ -10,3 +11,4 @@ import { register as registerWorkOrders } from "./modules/work-orders";
 export const work = new WorkRegistry();
 registerWorkOrders(work);
 registerGis(work);
+registerAccounts(work);

@@ -9,6 +9,9 @@ import {
 import { z } from "zod";
 import { defineEvent } from "../../kernel/events";
 
+// Application workflow, membership, succession, relocation and change of name (F3b).
+export * from "./events-changes";
+
 /*
  * What Accounts publishes on the kernel outbox (K-09), versioned (NF-32). Payloads carry
  * ids and the facts consumers route on, not contact details: a consumer that needs a phone

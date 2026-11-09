@@ -1,5 +1,7 @@
 import { defineSetting } from "../../kernel/config-store";
+import { applicationConfigSchema, type ApplicationConfig } from "./application-stages";
 import { activationConfigSchema, type ActivationConfig } from "./gates";
+import { membershipConfigSchema, type MembershipConfig } from "./membership";
 import { DEFAULT_NUMBERING, numberingFormatSchema } from "./numbering";
 import { DEFAULT_STATUS_RULES, statusRulesSchema, type StatusRules } from "./status-rules";
 
@@ -46,4 +48,30 @@ export const activationSetting = defineSetting<ActivationConfig>({
     "Whether accounts activate by themselves once their gates are met or from the office checklist; the gates (payment threshold, meter installed and confirmed, initial reading) with whether each is used and required; the office's own checklist items; and the days after which an account stuck in new or pending payment is raised in the exception queue.",
   schema: activationConfigSchema,
   default: activationConfigSchema.parse(undefined),
+});
+
+/**
+ * How applications for new connections run (C-05, K-10): which stages are used (a survey, the
+ * new-connection invoice with its payment, installation) and whether a relocation needs a
+ * survey. How many people approve a survey (0, 1 or 2 levels) is the K-05 policy
+ * `approvals.accounts.connection_survey`.
+ */
+export const applicationSetting = defineSetting<ApplicationConfig>({
+  key: "accounts.application",
+  module: "accounts",
+  label: "Applications for new connections",
+  description:
+    "Which stages an application for a new connection goes through (survey, new-connection invoice and payment, installation) and whether a relocation needs a survey. The number of approvals a survey needs is the approval policy accounts.connection_survey.",
+  schema: applicationConfigSchema,
+  default: applicationConfigSchema.parse({}),
+});
+
+/** The membership classes of child accounts and the catalog item priced as each class's connection fee (C-07). */
+export const membershipSetting = defineSetting<MembershipConfig>({
+  key: "accounts.membership",
+  module: "accounts",
+  label: "Membership classes",
+  description: "Classes a child account can belong to (key, label) and, for each, the code of the charge catalog item used as its connection fee.",
+  schema: membershipConfigSchema,
+  default: membershipConfigSchema.parse({}),
 });

@@ -6,7 +6,7 @@
  * into the lifecycle through the ports at the bottom (gate sources, the termination check).
  */
 export { accountsRouter } from "./router";
-export { activationSetting, numberingSetting, statusRulesSetting } from "./settings";
+export { activationSetting, applicationSetting, membershipSetting, numberingSetting, statusRulesSetting } from "./settings";
 export {
   accountActivated,
   accountOpened,
@@ -43,3 +43,23 @@ export { planCommand, STATUS_COMMANDS, type AccountState, type StatusCommand } f
 export { registerTerminationCheck, type TerminationCheck } from "./sources";
 export type { Position } from "./termination";
 export { recordWriteOffDecision, writeOffApproval } from "./approvals";
+
+// The application workflow (C-05): the pure stage machine, the survey approval and the Work Orders hand-off.
+export { ADVANCE_ACTIONS, activeStages, applicationConfigSchema, isFinalStage, nextStage, planAdvance, planEnd, type AdvanceAction, type ApplicationConfig } from "./application-stages";
+export { surveyApproval, SURVEY_APPROVAL_KIND } from "./survey-approval";
+export { ACCOUNTS_WORK_KINDS, accountsAssetResolver, applySurveyOutcome, connectionSurveyCapture, recordRelocationFromJob, recordSurveyFromJob, register, relocationCapture } from "./work-kinds";
+
+// Memberships (C-07): Billing reads the class to price a child's connection fee.
+export { membershipFor, type MembershipView } from "./memberships";
+export { membershipConfigSchema, type MembershipConfig } from "./membership";
+
+// Succession and change of name (C-08, C-10): who held an account when (`holderAt`, for Billing's split), and the Ledger and Metering ports.
+export { holderAt, holdersOf, type HolderPeriod } from "./holders";
+export {
+  registerBalanceTransfer,
+  registerReadingHandover,
+  type BalanceTransfer,
+  type BalanceTransferRequest,
+  type ReadingHandover,
+  type ReadingHandoverRequest,
+} from "./sources";

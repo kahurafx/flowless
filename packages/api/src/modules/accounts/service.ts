@@ -351,6 +351,11 @@ export function toAccountDto(a: AccountRow, customerInfo: { name: string; type: 
     suffixIndex: a.suffixIndex,
     /** Tariffs' category (opaque here). */
     categoryId: a.categoryId,
+    /** A child's membership class (C-07), a key of `accounts.membership`. */
+    membershipClass: a.membershipClass,
+    /** The account this one succeeded, and the one that succeeded it (C-08). */
+    predecessorAccountId: a.predecessorAccountId,
+    successorAccountId: a.successorAccountId,
     commercialStatus: a.commercialStatus,
     serviceStatus: a.serviceStatus,
     serviceStatusReason: a.serviceStatusReason,

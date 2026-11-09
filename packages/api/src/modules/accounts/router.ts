@@ -1,7 +1,10 @@
 import { router } from "../../trpc";
 import { accountProcedureSet } from "./accounts";
+import { applicationsRouter } from "./application-router";
+import { changesProcedureSet } from "./changes-router";
 import { contactsRouter, customersRouter } from "./customers";
 import { lifecycleProcedureSet } from "./lifecycle-router";
+import { membershipsRouter } from "./memberships";
 import { accountsProcedures } from "./procedures";
 import { servicePointsRouter } from "./service-points";
 
@@ -10,13 +13,18 @@ import { servicePointsRouter } from "./service-points";
  * `contacts.*`, `servicePoints.*`, and the account procedures at its root (`accounts.create`,
  * `get`, `list`, `search`, `nextNumberPreview`), plus the account lifecycle (C-03, C-04,
  * C-06, C-11, `lifecycle-router.ts`): the status commands, `commands.list`, `statusRules`,
- * `activation.*` and `requestWriteOff`. Applications, memberships and succession are F3b.
+ * `activation.*` and `requestWriteOff`; and the F3b workflows: `applications.*` (C-05),
+ * `memberships.*` (C-07), `succeed` (C-08), `relocations.*` (C-09) and `changeName` with
+ * `holders.*` (C-10).
  */
 const lifecycleRouters = lifecycleProcedureSet(accountsProcedures);
 
 export const accountsRouter = router({
   ...accountProcedureSet(accountsProcedures),
   ...lifecycleRouters,
+  ...changesProcedureSet(accountsProcedures),
+  applications: applicationsRouter(accountsProcedures),
+  memberships: membershipsRouter(accountsProcedures),
   customers: customersRouter(accountsProcedures),
   contacts: contactsRouter(accountsProcedures),
   servicePoints: servicePointsRouter(accountsProcedures),
