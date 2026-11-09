@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { AccountPage, RelocationRow } from "@/data/accounts";
 import { relocationStatusLabel, surveyFeasibilityLabel } from "@/lib/account-labels";
 import { formatWhen } from "@/lib/dates";
+import { optionalText } from "@/lib/optional-text";
 import { cancelRelocationAction, completeRelocationAction, recordRelocationSurveyAction, recordRelocationWorkAction } from "../actions";
 
 const tone = { requested: "info", surveyed: "info", completed: "success", cancelled: "outline" } as const;
@@ -114,8 +115,8 @@ function WorkStep({ relocation }: { relocation: RelocationRow }) {
             await recordRelocationWorkAction({
               id,
               relocationId: relocation.id,
-              ...(finalReading.trim() ? { finalReading: finalReading.trim() } : {}),
-              ...(initialReading.trim() ? { initialReading: initialReading.trim() } : {}),
+              ...optionalText("finalReading", finalReading),
+              ...optionalText("initialReading", initialReading),
             })
           ).error,
         })
@@ -148,7 +149,7 @@ function CompleteStep({ relocation }: { relocation: RelocationRow }) {
       submitLabel="Complete relocation"
       success="Relocation completed"
       onOpen={() => setId(crypto.randomUUID())}
-      onSubmit={async () => ({ error: (await completeRelocationAction({ id, relocationId: relocation.id, ...(reason.trim() ? { reason: reason.trim() } : {}) })).error })}
+      onSubmit={async () => ({ error: (await completeRelocationAction({ id, relocationId: relocation.id, ...optionalText("reason", reason) })).error })}
     >
       <div className="grid gap-2">
         <Label htmlFor={`rc-${relocation.id}`}>Note (optional)</Label>

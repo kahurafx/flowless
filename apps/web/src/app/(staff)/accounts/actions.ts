@@ -3,6 +3,7 @@
 import { findAccounts } from "@/data/accounts";
 import { runAction, type Api } from "@/data/run-action";
 import { parseMinorUnits } from "@/lib/account-forms";
+import { optionalText } from "@/lib/optional-text";
 
 /*
  * Server actions for the Accounts screens (C-01 to C-12). Each is one change as the signed-in
@@ -88,10 +89,10 @@ export async function runLifecycle(request: LifecycleRequest) {
 }
 
 export const tickGateAction = async (accountId: string, gateKey: string, note: string) =>
-  runAction((api) => api.accounts.activation.tick({ accountId, gateKey, ...(note.trim() ? { note: note.trim() } : {}) }).then((s) => s.activated));
+  runAction((api) => api.accounts.activation.tick({ accountId, gateKey, ...optionalText("note", note) }).then((s) => s.activated));
 
 export const untickGateAction = async (accountId: string, gateKey: string, note: string) =>
-  runAction((api) => api.accounts.activation.untick({ accountId, gateKey, ...(note.trim() ? { note: note.trim() } : {}) }).then(() => null));
+  runAction((api) => api.accounts.activation.untick({ accountId, gateKey, ...optionalText("note", note) }).then(() => null));
 
 /** The write-off asks for approval (K-05); the amount is typed as money and becomes minor units here. */
 export async function requestWriteOffAction(input: { accountId: string; amountText: string; reasonCode: string; note: string }) {

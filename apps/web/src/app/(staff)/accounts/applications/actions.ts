@@ -2,6 +2,7 @@
 
 import type { SurveyFeasibility } from "@flowless/shared-types";
 import { runAction, type Api } from "@/data/run-action";
+import { optionalText } from "@/lib/optional-text";
 
 type In<F> = F extends (input: infer I) => unknown ? I : never;
 type Applications = Api["accounts"]["applications"];
@@ -18,7 +19,7 @@ export const recordSurveyAction = async (input: { id: string; applicationId: str
         applicationId: input.applicationId,
         feasibility: input.feasibility,
         findings: input.findings,
-        ...(input.materialsNote.trim() ? { materialsNote: input.materialsNote.trim() } : {}),
+        ...optionalText("materialsNote", input.materialsNote),
       })
       .then((r) => r.approval?.status ?? null),
   );

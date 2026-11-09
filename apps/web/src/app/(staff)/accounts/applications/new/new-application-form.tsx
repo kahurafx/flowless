@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { AccountFormOptions } from "@/data/customers";
 import { customerChoiceInput, customerChoiceProblem, emptyPlace, placeFromState, type CustomerChoice, type PlaceState } from "@/lib/account-forms";
+import { optionalText } from "@/lib/optional-text";
 import { createApplicationAction } from "../actions";
 
 /** Logs an enquiry (C-05). The id is minted once, so a retried submit cannot log it twice. */
@@ -37,7 +38,7 @@ export function NewApplicationForm({ options }: { options: AccountFormOptions })
         ...who,
         ...placed.value,
         ...(categoryId ? { requestedCategoryId: categoryId } : {}),
-        ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...optionalText("notes", notes),
       });
       if (result.error !== null) return setError(result.error);
       toast.success("Enquiry logged");

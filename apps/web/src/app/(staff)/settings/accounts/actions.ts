@@ -3,6 +3,7 @@
 import { runAction } from "@/data/run-action";
 import { getSession } from "@/data/session";
 import { SETTING_KEYS, effectiveFromOf } from "@/lib/account-settings";
+import { optionalText } from "@/lib/optional-text";
 
 const KEYS: readonly string[] = Object.values(SETTING_KEYS);
 
@@ -26,7 +27,7 @@ export async function saveAccountSettingAction(input: { key: string; value: unkn
         value: input.value,
         expectedVersion: input.expectedVersion,
         ...(when.value ? { effectiveFrom: when.value } : {}),
-        ...(input.reason.trim() ? { reason: input.reason.trim() } : {}),
+        ...optionalText("reason", input.reason),
       })
       .then((r) => ({ version: r.version, changed: r.changed })),
   );
