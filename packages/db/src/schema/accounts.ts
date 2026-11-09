@@ -7,6 +7,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgSchema,
   primaryKey,
   text,
@@ -16,6 +17,8 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import {
+  ACCOUNT_COMMAND_KINDS,
+  ACTIVATION_CHECK_ACTIONS,
   COMMERCIAL_STATUSES,
   CONTACT_CHANNELS,
   CONTACT_KINDS,
@@ -128,8 +131,9 @@ export const customerContact = accounts.table(
  * key, so never across tenants) and either carries the parent's number plus letters
  * ("1008B", `suffix_index` 2) or its own number ("1009"). `category_id` is Tariffs' category,
  * opaque here and without a foreign key (the tariff is derived from it, never stored).
- * Both status axes start at NEW and DISCONNECTED; changing them is the account lifecycle
- * (Phase 3 F3). A disconnected service always has a reason.
+ * Both status axes start at NEW and DISCONNECTED and change only through a logged command
+ * (`account_command`, C-03); the database refuses any other change. A disconnected service
+ * always has a reason.
  */
 export const account = accounts.table(
   "account",
@@ -145,6 +149,12 @@ export const account = accounts.table(
     commercialStatus: text("commercial_status", { enum: COMMERCIAL_STATUSES }).notNull().default("NEW"),
     serviceStatus: text("service_status", { enum: SERVICE_STATES }).notNull().default("DISCONNECTED"),
     serviceStatusReason: text("service_status_reason"),
+    /**
+     * The `account_command` that put the account in its current status, null while it is
+     * still as opened. A trigger (`accounts.guard_account_status`) refuses any change to the
+     * status columns that this does not point at: from-state = old row, to-state = new row.
+     */
+    statusCommandId: uuid("status_command_id"),
     openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdByUserId: uuid("created_by_user_id").notNull(),
@@ -157,6 +167,8 @@ export const account = accounts.table(
     check("account_commercial_status_valid", oneOf(t.commercialStatus, COMMERCIAL_STATUSES)),
     check("account_service_status_valid", oneOf(t.serviceStatus, SERVICE_STATES)),
     check("account_disconnected_has_reason", sql`${t.serviceStatus} = 'CONNECTED' or ${t.serviceStatusReason} is not null`),
+    // A NEW or PENDING_PAYMENT account has no service yet and a TERMINATED one has none any more (C-03).
+    check("account_service_needs_live_status", sql`${t.commercialStatus} in ('ACTIVE', 'DORMANT') or ${t.serviceStatus} = 'DISCONNECTED'`),
     check("account_suffix_needs_parent", sql`${t.suffixIndex} is null or (${t.parentAccountId} is not null and ${t.suffixIndex} >= 1)`),
     check("account_not_own_parent", sql`${t.parentAccountId} is null or ${t.parentAccountId} <> ${t.id}`),
     uniqueIndex("account_suffix_unique")
@@ -228,6 +240,86 @@ export const servicePoint = accounts.table(
     index("service_point_dma_idx").on(t.organizationId, t.dmaId).where(sql`${t.dmaId} is not null`),
     index("service_point_gis_connection_idx").on(t.organizationId, t.gisConnectionId).where(sql`${t.gisConnectionId} is not null`),
     index("service_point_location_gist").using("gist", t.location),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * Every change of an account's status, as one append-only row (C-03): who did it, from where,
+ * why, and the status on both axes before and after. The account's two status columns are the
+ * current state; this table is the history that explains them, and the trigger on
+ * `account` allows a change only with a row here that describes exactly that change.
+ * `id` is minted by the client when it can, so a retry returns the earlier result;
+ * `fingerprint` is the request it came from (a different request under the same id is a
+ * conflict). A system actor (automatic activation, an approval's outcome) has no user.
+ * `write_off_decided` rows change nothing (from = to). The app role cannot UPDATE, DELETE or
+ * TRUNCATE them.
+ */
+export const accountCommand = accounts.table(
+  "account_command",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    accountId: uuid("account_id").notNull(),
+    kind: text("kind", { enum: ACCOUNT_COMMAND_KINDS }).notNull(),
+    fromCommercialStatus: text("from_commercial_status", { enum: COMMERCIAL_STATUSES }).notNull(),
+    toCommercialStatus: text("to_commercial_status", { enum: COMMERCIAL_STATUSES }).notNull(),
+    fromServiceStatus: text("from_service_status", { enum: SERVICE_STATES }).notNull(),
+    toServiceStatus: text("to_service_status", { enum: SERVICE_STATES }).notNull(),
+    /** The service status reason after the command: set when DISCONNECTED, null when CONNECTED. */
+    serviceReason: text("service_reason"),
+    reason: text("reason").notNull(),
+    reasonCode: text("reason_code"),
+    /** Null only for the system (source "system"). */
+    actorUserId: uuid("actor_user_id"),
+    /** Where the command came from (AUDIT_SOURCES in packages/db). */
+    source: text("source").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    note: text("note"),
+    /** What the command carried and decided (override, termination basis, approval); amounts as decimal strings. */
+    payload: jsonb("payload").notNull().default({}),
+    fingerprint: text("fingerprint"),
+  },
+  (t) => [
+    unique("account_command_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "account_command_account_fk", columns: [t.organizationId, t.accountId], foreignColumns: [account.organizationId, account.id] }),
+    check("account_command_kind_valid", oneOf(t.kind, ACCOUNT_COMMAND_KINDS)),
+    check("account_command_from_commercial_valid", oneOf(t.fromCommercialStatus, COMMERCIAL_STATUSES)),
+    check("account_command_to_commercial_valid", oneOf(t.toCommercialStatus, COMMERCIAL_STATUSES)),
+    check("account_command_from_service_valid", oneOf(t.fromServiceStatus, SERVICE_STATES)),
+    check("account_command_to_service_valid", oneOf(t.toServiceStatus, SERVICE_STATES)),
+    check("account_command_reason_present", sql`length(btrim(${t.reason})) > 0`),
+    check("account_command_disconnected_has_reason", sql`${t.toServiceStatus} = 'CONNECTED' or length(btrim(coalesce(${t.serviceReason}, ''))) > 0`),
+    check("account_command_actor_present", sql`${t.actorUserId} is not null or ${t.source} = 'system'`),
+    index("account_command_account_idx").on(t.organizationId, t.accountId, t.occurredAt),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * The office checklist behind activation (C-06), insert-only: a tick and a later untick are
+ * two rows, and the newest row (highest `seq`) per account and gate says whether it is
+ * ticked now. `gate_key` is one of the built-in gates or an office item the organization
+ * defined in `accounts.activation`.
+ */
+export const activationCheck = accounts.table(
+  "activation_check",
+  {
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity().notNull(),
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    accountId: uuid("account_id").notNull(),
+    gateKey: text("gate_key").notNull(),
+    action: text("action", { enum: ACTIVATION_CHECK_ACTIONS }).notNull(),
+    byUserId: uuid("by_user_id").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    note: text("note"),
+  },
+  (t) => [
+    foreignKey({ name: "activation_check_account_fk", columns: [t.organizationId, t.accountId], foreignColumns: [account.organizationId, account.id] }),
+    check("activation_check_action_valid", oneOf(t.action, ACTIVATION_CHECK_ACTIONS)),
+    check("activation_check_gate_key_valid", sql`${t.gateKey} ~ '^[a-z][a-z0-9_]{1,39}$'`),
+    index("activation_check_account_idx").on(t.organizationId, t.accountId, t.gateKey, t.seq),
     tenantPolicy(t.organizationId),
   ],
 );

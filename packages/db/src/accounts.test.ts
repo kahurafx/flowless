@@ -82,7 +82,8 @@ describe("accounts schema", () => {
     const c = await asA((tx) => addCustomer(tx, tenants.a.id));
     await expect(asA((tx) => addAccount(tx, tenants.a.id, c.id, { commercialStatus: "BOGUS" as never }))).rejects.toMatchObject(pgError(/account_commercial_status_valid/));
     await expect(asA((tx) => addAccount(tx, tenants.a.id, c.id, { serviceStatusReason: null }))).rejects.toMatchObject(pgError(/account_disconnected_has_reason/));
-    await expect(asA((tx) => addAccount(tx, tenants.a.id, c.id, { serviceStatus: "CONNECTED", serviceStatusReason: null }))).resolves.toBeTruthy();
+    await expect(asA((tx) => addAccount(tx, tenants.a.id, c.id, { commercialStatus: "ACTIVE", serviceStatus: "CONNECTED", serviceStatusReason: null }))).resolves.toBeTruthy();
+    await expect(asA((tx) => addAccount(tx, tenants.a.id, c.id, { serviceStatus: "CONNECTED", serviceStatusReason: null }))).rejects.toMatchObject(pgError(/account_service_needs_live_status/));
     await expect(asA((tx) => addCustomer(tx, tenants.a.id, { type: "organization", nationalId: "123" }))).rejects.toMatchObject(pgError(/customer_national_id_person/));
     await expect(asA((tx) => addCustomer(tx, tenants.a.id, { type: "person", registrationNumber: "PVT-1" }))).rejects.toMatchObject(pgError(/customer_registration_organization/));
     await expect(asA((tx) => addCustomer(tx, tenants.a.id, { name: "   " }))).rejects.toMatchObject(pgError(/customer_name_present/));

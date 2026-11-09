@@ -8,6 +8,36 @@ import type { Money } from "./money";
 export const COMMERCIAL_STATUSES = ["NEW", "PENDING_PAYMENT", "ACTIVE", "DORMANT", "TERMINATED"] as const;
 export type CommercialStatus = (typeof COMMERCIAL_STATUSES)[number];
 
+/**
+ * What can be done to an account's status (C-03). Every status change is one logged command
+ * (`accounts.account_command`), and its check constraint is built from this list, so a new
+ * kind needs a migration. `write_off_decided` records an approval's outcome (C-11) and
+ * changes no status.
+ */
+export const ACCOUNT_COMMAND_KINDS = [
+  "activate",
+  "mark_pending_payment",
+  "make_dormant",
+  "reactivate",
+  "terminate",
+  "disconnect_service",
+  "reconnect_service",
+  "write_off_decided",
+] as const;
+export type AccountCommandKind = (typeof ACCOUNT_COMMAND_KINDS)[number];
+
+/** The activation gates Flowless knows (C-06); an organization can add office checklist items of its own. */
+export const ACTIVATION_GATE_KEYS = ["payment_threshold", "meter_installed", "initial_reading"] as const;
+export type ActivationGateKey = (typeof ACTIVATION_GATE_KEYS)[number];
+
+/** Activation happens by itself once the gates are met, or when the office activates from the checklist (C-06). */
+export const ACTIVATION_MODES = ["auto", "checklist"] as const;
+export type ActivationMode = (typeof ACTIVATION_MODES)[number];
+
+/** Ticking an office checklist item, and taking the tick back (a retraction row; history is never edited). */
+export const ACTIVATION_CHECK_ACTIONS = ["tick", "untick"] as const;
+export type ActivationCheckAction = (typeof ACTIVATION_CHECK_ACTIONS)[number];
+
 /** The service axis (C-03), separate from commercial status; a disconnection carries a reason. */
 export const SERVICE_STATES = ["CONNECTED", "DISCONNECTED"] as const;
 export type ServiceState = (typeof SERVICE_STATES)[number];

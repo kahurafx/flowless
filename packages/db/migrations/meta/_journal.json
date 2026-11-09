@@ -211,6 +211,20 @@
       "when": 1794195995560,
       "tag": "0029_tariffs_access",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794197259626,
+      "tag": "0030_accounts_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794197275255,
+      "tag": "0031_accounts_lifecycle_access",
+      "breakpoints": true
     }
   ]
 }

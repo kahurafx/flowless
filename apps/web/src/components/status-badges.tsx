@@ -51,4 +51,5 @@ export const exceptionTypeLabel: Record<ExceptionType, string> = {
   EVENT_FAILURE: "Event delivery",
   APPROVAL_OVERDUE: "Approval overdue",
   WORK_ORDER_OVERDUE: "Work order overdue",
+  ACCOUNT_NOT_ACTIVE_WITH_METER: "Meter installed, not active",
 };
