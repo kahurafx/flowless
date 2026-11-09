@@ -68,14 +68,18 @@ export function ContentEditor({
 
 function BandEditor({ draft, onChange, currency, disabled, uid }: { draft: Extract<ContentDraft, { bands: unknown }>; onChange: (d: ContentDraft) => void; currency: string; disabled: boolean; uid: string }) {
   const set = (bands: typeof draft.bands) => onChange({ ...draft, bands });
-  let from = 0;
+  // Each band starts after the end of the one before it (the first after 0).
+  const starts: number[] = [];
+  draft.bands.forEach((band, i) => {
+    if (i === 0) return void starts.push(0);
+    const previous = Number(draft.bands[i - 1]!.to);
+    starts.push(draft.bands[i - 1]!.to.trim() !== "" && Number.isFinite(previous) ? previous : (starts[i - 1] ?? 0));
+  });
   return (
     <div className="grid gap-2">
       {draft.bands.map((band, i) => {
         const last = i === draft.bands.length - 1;
-        const start = from;
-        const parsed = Number(band.to);
-        from = band.to.trim() !== "" && Number.isFinite(parsed) ? parsed : from;
+        const start = starts[i] ?? 0;
         return (
           <div key={i} className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
             <span className="tabular w-5 pb-2 text-sm text-muted-foreground" aria-hidden>
@@ -161,7 +165,7 @@ function TryReading({ bands, currency, locale }: { bands: Parameters<typeof char
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
       <Label htmlFor={id} className="font-normal">
-        Try a month's consumption of
+        Try a month&apos;s consumption of
       </Label>
       <Input id={id} value={text} onChange={(e) => setText(e.target.value)} inputMode="numeric" className="w-24" />
       <span className="text-muted-foreground">units costs</span>

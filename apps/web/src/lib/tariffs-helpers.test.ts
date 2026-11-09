@@ -4,7 +4,7 @@ import { planEffectiveDate } from "../../../../packages/api/src/modules/tariffs/
 import { validateTariffContent } from "../../../../packages/api/src/modules/tariffs/content";
 import { allowedOverdueActions as apiAllowed } from "../../../../packages/api/src/modules/tariffs/invoice-policy";
 import { previewEffectiveDate, plainDate, ordinal } from "./effective-date";
-import { formFromType, lateFeeDraft, lateFeeFromDraft, linesFromDrafts, parsePercentBp, percentText, updateFromForm, allowedOverdueActions, type InvoiceTypeView } from "./invoice-type-form";
+import { formFromType, lateFeeDraft, lateFeeText, overdueText, termsText, lateFeeFromDraft, linesFromDrafts, parsePercentBp, percentText, updateFromForm, allowedOverdueActions, type InvoiceTypeView } from "./invoice-type-form";
 import { amountText, parseAmount } from "./money-input";
 import { addBand, chargeForUnits, draftFromContent, emptyDraft, parseDraft, removeBand, type ContentDraft } from "./tariff-content";
 import {
@@ -333,5 +333,19 @@ describe("invoice type forms (T-08 to T-10)", () => {
     const flat = lateFeeFromDraft({ ...draft, mode: "flat", flatAmount: "500" }, KES);
     expect(flat).toMatchObject({ ok: true, input: { rule: { rateBp: null, flatAmount: 50000n } } });
     expect(lateFeeFromDraft({ ...draft, mode: "flat", flatAmount: "" }, KES).ok).toBe(false);
+  });
+});
+
+describe("invoice type descriptions", () => {
+  it("describes terms, overdue policy and late fee in a line", () => {
+    expect(termsText({ kind: "full" }, KES)).toBe("Paid in full");
+    expect(termsText({ kind: "minimum_deposit", percentBp: 2500 }, KES)).toBe("Deposit of 25% first");
+    expect(termsText({ kind: "minimum_deposit", amount: 150000n }, KES)).toBe("Deposit of KES 1500.00 first");
+    expect(termsText({ kind: "installments", count: 3, intervalDays: 30 }, KES)).toBe("3 installments, 30 days apart");
+    expect(overdueText({ action: "none", afterDays: 0 })).toBe("Nothing happens");
+    expect(overdueText({ action: "pause_application", afterDays: 1 })).toBe("Pause the application 1 day after it");
+    expect(overdueText({ action: "disconnect", afterDays: 0 })).toBe("Disconnect on the due date");
+    expect(lateFeeText(null, KES)).toBe("No late fee");
+    expect(lateFeeText({ triggerDays: 7, base: "overdue_balance", rateBp: 500, flatAmount: null, cap: null, frequency: "monthly" }, KES)).toBe("5% of the overdue balance every 30 days, from 7 days overdue");
   });
 });

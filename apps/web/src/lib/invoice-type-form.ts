@@ -262,3 +262,27 @@ export const lateFeeReasonLabel: Record<string, string> = {
   capped: "The cap limits the fee.",
   manual_only: "This rule never charges by itself; the amount shown is what staff would apply.",
 };
+
+/* ---------- one-line descriptions for lists ---------- */
+
+export function termsText(terms: Terms, currency: string): string {
+  if (terms.kind === "minimum_deposit") {
+    if (terms.amount !== undefined) return `Deposit of ${currency} ${amountText(terms.amount, currency)} first`;
+    return `Deposit of ${percentText(terms.percentBp ?? 0)}% first`;
+  }
+  if (terms.kind === "installments") return `${terms.count} installments, ${terms.intervalDays} days apart`;
+  return "Paid in full";
+}
+
+export function overdueText(overdue: { action: OverdueAction; afterDays: number }): string {
+  if (overdue.action === "none") return "Nothing happens";
+  const what = { disconnect: "Disconnect", pause_application: "Pause the application", cancel_application: "Cancel the application" }[overdue.action];
+  return `${what} ${overdue.afterDays === 0 ? "on the due date" : `${overdue.afterDays} day${overdue.afterDays === 1 ? "" : "s"} after it`}`;
+}
+
+export function lateFeeText(rule: LateFeeRuleView | null, currency: string): string {
+  if (!rule) return "No late fee";
+  const amount = rule.flatAmount !== null ? `${currency} ${amountText(rule.flatAmount, currency)}` : `${percentText(rule.rateBp ?? 0)}% of the ${rule.base === "invoice_total" ? "invoice total" : "overdue balance"}`;
+  const when = rule.frequency === "monthly" ? "every 30 days" : rule.frequency === "once" ? "once" : "when staff apply it";
+  return `${amount} ${when}, from ${rule.triggerDays} days overdue`;
+}
