@@ -6,7 +6,7 @@ import type { Viewer } from "./access";
 import { planAdvance, planEnd, type AdvanceAction } from "./application-stages";
 import { configOf, findApplication, presentApplication, type ApplicationResult, type ApplicationRow, type ApplicationStepRow } from "./application-present";
 import type { ActionEnv } from "../../kernel/action-env";
-import { fingerprintOfRequest } from "./commands";
+import { fingerprintOfRequest } from "./command-log";
 import { applicationStageChanged } from "./events";
 import { defineStepLog } from "./idempotent";
 

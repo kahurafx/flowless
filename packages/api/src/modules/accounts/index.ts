@@ -40,7 +40,7 @@ export { chargeTypeApplies, chargesApplying, statusRuleTable, DEFAULT_STATUS_RUL
 // Activation (C-06): the pure rules, the registry for other modules' facts, and the auto-mode recheck.
 export { evaluateGates, gateList, hasPaymentGate, type ActivationConfig, type GateEvaluation, type GateFact, type GateResult } from "./gates";
 export { registerGateSource, type GateSource } from "./sources";
-export { recheckActivation } from "./commands";
+export { recheckActivation } from "./auto-activation";
 export { sweepStaleAccounts } from "./stale";
 
 // Data quality (C-12): the catalogue lives in shared-types; the setting, the reports, the Metering port and the exception sweep are here.

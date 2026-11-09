@@ -323,6 +323,14 @@ export async function findAccount(tx: Transaction, viewer: Viewer, by: { id: str
   return row;
 }
 
+/** The account under a row lock; the system (no viewer) sees every account of its organization. */
+export async function lockAccount(tx: Transaction, viewer: Viewer | null, accountId: string): Promise<AccountRow> {
+  if (viewer) return findAccount(tx, viewer, { id: accountId }, true);
+  const [row] = await tx.select().from(account).where(eq(account.id, accountId)).for("update");
+  if (!row) throw notFound("Account");
+  return row;
+}
+
 /** Where an account sits for queues and approvals that scoped members see: its oldest service point's lowest area and route. */
 export async function firstPlacement(tx: Transaction, accountId: string): Promise<{ areaId: string | null; routeId: string | null }> {
   const [point] = await tx

@@ -5,10 +5,9 @@ import { eq } from "drizzle-orm";
 import type { Viewer } from "./access";
 import type { ActionEnv } from "../../kernel/action-env";
 import type { AuditNote } from "../../trpc";
-import { lockAccount } from "./commands";
 import { createdStep, defineStepLog } from "./idempotent";
 import { findRelocation, isOpen, toRelocationDto, type RelocationRow } from "./relocation-present";
-import type { AccountRow } from "./service";
+import { lockAccount, type AccountRow } from "./service";
 
 /*
  * The relocation's step log (table `relocation_event`) and the steps that share its shape

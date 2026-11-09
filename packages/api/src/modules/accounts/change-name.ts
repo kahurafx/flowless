@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
 import type { UserActionEnv } from "../../kernel/action-env";
-import { commandLog, fingerprintOfRequest, toCommandDto } from "./commands";
+import { commandLog, fingerprintOfRequest, toCommandDto } from "./command-log";
 import { createCustomer, type NewCustomer } from "./customers";
 import { holderChanged } from "./events";
 import { currentHolder, holdersOf, insertHolder, localToday } from "./holders";

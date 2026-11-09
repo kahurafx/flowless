@@ -8,7 +8,7 @@ import { canRecordSurvey, planAdvance } from "./application-stages";
 import { configOf, customerName, findApplication, presentApplication, type ApplicationDto, type ApplicationRow } from "./application-present";
 import { applicationLog, moveStage } from "./application-steps";
 import type { ActionEnv } from "../../kernel/action-env";
-import { fingerprintOfRequest } from "./commands";
+import { fingerprintOfRequest } from "./command-log";
 import { surveyApproval } from "./survey-approval";
 
 /*

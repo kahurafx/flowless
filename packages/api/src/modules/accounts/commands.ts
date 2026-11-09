@@ -1,61 +1,24 @@
-import type { Transaction } from "@flowless/db";
-import { account, accountCommand } from "@flowless/db/schema/accounts";
-import type { AccountCommandKind } from "@flowless/shared-types";
+import { account } from "@flowless/db/schema/accounts";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, lt } from "drizzle-orm";
-import { createHash } from "node:crypto";
-import { approvalOutcome } from "../../kernel/approval-store";
+import { eq } from "drizzle-orm";
+import type { ActionEnv } from "../../kernel/action-env";
 import { readSetting } from "../../kernel/config-store";
-import { loadEntitlements } from "../../kernel/entitlement-store";
-import { systemEnv, type ActionEnv } from "../../kernel/action-env";
 import type { Viewer } from "./access";
-import { gateReport } from "./activation";
-import { accountActivated, accountStatusChanged, accountTerminated, serviceStatusChanged } from "./events";
-import { hasPaymentGate } from "./gates";
-import { planCommand, type StatusCommand } from "./lifecycle";
-import { defineStepLog } from "./idempotent";
-import { notFound } from "../../kernel/errors";
-import { findAccount, presentAccount, type AccountDto, type AccountRow } from "./service";
+import { commandLog, fingerprintOfRequest, toCommandDto, type CommandDto } from "./command-log";
+import { prepareActivate, prepareReactivate, prepareTerminate, type CommandFacts, type Prepared } from "./command-prepare";
+import { accountStatusChanged, serviceStatusChanged } from "./events";
+import { hasPaymentGate, type ActivationConfig } from "./gates";
+import { planStatusCommand, type StatusCommand, type StatusPlan } from "./lifecycle";
+import { lockAccount, presentAccount, type AccountDto, type AccountRow } from "./service";
 import { activationSetting } from "./settings";
-import { positionOf } from "./sources";
-import { settleTermination } from "./termination";
 
 /*
- * The account lifecycle's use cases (C-03, C-06, C-11): the only code that changes an
- * account's status. A command is planned by the pure state machine, written to the
- * append-only command log, applied to the account, audited and published, all in the
- * caller's transaction; the database trigger refuses a status change that skips the log.
+ * The account lifecycle's use case (C-03, C-06, C-11): the only code that changes an
+ * account's status. A command is planned by the pure state machine, checked by the unit of
+ * its kind where it has one (`command-prepare.ts`), written to the append-only command log
+ * (`command-log.ts`), applied to the account, audited and published, all in the caller's
+ * transaction; the database trigger refuses a status change that skips the log.
  */
-
-export type CommandRow = typeof accountCommand.$inferSelect;
-
-/**
- * Idempotency of the account's command log: a command id replays for the same account, kind,
- * actor and request fingerprint, and is CONFLICT for anything else. Every account step
- * (status commands, `succeed`, `change_name`, `relocate`) goes through it.
- */
-export const commandLog = defineStepLog(accountCommand, "accountId");
-
-export function toCommandDto(c: CommandRow) {
-  return {
-    id: c.id,
-    accountId: c.accountId,
-    kind: c.kind,
-    fromCommercialStatus: c.fromCommercialStatus,
-    toCommercialStatus: c.toCommercialStatus,
-    fromServiceStatus: c.fromServiceStatus,
-    toServiceStatus: c.toServiceStatus,
-    serviceReason: c.serviceReason,
-    reason: c.reason,
-    reasonCode: c.reasonCode,
-    actorUserId: c.actorUserId,
-    source: c.source,
-    occurredAt: c.occurredAt,
-    note: c.note,
-    payload: c.payload as Record<string, unknown>,
-  };
-}
-export type CommandDto = ReturnType<typeof toCommandDto>;
 
 export interface CommandRequest {
   /** Client-minted, so a retry returns the earlier result. */
@@ -83,31 +46,8 @@ export interface CommandResult {
   replayed: boolean;
 }
 
-const stable = (value: unknown): string =>
-  JSON.stringify(value, (_k, v: unknown) =>
-    v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v,
-  );
-
-/** A request as it must repeat to count as a retry: everything but the id. */
-export function fingerprintOfRequest(req: Record<string, unknown>): string {
-  const defined = Object.fromEntries(Object.entries(req).filter(([k, v]) => k !== "id" && v !== undefined));
-  return createHash("sha256").update(stable(defined)).digest("hex");
-}
-const fingerprintOf = (req: CommandRequest): string => fingerprintOfRequest({ ...req });
-
-const state = (a: AccountRow) => ({ commercial: a.commercialStatus, service: a.serviceStatus, serviceReason: a.serviceStatusReason });
-const statusOf = (a: Pick<AccountRow, "commercialStatus" | "serviceStatus" | "serviceStatusReason">) => ({
-  commercialStatus: a.commercialStatus,
-  serviceStatus: a.serviceStatus,
-  serviceStatusReason: a.serviceStatusReason,
-});
-
-export async function lockAccount(tx: Transaction, viewer: Viewer | null, accountId: string): Promise<AccountRow> {
-  if (viewer) return findAccount(tx, viewer, { id: accountId }, true);
-  const [row] = await tx.select().from(account).where(eq(account.id, accountId)).for("update");
-  if (!row) throw notFound("Account");
-  return row;
-}
+/** An account's status columns: the audit entry's before and after. */
+const statusOf = (a: AccountRow) => ({ commercialStatus: a.commercialStatus, serviceStatus: a.serviceStatus, serviceStatusReason: a.serviceStatusReason });
 
 /**
  * Runs one status command (C-03). `viewer` is the caller's scope (null for the system), so a
@@ -119,7 +59,7 @@ export async function lockAccount(tx: Transaction, viewer: Viewer | null, accoun
  */
 export async function runCommand(env: ActionEnv, viewer: Viewer | null, req: CommandRequest): Promise<CommandResult> {
   const row = await lockAccount(env.tx, viewer, req.accountId);
-  const fingerprint = fingerprintOf(req);
+  const fingerprint = fingerprintOfRequest({ ...req });
   return commandLog.once(
     env,
     req.id,
@@ -133,53 +73,16 @@ export async function runCommand(env: ActionEnv, viewer: Viewer | null, req: Com
 
 /** Plans and applies one command on the locked account: the effect `runCommand` runs once per id. */
 async function applyCommand(env: ActionEnv, row: AccountRow, req: CommandRequest, fingerprint: string) {
-  const { tx, organizationId } = env;
-  const config = (await readSetting(tx, activationSetting)).value;
-  const override = req.kind === "activate" && req.override === true;
-  const plan = planCommand(
-    state(row),
+  const config = (await readSetting(env.tx, activationSetting)).value;
+  const plan = planStatusCommand(
+    { commercial: row.commercialStatus, service: row.serviceStatus, serviceReason: row.serviceStatusReason },
     { kind: req.kind, reason: req.reason, connect: req.connect, serviceReason: req.serviceReason },
-    { paymentGate: hasPaymentGate(config), override },
+    // Only activation reads the override.
+    { paymentGate: hasPaymentGate(config), override: req.override === true },
   );
   if (!plan.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: plan.problem });
 
-  const payload: Record<string, unknown> = {};
-  let via: "checklist" | "auto" | "override" = env.source === "system" ? "auto" : "checklist";
-  let settlement: ReturnType<typeof settleTermination> | null = null;
-
-  if (req.kind === "activate") {
-    const report = await gateReport(tx, organizationId, row.id, config);
-    payload.gates = report.gates.map((g) => ({ key: g.key, state: g.state, via: g.via }));
-    if (!report.ready) {
-      const names = report.gates.filter((g) => report.unmet.includes(g.key)).map((g) => g.label);
-      if (!override) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `The account is not ready to activate. Unmet: ${names.join("; ")}` });
-      }
-      via = "override";
-      payload.override = true;
-      payload.overriddenGates = report.unmet;
-    }
-    payload.mode = config.mode;
-    payload.via = via;
-  }
-
-  if (req.kind === "terminate") {
-    const position = await positionOf(tx, organizationId, row.id);
-    const writeOff = req.approvalId ? await approvalOutcome(tx, req.approvalId) : null;
-    settlement = settleTermination({
-      accountId: row.id,
-      position,
-      acknowledgeNoLedger: req.acknowledgeNoLedger === true,
-      writeOff,
-      writeOffCited: !!req.approvalId,
-    });
-    if (!settlement.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: settlement.problem });
-    payload.basis = settlement.basis;
-    payload.balance = settlement.balance === null ? null : settlement.balance.toString();
-    payload.finalBillIssued = position?.finalBillIssued ?? null;
-    if (req.approvalId) payload.writeOffApprovalId = req.approvalId;
-    if (settlement.basis === "no_ledger") payload.acknowledgeNoLedger = true;
-  }
+  const { payload, events } = await prepare(env, row, req, plan, config);
 
   const to = plan.to;
   const command = await commandLog.append(env, row.id, {
@@ -197,7 +100,7 @@ async function applyCommand(env: ActionEnv, row: AccountRow, req: CommandRequest
     fingerprint,
   });
 
-  const [updated] = await tx
+  const [updated] = await env.tx
     .update(account)
     .set({ commercialStatus: to.commercial, serviceStatus: to.service, serviceStatusReason: to.serviceReason, statusCommandId: command.id })
     .where(eq(account.id, row.id))
@@ -211,101 +114,48 @@ async function applyCommand(env: ActionEnv, row: AccountRow, req: CommandRequest
     after: { ...statusOf(updated!), commandId: command.id, ...payload },
     reason: req.reason.trim(),
   });
-  await publishFor(env, row, updated!, command, via, settlement && settlement.ok ? settlement : null, req.approvalId);
 
-  return { command: toCommandDto(command), account: await presentAccount(tx, updated!) };
-}
-
-async function publishFor(
-  env: ActionEnv,
-  before: AccountRow,
-  after: AccountRow,
-  command: CommandRow,
-  via: "checklist" | "auto" | "override",
-  settlement: { basis: "settled" | "written_off" | "no_ledger"; balance: bigint | null } | null,
-  approvalId: string | undefined,
-) {
-  const facts = {
-    accountId: after.id,
-    number: after.number,
+  const facts: CommandFacts = {
+    accountId: updated!.id,
+    number: updated!.number,
     commandId: command.id,
     reason: command.reason,
     actorUserId: command.actorUserId,
     occurredAt: command.occurredAt.toISOString(),
   };
-  const kind: AccountCommandKind = command.kind;
-  if (before.commercialStatus !== after.commercialStatus) {
-    await env.publish(accountStatusChanged, { ...facts, kind, from: before.commercialStatus, to: after.commercialStatus });
+  if (row.commercialStatus !== updated!.commercialStatus) {
+    await env.publish(accountStatusChanged, { ...facts, kind: req.kind, from: row.commercialStatus, to: updated!.commercialStatus });
   }
-  if (before.serviceStatus !== after.serviceStatus) {
+  if (row.serviceStatus !== updated!.serviceStatus) {
     await env.publish(serviceStatusChanged, {
       ...facts,
-      kind,
-      from: before.serviceStatus,
-      to: after.serviceStatus,
-      serviceReason: after.serviceStatusReason,
+      kind: req.kind,
+      from: row.serviceStatus,
+      to: updated!.serviceStatus,
+      serviceReason: updated!.serviceStatusReason,
     });
   }
-  if ((kind === "activate" || kind === "reactivate") && before.commercialStatus !== "TERMINATED") {
-    await env.publish(accountActivated, {
-      ...facts,
-      from: before.commercialStatus as "NEW" | "PENDING_PAYMENT" | "DORMANT",
-      via: kind === "reactivate" ? "reactivation" : via,
-      service: after.serviceStatus,
-    });
-  }
-  if (kind === "terminate" && settlement) {
-    await env.publish(accountTerminated, {
-      ...facts,
-      from: before.commercialStatus as "NEW" | "PENDING_PAYMENT" | "ACTIVE" | "DORMANT",
-      basis: settlement.basis,
-      balance: settlement.balance === null ? null : settlement.balance.toString(),
-      writeOffApprovalId: approvalId ?? null,
-    });
-  }
+  for (const publish of events) await publish(env, facts);
+
+  return { command: toCommandDto(command), account: await presentAccount(env.tx, updated!) };
 }
 
-/** The account's command log, newest first; a hidden account is NOT_FOUND. */
-export async function listCommands(tx: Transaction, viewer: Viewer, accountId: string, opts: { limit: number; before?: Date | undefined }) {
-  const row = await findAccount(tx, viewer, { id: accountId });
-  const rows = await tx
-    .select()
-    .from(accountCommand)
-    .where(and(eq(accountCommand.accountId, row.id), opts.before ? lt(accountCommand.occurredAt, opts.before) : undefined))
-    .orderBy(desc(accountCommand.occurredAt), desc(accountCommand.id))
-    .limit(opts.limit);
-  return rows.map(toCommandDto);
-}
-
-/**
- * Activates the account by itself when it is ready (C-06, mode `auto`). Other modules'
- * consumers call it, inside their event's tenant transaction, when a fact a gate depends on
- * changes (a payment confirmed, a meter installed, a reading captured). It activates only an
- * account that is NEW or PENDING_PAYMENT with every required gate met, never overrides, and
- * does nothing in checklist mode, when Accounts is unlicensed, or when the account is not
- * (yet) ready. A NEW account in an organization that takes payment first waits for
- * PENDING_PAYMENT.
- */
-export async function recheckActivation(
-  tx: Transaction,
-  organizationId: string,
-  accountId: string,
-): Promise<{ activated: boolean; reason: string }> {
-  if (!(await loadEntitlements(tx)).includes("accounts")) return { activated: false, reason: "Accounts is not licensed" };
-  const config = (await readSetting(tx, activationSetting)).value;
-  if (config.mode !== "auto") return { activated: false, reason: "Activation is by checklist" };
-  const [row] = await tx.select().from(account).where(eq(account.id, accountId));
-  if (!row) return { activated: false, reason: "No such account" };
-  if (row.commercialStatus !== "NEW" && row.commercialStatus !== "PENDING_PAYMENT") {
-    return { activated: false, reason: `The account is ${row.commercialStatus.toLowerCase().replace("_", " ")}` };
-  }
-  if (row.commercialStatus === "NEW" && hasPaymentGate(config)) return { activated: false, reason: "Waiting for the account to be marked pending payment" };
-  try {
-    await runCommand(systemEnv(tx, organizationId), null, { accountId, kind: "activate", reason: "All activation gates are met" });
-    return { activated: true, reason: "All activation gates are met" };
-  } catch (error) {
-    // Not ready: runCommand refuses before it writes anything, so the caller's transaction is intact.
-    if (error instanceof TRPCError && error.code === "PRECONDITION_FAILED") return { activated: false, reason: error.message };
-    throw error;
+/** The unit of the plan's kind; the kinds with nothing beyond the state change add nothing. */
+async function prepare(
+  env: ActionEnv,
+  row: AccountRow,
+  req: CommandRequest,
+  plan: Exclude<StatusPlan, { ok: false }>,
+  config: ActivationConfig,
+): Promise<Prepared> {
+  switch (plan.kind) {
+    case "activate":
+      return prepareActivate(env, row, plan, config, { override: req.override === true });
+    case "reactivate":
+      return prepareReactivate(plan);
+    case "terminate":
+      return prepareTerminate(env, row, plan, { approvalId: req.approvalId, acknowledgeNoLedger: req.acknowledgeNoLedger === true });
+    default:
+      return { payload: {}, events: [] };
   }
 }

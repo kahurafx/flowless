@@ -2,7 +2,7 @@ import { account } from "@flowless/db/schema/accounts";
 import type { AccountCommandKind } from "@flowless/shared-types";
 import { eq } from "drizzle-orm";
 import type { ActionEnv } from "../../kernel/action-env";
-import { commandLog, type CommandRow } from "./commands";
+import { commandLog, type CommandRow } from "./command-log";
 import type { AccountRow } from "./service";
 
 /*
@@ -10,7 +10,7 @@ import type { AccountRow } from "./service";
  * name C-10) still get a place in the account's command log: a `succeed`, `relocate` or
  * `change_name` row with from-state = to-state. That gives them what status commands have: a
  * client-mintable id (a retry returns the earlier result, a different request under the id is
- * CONFLICT, both through `commandLog.once` in `commands.ts`; the row is `commandLog.append`), an actor and a reason, and a row in `commands.list`. The use case then audits
+ * CONFLICT, both through `commandLog.once`; the row is `commandLog.append`, both in `command-log.ts`), an actor and a reason, and a row in `commands.list`. The use case then audits
  * and publishes itself.
  */
 

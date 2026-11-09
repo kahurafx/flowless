@@ -10,7 +10,7 @@ import { chargeItemByCode } from "../tariffs";
 import type { Placement, Viewer } from "./access";
 import { logChange, reload } from "./account-changes";
 import type { ActionEnv, UserActionEnv } from "../../kernel/action-env";
-import { commandLog, fingerprintOfRequest, toCommandDto } from "./commands";
+import { commandLog, fingerprintOfRequest, toCommandDto } from "./command-log";
 import { servicePointRelocated, type JobCompleted } from "./events";
 import { localToday } from "./holders";
 import { claimingId } from "./idempotent";
