@@ -27,7 +27,6 @@ export interface AccountsSeedContext {
   admin: Database | null;
 }
 
-const DAY = 86_400_000;
 const KAHAWA = { lat: -1.1935, lng: 36.93 };
 const GITHURAI = { lat: -1.2012, lng: 36.9194 };
 const near = (origin: Place, dLat: number, dLng: number): Place => ({ lat: Number((origin.lat + dLat).toFixed(6)), lng: Number((origin.lng + dLng).toFixed(6)) });
@@ -89,7 +88,7 @@ async function seedTariffs(api: Api) {
     input: { type: "increasing_block" | "uniform" | "flat_rate"; flatBasis?: "pipe_size"; content: Parameters<Api["tariffs"]["create"]>[0]["content"] },
     next?: { content: Parameters<Api["tariffs"]["create"]>[0]["content"]; note: string },
   ) => {
-    let found = existing.get(name);
+    const found = existing.get(name);
     let id = found?.id;
     if (!id) id = (await api.tariffs.create({ name, ...input, effectiveFrom: since, note: "Opening tariff" })).id;
     if (next && (found?.versionCount ?? 1) < 2) await api.tariffs.addVersion({ tariffId: id, content: next.content, note: next.note });
