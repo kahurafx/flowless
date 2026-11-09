@@ -17,7 +17,8 @@ import { claimingId } from "./idempotent";
 import { isOpen, placeOf, toRelocationDto, type RelocationDto, type RelocationRow } from "./relocation-present";
 import { assertOpen, lockedRelocation, openRelocationStep, relocationCreation, relocationLog } from "./relocation-steps";
 import { createServicePoint } from "./service-points";
-import { assertPlacementInScope, findAccount, findServicePoint, toServicePointDto, validatePlacement, type AccountRow } from "./service";
+import { assertPlacementInScope, validatePlacement } from "./placement";
+import { findAccount, findServicePoint, toServicePointDto, type AccountRow } from "./service";
 import { applicationSetting } from "./settings";
 
 /*

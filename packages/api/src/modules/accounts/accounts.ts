@@ -5,21 +5,13 @@ import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { procedureEnv } from "../../kernel/action-env";
 import { descendantsOf } from "../../kernel/scope";
+import { likeEscape } from "../../kernel/text";
 import { accountVisible, servicePointInScope } from "./access";
 import { openAccount } from "./open-account";
 import type { AccountsProcedures } from "./procedures";
-import {
-  callingCodeFor,
-  findAccount,
-  likeEscape,
-  presentAccount,
-  presentAccounts,
-  previewNextNumber,
-  toAccountDto,
-  toServicePointDto,
-  usablePhone,
-  contactsOf,
-} from "./service";
+import { previewNextNumber } from "./account-numbers";
+import { callingCodeFor, contactsOf, usablePhone } from "./contact-values";
+import { findAccount, presentAccount, presentAccounts, toAccountDto, toServicePointDto } from "./service";
 import { numberingSetting } from "./settings";
 
 const Number_ = z.string().trim().min(1).max(40);

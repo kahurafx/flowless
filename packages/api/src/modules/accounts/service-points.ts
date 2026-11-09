@@ -10,7 +10,8 @@ import { router } from "../../trpc";
 import { servicePointInScope, type Placement, type Viewer } from "./access";
 import { servicePointCreated } from "./events";
 import type { AccountsProcedures } from "./procedures";
-import { assertPlacementInScope, findAccount, findServicePoint, toServicePointDto, validatePlacement } from "./service";
+import { assertPlacementInScope, validatePlacement } from "./placement";
+import { findAccount, findServicePoint, toServicePointDto } from "./service";
 
 const Address = z.string().trim().min(1).max(300);
 const Location = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });

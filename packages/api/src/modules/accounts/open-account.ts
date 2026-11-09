@@ -7,7 +7,8 @@ import type { UserActionEnv } from "../../kernel/action-env";
 import { accountOpened } from "./events";
 import { insertHolder, localToday } from "./holders";
 import { assertMembershipClass } from "./memberships";
-import { findAccount, findCustomer, issueAccountNumber, issueChildNumber, type AccountRow } from "./service";
+import { issueAccountNumber, issueChildNumber } from "./account-numbers";
+import { findAccount, findCustomer, type AccountRow } from "./service";
 import { numberingSetting } from "./settings";
 
 /** The reason a new account starts DISCONNECTED: service begins at activation (C-05, Phase 3 F3). */

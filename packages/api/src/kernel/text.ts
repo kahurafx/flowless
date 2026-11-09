@@ -5,3 +5,6 @@ export const tidy = (text: string) => text.trim().replace(/\s+/g, " ");
 export function plain<T>(value: T): unknown {
   return JSON.parse(JSON.stringify(value, (_key, v: unknown) => (typeof v === "bigint" ? v.toString() : v)));
 }
+
+/** `%` and `_` typed by a person are not wildcards in a `like` pattern. */
+export const likeEscape = (text: string) => text.replace(/[\\%_]/g, "\\$&");

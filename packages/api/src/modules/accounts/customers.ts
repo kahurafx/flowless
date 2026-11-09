@@ -9,28 +9,22 @@ import { accountVisible, customerVisible } from "./access";
 import { customerCreated } from "./events";
 import type { AccountsProcedures } from "./procedures";
 import { notFound } from "../../kernel/errors";
-import { tidy } from "../../kernel/text";
-import {
-  callingCodeFor,
-  contactFields,
-  contactsOf,
-  findCustomer,
-  findDuplicates,
-  insertContact,
-  likeEscape,
-  normalizeIdNumber,
-  presentAccounts,
-  presentCustomers,
-  promoteNextPrimary,
-  toContactDto,
-  toCustomerDto,
-  type CustomerDto,
-} from "./service";
+import { likeEscape, tidy } from "../../kernel/text";
+import { callingCodeFor, contactFields, contactsOf, toContactDto } from "./contact-values";
+import { addContact, insertContact, removeContact, updateContact } from "./contacts";
+import { findDuplicates } from "./duplicates";
+import { findCustomer, presentAccounts, presentCustomers, toCustomerDto, type CustomerDto } from "./service";
 
 const Name = z.string().trim().min(1).max(200);
 const IdNumber = z.string().trim().min(1).max(40);
 const Language = z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/, "Use a language code such as en, sw or en-KE");
 const Notes = z.string().max(4000);
+
+/** National ids and registration numbers are compared without spaces, dots or dashes, in upper case. */
+function normalizeIdNumber(raw: string | null | undefined): string | null {
+  const id = (raw ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return id === "" ? null : id;
+}
 
 const ContactInput = z.object({
   channel: z.enum(CONTACT_CHANNELS),
@@ -57,26 +51,9 @@ function assertIdentityFits(type: (typeof CUSTOMER_TYPES)[number], nationalId: s
 /** Contact management (C-01): `contacts.*`. Changing contacts is changing the customer, so it needs `accounts:update`. */
 export function contactsRouter(p: AccountsProcedures) {
   return router({
-    add: p.update.input(z.object({ customerId: z.uuid() }).extend(ContactInput.shape)).mutation(async ({ ctx, input }) => {
-      await findCustomer(ctx.tx, ctx.viewer, input.customerId, true);
-      const fields = contactFields(input.channel, input.value, await callingCodeFor(ctx.tx));
-      const row = await insertContact(ctx.tx, {
-        organizationId: ctx.organizationId,
-        userId: ctx.viewer.userId,
-        customerId: input.customerId,
-        channel: input.channel,
-        kind: input.kind,
-        fields,
-        isPrimary: input.isPrimary,
-      });
-      await ctx.audit({
-        action: "accounts.contact_add",
-        subjectType: "customer",
-        subjectId: input.customerId,
-        after: { contactId: row.id, channel: row.channel, kind: row.kind, value: row.value, isPlaceholder: row.isPlaceholder, isPrimary: row.isPrimary },
-      });
-      return toContactDto(row);
-    }),
+    add: p.update
+      .input(z.object({ customerId: z.uuid() }).extend(ContactInput.shape))
+      .mutation(({ ctx, input }) => addContact(procedureEnv(ctx), ctx.viewer, input)),
 
     update: p.update
       .input(
@@ -88,60 +65,9 @@ export function contactsRouter(p: AccountsProcedures) {
             .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Patch is empty"),
         }),
       )
-      .mutation(async ({ ctx, input }) => {
-        const [found] = await ctx.tx.select().from(customerContact).where(eq(customerContact.id, input.id));
-        if (!found) throw notFound("Contact");
-        await findCustomer(ctx.tx, ctx.viewer, found.customerId, true);
-        const [before] = await ctx.tx.select().from(customerContact).where(eq(customerContact.id, input.id));
-        if (!before) throw notFound("Contact");
+      .mutation(({ ctx, input }) => updateContact(procedureEnv(ctx), ctx.viewer, input.id, input.patch)),
 
-        const { value, kind, isPrimary } = input.patch;
-        const fields = value !== undefined ? contactFields(before.channel, value, await callingCodeFor(ctx.tx)) : null;
-        const becomesPlaceholder = fields?.isPlaceholder ?? before.isPlaceholder;
-        if (isPrimary && becomesPlaceholder) throw new TRPCError({ code: "BAD_REQUEST", message: "A placeholder number cannot be the primary phone" });
-
-        const wantsPrimary = becomesPlaceholder ? false : (isPrimary ?? before.isPrimary);
-        if (wantsPrimary && !before.isPrimary) {
-          await ctx.tx
-            .update(customerContact)
-            .set({ isPrimary: false, updatedAt: new Date() })
-            .where(and(eq(customerContact.customerId, before.customerId), eq(customerContact.channel, before.channel), eq(customerContact.isPrimary, true)));
-        }
-        const [row] = await ctx.tx
-          .update(customerContact)
-          .set({
-            ...(fields ? { value: fields.value, normalized: fields.normalized, isPlaceholder: fields.isPlaceholder } : {}),
-            ...(kind !== undefined ? { kind } : {}),
-            // Demoting the only primary hands the role to the oldest real contact below.
-            isPrimary: wantsPrimary,
-            updatedAt: new Date(),
-          })
-          .where(eq(customerContact.id, before.id))
-          .returning();
-        await promoteNextPrimary(ctx.tx, before.customerId, before.channel);
-        const [after] = await ctx.tx.select().from(customerContact).where(eq(customerContact.id, before.id));
-        const was = { value: before.value, kind: before.kind, isPlaceholder: before.isPlaceholder, isPrimary: before.isPrimary };
-        const now = { value: row!.value, kind: row!.kind, isPlaceholder: row!.isPlaceholder, isPrimary: after!.isPrimary };
-        if (JSON.stringify(was) !== JSON.stringify(now)) {
-          await ctx.audit({ action: "accounts.contact_update", subjectType: "customer", subjectId: before.customerId, before: { contactId: before.id, ...was }, after: { contactId: before.id, ...now } });
-        }
-        return toContactDto(after!);
-      }),
-
-    remove: p.update.input(z.object({ id: z.uuid() })).mutation(async ({ ctx, input }) => {
-      const [found] = await ctx.tx.select().from(customerContact).where(eq(customerContact.id, input.id));
-      if (!found) throw notFound("Contact");
-      await findCustomer(ctx.tx, ctx.viewer, found.customerId, true);
-      await ctx.tx.delete(customerContact).where(eq(customerContact.id, found.id));
-      await promoteNextPrimary(ctx.tx, found.customerId, found.channel);
-      await ctx.audit({
-        action: "accounts.contact_remove",
-        subjectType: "customer",
-        subjectId: found.customerId,
-        before: { contactId: found.id, channel: found.channel, kind: found.kind, value: found.value, isPlaceholder: found.isPlaceholder, isPrimary: found.isPrimary },
-      });
-      return { id: found.id };
-    }),
+    remove: p.update.input(z.object({ id: z.uuid() })).mutation(({ ctx, input }) => removeContact(procedureEnv(ctx), ctx.viewer, input.id)),
   });
 }
 

@@ -13,7 +13,8 @@ import { claimingId, createdStep } from "./idempotent";
 import { assertMembershipClass } from "./memberships";
 import { notFound } from "../../kernel/errors";
 import { tidy } from "../../kernel/text";
-import { assertPlacementInScope, findAccount, findCustomer, validatePlacement } from "./service";
+import { assertPlacementInScope, validatePlacement } from "./placement";
+import { findAccount, findCustomer } from "./service";
 
 /*
  * Logging an enquiry (C-05). The only step that creates the application row, so it replays
