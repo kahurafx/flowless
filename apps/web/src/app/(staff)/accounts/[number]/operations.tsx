@@ -74,7 +74,7 @@ export function DisconnectWithBill({ accountId, ops }: { accountId: string; ops:
         <div className="grid gap-2">
           <Label htmlFor="dc-fee">Turn-off fee</Label>
           <FieldSelect id="dc-fee" value={fee} onChange={setFee} options={ops.feeItems.map((i) => ({ value: i.id, label: i.name }))} placeholder="No fee" none="No fee" />
-          <p className="text-xs text-muted-foreground">The amount in force today, cited on the bill's fee line.</p>
+          <p className="text-xs text-muted-foreground">The amount in force today, cited on the bill&apos;s fee line.</p>
         </div>
       )}
       <div className="grid gap-2">
