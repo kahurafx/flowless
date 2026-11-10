@@ -76,6 +76,41 @@ export async function enqueueJob<T>(
   return existing!.id;
 }
 
+/**
+ * Queues many jobs of one kind in the caller's transaction (a billing run queues one per
+ * account). Each item carries its own idempotency key; keys already queued are skipped.
+ * Returns how many were newly queued.
+ */
+export async function enqueueJobs<T>(
+  tx: Transaction,
+  organizationId: string,
+  def: Pick<JobDef<T>, "type" | "schema" | "maxAttempts">,
+  items: readonly { payload: T; idempotencyKey: string }[],
+  options: Omit<EnqueueOptions, "idempotencyKey"> = {},
+): Promise<number> {
+  let queued = 0;
+  for (let i = 0; i < items.length; i += 1000) {
+    const chunk = items.slice(i, i + 1000);
+    const rows = await tx
+      .insert(job)
+      .values(
+        chunk.map((item) => ({
+          organizationId,
+          type: def.type,
+          payload: def.schema.parse(item.payload) as object,
+          maxAttempts: def.maxAttempts ?? 5,
+          idempotencyKey: item.idempotencyKey,
+          runAt: options.runAt ?? new Date(),
+          createdByUserId: options.createdByUserId ?? null,
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: job.id });
+    queued += rows.length;
+  }
+  return queued;
+}
+
 type ClaimedJob = {
   id: string;
   organization_id: string;

@@ -30,6 +30,7 @@ import { planClose, planMove } from "./cycle-machine";
 import { cycleClosed, cycleOpened, cycleOutcomeRecorded, cycleStateChanged } from "./cycle-events";
 import { reviewBucket, sampleSelection, type ReviewBucket, type ReviewThresholds } from "./cycle-review";
 import { billingCycleSetting, billingReviewSetting } from "./cycle-settings";
+import { enqueueCycleJobs } from "./cycle-enqueue";
 import { lastDayOf } from "./period-lock";
 
 /*
@@ -43,8 +44,7 @@ import { lastDayOf } from "./period-lock";
  * Metering unlicensed: Billing does not depend on Metering, so the cycle falls back to
  * Accounts' published route facts (live service point, consumption billed by C-04) and takes
  * every such account as eligible, because there is no meter register to ask. `snapshot_id` is
- * null then. The per-account calculation jobs are P5-4; advancing into `calculation` enqueues
- * nothing yet.
+ * null then. Advancing into `calculation` queues the per-account jobs (`cycle-enqueue.ts`, `bill-account.ts`).
  */
 
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "A period is YYYY-MM");
@@ -131,9 +131,10 @@ const toDto = (c: CycleRow): CycleDto => ({
   createdAt: c.createdAt,
 });
 
-async function cycleRow(tx: Transaction, id: string, lock = false): Promise<CycleRow> {
+/** `lock`: true takes the row exclusively (moves, close); "share" lets many outcomes land at once while a close waits for them. */
+export async function cycleRow(tx: Transaction, id: string, lock: boolean | "share" = false): Promise<CycleRow> {
   const query = tx.select().from(cycle).where(eq(cycle.id, id));
-  const [row] = lock ? await query.for("update") : await query;
+  const [row] = lock === "share" ? await query.for("share") : lock ? await query.for("update") : await query;
   if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Billing cycle not found" });
   return row;
 }
@@ -231,10 +232,10 @@ async function replayedEvent(tx: Transaction, eventId: string | undefined, cycle
   return true;
 }
 
-export async function advanceCycle(env: ActionEnv, input: z.infer<typeof advanceInputSchema>): Promise<{ cycle: CycleDto; replayed: boolean }> {
+export async function advanceCycle(env: ActionEnv, input: z.infer<typeof advanceInputSchema>): Promise<{ cycle: CycleDto; replayed: boolean; enqueued: number }> {
   const { tx } = env;
   const row = await cycleRow(tx, input.cycleId, true);
-  if (await replayedEvent(tx, input.id, row.id, input.to)) return { cycle: toDto(row), replayed: true };
+  if (await replayedEvent(tx, input.id, row.id, input.to)) return { cycle: toDto(row), replayed: true, enqueued: 0 };
   const plan = planMove(row.state, input.to, input.reason);
   if (!plan.ok) throw new TRPCError({ code: "BAD_REQUEST", message: plan.problem });
   // Leaving review forward needs every bill decided (B-16).
@@ -243,7 +244,9 @@ export async function advanceCycle(env: ActionEnv, input: z.infer<typeof advance
     if (pending > 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `${pending} bill${pending === 1 ? " is" : "s are"} not approved yet; approve or hold each (review) before issuing` });
   }
   await logMove(env, row, input.to, plan.kind, input.id, input.reason?.trim() || null);
-  return { cycle: toDto(await cycleRow(tx, row.id)), replayed: false };
+  // B-07: the calculation state queues one job per expected account without an outcome; the estimation state queues the accounts whose visit found no dial (their disposition says how to bill them).
+  const enqueued = input.to === "calculation" ? await enqueueCycleJobs(env, row.id, "pending") : input.to === "estimation" ? await enqueueCycleJobs(env, row.id, "missed") : null;
+  return { cycle: toDto(await cycleRow(tx, row.id)), replayed: false, enqueued: enqueued?.enqueued ?? 0 };
 }
 
 export async function closeCycle(env: ActionEnv, input: z.infer<typeof closeInputSchema>): Promise<{ cycle: CycleDto; replayed: boolean; completeness: Completeness }> {
@@ -281,9 +284,14 @@ export async function cycleCompleteness(tx: Transaction, cycleId: string): Promi
 
 /* ---------- outcomes (B-03, B-04) ---------- */
 
-export async function recordOutcome(env: ActionEnv, input: z.infer<typeof outcomeInputSchema>): Promise<{ id: string; replayed: boolean; exceptionId: string | null }> {
+export async function recordOutcome(
+  env: ActionEnv,
+  input: z.infer<typeof outcomeInputSchema>,
+  /** Who owns the queue item an exception outcome raises (NF-24); defaults to the actor, a run passes whoever started it. */
+  owner: string | null = env.actor.userId,
+): Promise<{ id: string; replayed: boolean; exceptionId: string | null }> {
   const { tx } = env;
-  const row = await cycleRow(tx, input.cycleId, true);
+  const row = await cycleRow(tx, input.cycleId, "share");
   const reason = input.reason?.trim() || null;
   if (input.id) {
     const [earlier] = await tx.select().from(cycleOutcome).where(eq(cycleOutcome.id, input.id));
@@ -322,7 +330,7 @@ export async function recordOutcome(env: ActionEnv, input: z.infer<typeof outcom
         detail: reason ?? "",
         subject: { kind: "account", ref: input.accountId },
         routeId: row.routeId,
-        ownerUserId: env.actor.userId,
+        ownerUserId: owner,
         dedupeKey: key,
       })
     ).id;

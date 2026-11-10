@@ -38,12 +38,12 @@ const SINCE = "2020-01-01";
  *  - B: the same, one owner. C: Accounts and Tariffs only (Billing unlicensed).
  * Tariffs are set up through the Tariffs API, effective from 2020 so any 2025 period prices.
  */
-export async function setupBillingEnv() {
+export async function setupBillingEnv(options: { metering?: boolean } = {}) {
   const t = await startTestDatabase();
   const pool = createDatabase(t.urlFor("flowless_api"), { max: 8 });
   const orgC = randomUUID();
   await t.admin.execute(sql`insert into auth.organization (id, name, slug, created_at) values (${orgC}, 'Org C', ${`org-${orgC}`}, now())`);
-  await setEntitlements(t.app, tenants.a.id, ["accounts", "tariffs", "billing"]);
+  await setEntitlements(t.app, tenants.a.id, options.metering ? ["accounts", "tariffs", "billing", "metering"] : ["accounts", "tariffs", "billing"]);
   await setEntitlements(t.app, tenants.b.id, ["accounts", "tariffs", "billing"]);
   await setEntitlements(t.app, orgC, ["accounts", "tariffs"]);
   const members = {

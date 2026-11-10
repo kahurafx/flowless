@@ -1,5 +1,6 @@
 import type { KernelRegistrar } from "../../kernel/registrar";
 import { adjustmentApproval as adjustmentKind } from "./approvals";
+import { billAccountJob, billOnReading } from "./bill-job";
 import { registerPorts } from "./ports";
 import { billingCycleSetting, billingReviewSetting } from "./cycle-settings";
 import { billingPolicySetting as policy } from "./settings";
@@ -15,6 +16,10 @@ export { adjustmentApproval, ADJUSTMENT_APPROVAL_KIND } from "./approvals";
 export { billingPolicySchema, billingPolicySetting, type BillingPolicy } from "./settings";
 export { billingCycleSchema, billingCycleSetting, billingReviewSchema, billingReviewSetting } from "./cycle-settings";
 export { cycleClosed, cycleOpened, cycleOutcomeRecorded, cycleStateChanged } from "./cycle-events";
+export { billAccount } from "./bill-account";
+export { billAccountJob, billOnReading } from "./bill-job";
+export { enqueueCycleJobs } from "./cycle-enqueue";
+export { analyseReadings, type RunReading } from "./run-input";
 export { completenessOf, type Completeness } from "./completeness";
 export { nextState, planClose, planMove } from "./cycle-machine";
 export { reviewBucket, sampleSelection } from "./cycle-review";
@@ -34,6 +39,8 @@ export function registerKernel(kernel: KernelRegistrar) {
   kernel.setting(billingCycleSetting);
   kernel.setting(billingReviewSetting);
   kernel.approval(adjustmentKind);
+  kernel.job(billAccountJob);
+  kernel.consumer(billOnReading);
   // Accounts' termination check, payment gate and balance transfer (each `requires: ["billing"]`) and Tariffs' closed-period source.
   registerPorts();
 }

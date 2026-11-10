@@ -11,6 +11,7 @@ import { billingProcedures as p } from "./procedures";
 import { accountBalance, accountStatement, documentWithLines, listDocuments } from "./reads";
 import { rebill, rebillInputSchema, voidDocument, voidInputSchema } from "./reversal";
 import { issueUsage, usageInputSchema } from "./usage";
+import { cycleProgress, runCycle } from "./cycle-progress";
 import {
   accountsInputSchema,
   advanceCycle,
@@ -141,6 +142,11 @@ export const billingRouter = router({
       await cycleDetailExists(ctx.tx, input.cycleId);
       return cycleCompleteness(ctx.tx, input.cycleId);
     }),
+    /** B-07: queue the per-account jobs for accounts without an outcome (resume); safe to repeat. */
+    run: p.issue.input(z.object({ cycleId: z.uuid() })).mutation(({ ctx, input }) => runCycle(procedureEnv(ctx), input.cycleId, false)),
+    /** The same plus accounts whose newest outcome is an exception. */
+    retry: p.issue.input(z.object({ cycleId: z.uuid() })).mutation(({ ctx, input }) => runCycle(procedureEnv(ctx), input.cycleId, true)),
+    progress: p.read.input(z.object({ cycleId: z.uuid() })).query(({ ctx, input }) => cycleProgress(ctx.tx, input.cycleId)),
     recordOutcome: p.issue.input(outcomeInputSchema).mutation(async ({ ctx, input }) => {
       await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
       return recordOutcome(procedureEnv(ctx), input);

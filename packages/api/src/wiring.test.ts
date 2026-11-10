@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { kernelRegistrar } from "./kernel/registrar";
-import { approvals, consumers, fileSubjects, reports, settings } from "./wiring";
+import { approvals, consumers, fileSubjects, jobs, reports, settings } from "./wiring";
 
 // The kernel imports no module: everything below arrives through `wiring.ts`.
 describe("wiring", () => {
@@ -14,8 +14,13 @@ describe("wiring", () => {
       "accounts.apply_survey_decision",
       "accounts.record_survey_from_job",
       "accounts.record_relocation_from_job",
+      "billing.bill_on_reading",
       "metering.close_and_open_on_relocation",
     ]);
+  });
+
+  it("registers Billing's per-account job", () => {
+    expect(jobs.map((j) => j.type)).toContain("billing.bill_account");
   });
 
   it("registers file subjects, reports and approval kinds", () => {
