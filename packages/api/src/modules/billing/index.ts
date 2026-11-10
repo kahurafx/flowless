@@ -1,5 +1,8 @@
 import type { KernelRegistrar } from "../../kernel/registrar";
-import { adjustmentApproval as adjustmentKind } from "./approvals";
+import { adjustmentApproval as adjustmentKind, correctionApproval as correctionKind } from "./approvals";
+import { correctionSettings } from "./correction-policy";
+import { correctionNeededOnRecorded, correctionNeededOnStatus } from "./correction-needed";
+import { revenueProtectionSetting } from "./cases";
 import { billAccountJob, billOnReading } from "./bill-job";
 import { registerPorts } from "./ports";
 import { billingCycleSetting, billingReviewSetting } from "./cycle-settings";
@@ -25,6 +28,12 @@ export { nextState, planClose, planMove } from "./cycle-machine";
 export { reviewBucket, sampleSelection } from "./cycle-review";
 // B-15: the period a closed cycle locks, for a module that must refuse or flag a posting into it.
 export { assertPeriodOpen, lockingCycle, monthsCovered } from "./period-lock";
+// B-12, B-14, B-19: disconnection, corrections and revenue-protection cases.
+export { disconnect, reconnect, derivedId } from "./disconnections";
+export { correctionPath, correctionSettings, graceEnd, isLargeDeviation, renderTemplate } from "./correction-policy";
+export { proposeCorrection, postCorrection } from "./corrections";
+export { openCase, revenueProtectionSetting } from "./cases";
+export { correctionApproval, CORRECTION_APPROVAL_KIND } from "./approvals";
 export { billHeld, documentIssued, documentReversed } from "./events";
 
 // Derived reads for other modules (Collections, Payments, the portal): always from ledger entries, with the caller's transaction.
@@ -38,7 +47,12 @@ export function registerKernel(kernel: KernelRegistrar) {
   kernel.setting(policy);
   kernel.setting(billingCycleSetting);
   kernel.setting(billingReviewSetting);
+  kernel.setting(correctionSettings);
+  kernel.setting(revenueProtectionSetting);
   kernel.approval(adjustmentKind);
+  kernel.approval(correctionKind);
+  kernel.consumer(correctionNeededOnRecorded);
+  kernel.consumer(correctionNeededOnStatus);
   kernel.job(billAccountJob);
   kernel.consumer(billOnReading);
   // Accounts' termination check, payment gate and balance transfer (each `requires: ["billing"]`) and Tariffs' closed-period source.

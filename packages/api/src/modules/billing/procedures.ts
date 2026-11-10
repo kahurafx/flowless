@@ -18,6 +18,8 @@ export const billingProcedures = {
   read: withViewer(moduleProcedure("billing", "billing:read")),
   issue: withViewer(moduleProcedure("billing", "billing:read", "billing:run")),
   adjust: withViewer(moduleProcedure("billing", "billing:read", "billing:adjust")),
+  /** Disconnection and reconnection drive Accounts' status command as the actor, so they need its permission too (B-12). */
+  disconnect: withViewer(moduleProcedure("billing", "billing:read", "billing:run", "accounts:change_status")),
 };
 
 export type BillingProcedures = typeof billingProcedures;

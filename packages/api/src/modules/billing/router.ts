@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { procedureEnv } from "../../kernel/action-env";
 import { router } from "../../trpc";
-import { adjustmentApproval } from "./approvals";
+import { TRPCError } from "@trpc/server";
+import { adjustmentApproval, correctionApproval } from "./approvals";
+import { addEvidence, backBillSubject, evidenceInput, getCase, listCases, listInput as caseListInput, openCase, openInput as caseOpenInput, resolveCase, resolveInput as caseResolveInput } from "./cases";
+import { correctionSubject, decideRoute, evidenceSchema, postCorrection, postCorrectionInput, proposeCorrection } from "./corrections";
+import { disconnect, disconnectInput, reconnect, reconnectInput } from "./disconnections";
 import { finalInputSchema, issueFinal } from "./final";
 import { assertAccountVisible, assertDocumentVisible, listableAccounts } from "./scope";
 import { adjustmentSubject, issueNote, noteInputSchema, NOTE_KINDS } from "./notes";
@@ -159,6 +163,115 @@ export const billingRouter = router({
         return reviewAccount(procedureEnv(ctx), input, ctx.permissions.has("billing:approve"));
       }),
     }),
+  }),
+
+  /**
+   * B-12: one command to disconnect (final reading, final bill, Accounts' status command) and one
+   * to reconnect (from the final reading; a moved dial opens an illegal-consumption case).
+   * Needs billing:run and accounts:change_status.
+   */
+  disconnections: router({
+    disconnect: p.disconnect.input(disconnectInput).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return disconnect(procedureEnv(ctx), ctx.viewer, input);
+    }),
+    reconnect: p.disconnect.input(reconnectInput).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return reconnect(procedureEnv(ctx), ctx.viewer, input);
+    }),
+  }),
+
+  /**
+   * B-13, B-14: late and corrected readings post in the current open period as credit or debit
+   * notes citing the original invoice. Inside the grace window billing:run posts; after it an
+   * approved `billing.correction` request is needed; a large deviation needs evidence.
+   */
+  corrections: router({
+    preview: p.read
+      .input(z.object({ accountId, period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), evidence: evidenceSchema.optional() }))
+      .query(async ({ ctx, input }) => {
+        await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+        const proposal = await proposeCorrection(procedureEnv(ctx), input);
+        if (!proposal) return { documents: [], problems: [], decision: null };
+        return {
+          documents: proposal.documents.map((d) => ({ period: d.period, kind: d.kind, total: d.total, relatedDocumentId: d.original?.id ?? null, originalNumber: d.original?.number ?? null, text: d.text, lines: d.lines })),
+          problems: proposal.problems,
+          decision: await decideRoute(ctx.tx, proposal, input.evidence),
+        };
+      }),
+    /** Asks the K-05 approval a correction needs after the grace window. */
+    request: p.issue
+      .input(
+        z.object({
+          accountId,
+          period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+          reasonCode: z.string().refine((c) => correctionApproval.reasonCodes.some((r) => r.code === c), "Choose a reason"),
+          note: z.string().trim().min(1, "Say why").max(2000),
+          evidence: evidenceSchema.optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+        const proposal = await proposeCorrection(procedureEnv(ctx), input);
+        if (!proposal || proposal.documents.length === 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "There is nothing to correct for that period" });
+        const route = await decideRoute(ctx.tx, proposal, input.evidence);
+        if (route.needsEvidence) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This is a large correction: attach evidence first" });
+        const request = await ctx.requestApproval(correctionApproval, {
+          subjectRef: correctionSubject(input.accountId, input.period),
+          title: `Correction for account ${input.accountId}, ${input.period}`,
+          amount: route.amount,
+          reasonCode: input.reasonCode,
+          note: input.note,
+          payload: { accountId: input.accountId, period: input.period, route: route.route },
+        });
+        return { approvalId: request.id, status: request.status, amount: route.amount };
+      }),
+    post: p.issue.input(postCorrectionInput).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return postCorrection(procedureEnv(ctx), input);
+    }),
+  }),
+
+  /** B-19: revenue-protection cases as an append-only log; back-billing goes through approval. */
+  cases: router({
+    list: p.read.input(caseListInput).query(async ({ ctx, input }) => {
+      if (input.accountId) await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return listCases(ctx.tx, input, input.accountId ? undefined : await listableAccounts(ctx.tx, ctx.viewer));
+    }),
+    get: p.read.input(z.object({ caseId: z.uuid() })).query(async ({ ctx, input }) => {
+      const found = await getCase(ctx.tx, input.caseId);
+      await assertAccountVisible(ctx.tx, ctx.viewer, found.accountId);
+      return found;
+    }),
+    open: p.issue.input(caseOpenInput).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return openCase(procedureEnv(ctx), input);
+    }),
+    addEvidence: p.issue.input(evidenceInput).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, (await getCase(ctx.tx, input.caseId)).accountId);
+      return addEvidence(procedureEnv(ctx), input);
+    }),
+    resolve: p.issue.input(caseResolveInput).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, (await getCase(ctx.tx, input.caseId)).accountId);
+      return resolveCase(procedureEnv(ctx), input);
+    }),
+    /** Asks the approval a back-billing needs (`billing.revenue_protection`). */
+    requestBackBilling: p.issue
+      .input(z.object({ caseId: z.uuid(), amount: z.bigint().positive(), note: z.string().trim().min(1, "Say why").max(2000) }))
+      .mutation(async ({ ctx, input }) => {
+        const found = await getCase(ctx.tx, input.caseId);
+        await assertAccountVisible(ctx.tx, ctx.viewer, found.accountId);
+        if (found.status === "resolved") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The case is resolved" });
+        const request = await ctx.requestApproval(correctionApproval, {
+          subjectRef: backBillSubject(found.accountId, input.caseId),
+          title: `Back-billing, case ${input.caseId}`,
+          amount: input.amount,
+          reasonCode: "BACK_BILLING",
+          note: input.note,
+          payload: { accountId: found.accountId, caseId: input.caseId },
+        });
+        return { approvalId: request.id, status: request.status };
+      }),
   }),
 
   /** What the account owes now or as of a date, summed from ledger entries. */

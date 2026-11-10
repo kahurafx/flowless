@@ -14,6 +14,8 @@ describe("wiring", () => {
       "accounts.apply_survey_decision",
       "accounts.record_survey_from_job",
       "accounts.record_relocation_from_job",
+      "billing.correction_needed_on_reading",
+      "billing.correction_needed_on_void",
       "billing.bill_on_reading",
       "metering.close_and_open_on_relocation",
     ]);
@@ -33,7 +35,7 @@ describe("wiring", () => {
       "accounts.data_quality_summary",
       "accounts.data_quality_findings",
     ]);
-    expect(approvals.map((a) => a.key)).toEqual(["accounts.write_off", "accounts.connection_survey", "billing.adjustment"]);
+    expect(approvals.map((a) => a.key)).toEqual(["accounts.write_off", "accounts.connection_survey", "billing.adjustment", "billing.correction"]);
   });
 
   it("lists the kernel and module settings first, then each approval's policy", () => {

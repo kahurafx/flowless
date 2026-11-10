@@ -25,3 +25,26 @@ export const adjustmentApproval = defineApproval({
   ],
   policy: { levels: [{ label: "Accountant", permission: "billing:approve" }], slaHours: 48 },
 });
+
+export const CORRECTION_APPROVAL_KIND = "billing.correction";
+
+/**
+ * Approving a correction document after the grace window, or a back-billing (B-14, B-19,
+ * K-05). Subject `correction:<accountId>:<period>` (the first period corrected), amount the
+ * sum of the correction documents' absolute totals, so an approval cannot cover another
+ * account, period or a bigger amount. One level, holders of `billing:approve`; the person
+ * asking cannot decide.
+ */
+export const correctionApproval = defineApproval({
+  key: CORRECTION_APPROVAL_KIND,
+  module: "billing",
+  label: "Billing correction",
+  description: "Approval to post a correction document for a closed or past-grace period, or a back-billing.",
+  reasonCodes: [
+    { code: "LATE_READING", label: "Late reading" },
+    { code: "READING_CORRECTED", label: "Reading corrected" },
+    { code: "BACK_BILLING", label: "Back-billing" },
+    { code: "OTHER", label: "Other (explain in the note)" },
+  ],
+  policy: { levels: [{ label: "Accountant", permission: "billing:approve" }], slaHours: 48 },
+});
