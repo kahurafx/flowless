@@ -4,8 +4,10 @@ import { runAction } from "@/data/run-action";
 import { getSession } from "@/data/session";
 import { SETTING_KEYS, effectiveFromOf } from "@/lib/account-settings";
 import { optionalText } from "@/lib/optional-text";
+import { POLICY_KEY_LIST } from "@/lib/policy-settings";
 
-const KEYS: readonly string[] = Object.values(SETTING_KEYS);
+// The Accounts settings, and the Billing and Metering ones (`/settings/billing`, `/settings/metering`) that share this form frame.
+const KEYS: readonly string[] = [...Object.values(SETTING_KEYS), ...POLICY_KEY_LIST];
 
 /**
  * Saves one Accounts setting as a new configuration version (K-10). `expectedVersion` is the
