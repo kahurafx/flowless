@@ -6,6 +6,7 @@ import {
   DatabaseZapIcon,
   FileTextIcon,
   GaugeIcon,
+  CalendarClockIcon,
   LayersIcon,
   ReceiptTextIcon,
   FilePlus2Icon,
@@ -58,6 +59,8 @@ const NAV: readonly NavItem[] = [
   { href: "/tariffs/categories", label: "Categories", icon: LayersIcon, module: "tariffs", permission: "tariffs:read" },
   { href: "/tariffs/charges", label: "Charge catalog", icon: CoinsIcon, module: "tariffs", permission: "tariffs:read" },
   { href: "/tariffs/invoice-types", label: "Invoice types", icon: ReceiptTextIcon, module: "tariffs", permission: "tariffs:read" },
+  // The Billing group (Phase 5): cycles first; metering and operations follow.
+  { href: "/billing/cycles", label: "Billing cycles", icon: CalendarClockIcon, module: "billing", permission: "billing:read" },
   // Work Orders shows at level basic or full: the Work Orders module or GIS (W-01).
   { href: "/work-orders", label: "Work orders", icon: ClipboardListIcon, anyModule: ["work-orders", "gis"], anyPermission: WORK_PERMISSIONS },
   { href: "/work-orders/reviews", label: "Job reviews", icon: ClipboardCheckIcon, anyModule: ["work-orders", "gis"], permission: "work_orders:review" },
