@@ -309,6 +309,20 @@
       "when": 1794291125160,
       "tag": "0043_billing_cycles_access",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794298322702,
+      "tag": "0044_billing_revenue_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794298327999,
+      "tag": "0045_billing_revenue_cases_access",
+      "breakpoints": true
     }
   ]
 }

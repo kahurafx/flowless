@@ -468,3 +468,64 @@ export const cycleReview = billing.table(
     tenantPolicy(t.organizationId),
   ],
 );
+
+/* ---------- revenue-protection cases (B-19) ---------- */
+
+export const REVENUE_CASE_KINDS = ["illegal_consumption", "terminated_but_consuming", "unbilled_account", "back_billing"] as const;
+export type RevenueCaseKind = (typeof REVENUE_CASE_KINDS)[number];
+export const REVENUE_CASE_EVENTS = ["opened", "evidence", "resolved"] as const;
+export const REVENUE_CASE_DECISIONS = ["no_action", "false_positive", "back_billed", "penalty_applied", "referred"] as const;
+export type RevenueCaseDecision = (typeof REVENUE_CASE_DECISIONS)[number];
+
+/**
+ * A revenue-protection case as an append-only event log (B-19, B-12). The `opened` row has
+ * `case_id = id` and fixes the kind and account; later `evidence` rows add notes, file ids and
+ * facts (`data`); one `resolved` row closes it with a decision and may cite the correction
+ * document that back-billed it. Nothing is updated or deleted; the case's state is derived
+ * (open until a `resolved` row exists). A trigger refuses an event on an unknown or resolved
+ * case, or one that changes the kind or account.
+ */
+export const revenueCase = billing.table(
+  "revenue_case",
+  {
+    /** The event's id, minted by the client so a retry replays. */
+    id: uuid("id").primaryKey().defaultRandom(),
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity().notNull(),
+    organizationId: organizationId(),
+    caseId: uuid("case_id").notNull(),
+    event: text("event", { enum: REVENUE_CASE_EVENTS }).notNull(),
+    kind: text("kind", { enum: REVENUE_CASE_KINDS }).notNull(),
+    /** Opaque Accounts ids. */
+    accountId: uuid("account_id").notNull(),
+    servicePointId: uuid("service_point_id"),
+    title: text("title"),
+    detail: text("detail").notNull().default(""),
+    /** Facts the event rests on (dials, moved units, the period, amounts as digit strings). */
+    data: jsonb("data"),
+    /** A `kernel.file` id of the evidence. */
+    fileId: uuid("file_id"),
+    decision: text("decision", { enum: REVENUE_CASE_DECISIONS }),
+    /** The correction document a back-billing posted. */
+    documentId: uuid("document_id"),
+    exceptionId: uuid("exception_id"),
+    actorUserId: uuid("actor_user_id"),
+    source: text("source").notNull().default("web"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("revenue_case_seq_unique").on(t.seq),
+    unique("revenue_case_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "revenue_case_case_fk", columns: [t.organizationId, t.caseId], foreignColumns: [t.organizationId, t.id] }),
+    index("revenue_case_log_idx").on(t.organizationId, t.caseId, t.seq),
+    index("revenue_case_account_idx").on(t.organizationId, t.accountId),
+    check("revenue_case_event_valid", oneOf(t.event, REVENUE_CASE_EVENTS)),
+    check("revenue_case_kind_valid", oneOf(t.kind, REVENUE_CASE_KINDS)),
+    check("revenue_case_decision_valid", sql`${t.decision} is null or ${t.decision} in ('no_action', 'false_positive', 'back_billed', 'penalty_applied', 'referred')`),
+    check("revenue_case_opened_self", sql`(${t.event} = 'opened') = (${t.caseId} = ${t.id})`),
+    check("revenue_case_opened_title", sql`${t.event} <> 'opened' or length(btrim(coalesce(${t.title}, ''))) > 0`),
+    check("revenue_case_decision_on_resolved", sql`(${t.event} = 'resolved') = (${t.decision} is not null)`),
+    check("revenue_case_evidence_content", sql`${t.event} <> 'evidence' or ${t.fileId} is not null or length(btrim(${t.detail})) > 0`),
+    check("revenue_case_resolved_note", sql`${t.event} <> 'resolved' or length(btrim(${t.detail})) > 0`),
+    tenantPolicy(t.organizationId),
+  ],
+);
