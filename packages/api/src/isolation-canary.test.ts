@@ -887,6 +887,10 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "billing.cases.addEvidence": (b) => [{ caseId: b.billing.case, detail: "A adds evidence to B's case" }],
   "billing.cases.resolve": (b) => [{ caseId: b.billing.case, decision: "no_action", note: "A resolves B's case" }],
   "billing.cases.requestBackBilling": (b) => [{ caseId: b.billing.case, amount: 100n, note: "A asks about B's case" }],
+  "billing.simulation.run": (b) => [
+    { draft: { type: "uniform", content: { type: "uniform", rate: 100n } }, accountIds: [b.billing.account] },
+    { draft: { type: "uniform", content: { type: "uniform", rate: 100n } }, categoryId: b.tariffs.category },
+  ],
   "billing.balance": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, asOf: "2026-12-31" }],
   "billing.statement": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, from: "2026-01-01", to: "2026-12-31", limit: 10 }],
 };

@@ -16,6 +16,7 @@ import { accountBalance, accountStatement, documentWithLines, listDocuments } fr
 import { rebill, rebillInputSchema, voidDocument, voidInputSchema } from "./reversal";
 import { issueUsage, usageInputSchema } from "./usage";
 import { cycleProgress, runCycle } from "./cycle-progress";
+import { runSimulation, simulationInputSchema } from "./simulation";
 import {
   accountsInputSchema,
   advanceCycle,
@@ -272,6 +273,20 @@ export const billingRouter = router({
         });
         return { approvalId: request.id, status: request.status };
       }),
+  }),
+
+  /**
+   * T-06: prices the last N billed consumption spans of a selection of accounts under a draft
+   * tariff and under the tariff in force, with per-account and total deltas. Writes nothing.
+   * Needs billing:read and tariffs:read (or tariffs:manage).
+   */
+  simulation: router({
+    run: p.read.input(simulationInputSchema).query(async ({ ctx, input }) => {
+      if (!ctx.permissions.has("tariffs:read") && !ctx.permissions.has("tariffs:manage")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Simulating a tariff needs tariffs:read or tariffs:manage" });
+      }
+      return runSimulation(procedureEnv(ctx), input, await listableAccounts(ctx.tx, ctx.viewer));
+    }),
   }),
 
   /** What the account owes now or as of a date, summed from ledger entries. */
