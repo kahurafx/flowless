@@ -91,4 +91,28 @@ describe("navigation for Tariffs and the Accounts settings (F5b)", () => {
     expect(currentHref("/tariffs/invoice-types/abc", items)).toBe("/tariffs/invoice-types");
     expect(currentHref("/accounts/data-quality", items)).toBe("/accounts/data-quality");
   });
+  it("shows the Billing group only with Billing licensed and billing:read", () => {
+    const group = ["/billing/cycles", "/billing/cases"];
+    expect(hrefs(["billing"], ["billing:read"])).toEqual(expect.arrayContaining(group));
+    for (const href of group) {
+      expect(hrefs(["billing"], ["accounts:read"])).not.toContain(href);
+      expect(hrefs(["accounts"], ["billing:read"])).not.toContain(href);
+    }
+  });
+
+  it("shows the Metering group by licence and permission, and its settings to settings:manage", () => {
+    expect(hrefs(["metering"], ["meters:read"])).toContain("/metering/meters");
+    expect(hrefs(["metering"], ["meters:read"])).not.toContain("/metering/readings");
+    expect(hrefs(["metering"], ["readings:read"])).toEqual(expect.arrayContaining(["/metering/readings", "/metering/visits", "/metering/rounds", "/metering/handovers"]));
+    expect(hrefs(["billing"], ["meters:read", "readings:read"])).not.toContain("/metering/meters");
+    expect(hrefs(["metering"], ["settings:manage"])).toContain("/settings/metering");
+    expect(hrefs(["metering"], ["settings:manage"])).not.toContain("/settings/billing");
+    expect(hrefs(["billing"], ["settings:manage"])).toContain("/settings/billing");
+    expect(hrefs(["billing"], [])).not.toContain("/settings/billing");
+  });
+
+  it("shows Reports to reports:read whatever is licensed", () => {
+    expect(hrefs([], ["reports:read"])).toContain("/reports");
+    expect(hrefs(["billing"], ["billing:read"])).not.toContain("/reports");
+  });
 });
