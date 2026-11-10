@@ -56,7 +56,7 @@ async function present(tx: Transaction, head: SnapshotHead): Promise<SnapshotVie
     .select()
     .from(eligibilityRow)
     .where(eq(eligibilityRow.snapshotId, head.id))
-    .orderBy(asc(sql`${eligibilityRow.walkingSequence} nulls last`), asc(eligibilityRow.servicePointId));
+    .orderBy(sql`${eligibilityRow.walkingSequence} asc nulls last`, asc(eligibilityRow.servicePointId));
   return {
     id: head.id,
     routeId: head.routeId,

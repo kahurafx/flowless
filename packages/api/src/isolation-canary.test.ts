@@ -36,7 +36,7 @@ interface Canary {
   /** Tenant B's invoice and its account (Phase 4 P4-3). */
   billing: { document: string; account: string };
   /** Tenant B's meters, installation and readings, through the Metering API (Phase 5 P5-1a). */
-  metering: { meter: string; spare: string; servicePoint: string; installation: string; reading: string; flagged: string };
+  metering: { meter: string; spare: string; servicePoint: string; installation: string; reading: string; flagged: string; attempt: string; snapshot: string; route: string; handover: string };
 }
 
 interface TariffsCanary {
@@ -203,7 +203,7 @@ async function seedB(): Promise<Canary> {
   const accounts = await seedAccounts(asB, { schemeId: scheme.id, zoneId: zone.id, dmaId: dmaArea.id, routeId: route.id, connectionId: gis.connection.id });
   const tariffs = await seedTariffs(asB);
   const billing = await seedBillingRows();
-  const metering = await seedMetering(asB, accounts.servicePoint);
+  const metering = await seedMetering(asB, accounts.servicePoint, accounts.account, route.id);
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -224,13 +224,20 @@ async function seedB(): Promise<Canary> {
 }
 
 /** Tenant B's meters, an installation and readings (one flagged, so it also holds an exception), through the Metering API. */
-async function seedMetering(asB: ReturnType<typeof callerFor>, servicePointId: string) {
+async function seedMetering(asB: ReturnType<typeof callerFor>, servicePointId: string, accountId: string, routeId: string) {
   const { meter } = await asB.metering.meters.register({ serial: `${MARK}-M1`, model: "DN15", dialDigits: 5 });
   const { meter: spare } = await asB.metering.meters.register({ serial: `${MARK}-M2`, dialDigits: 5 });
   const installed = await asB.metering.installations.install({ meterId: meter.id, servicePointId, installedAt: new Date("2026-01-01T08:00:00Z"), initialReading: { value: 10 } });
   const { reading } = await asB.metering.readings.record({ meterId: meter.id, value: 25, readAt: new Date("2026-02-01T08:00:00Z"), source: "technician", latitude: -1.2, longitude: 36.8 });
   const { reading: flagged } = await asB.metering.readings.record({ meterId: meter.id, value: 0, readAt: new Date("2026-03-01T08:00:00Z"), source: "office", note: `${MARK} zero` });
-  return { meter: meter.id, spare: spare.id, servicePoint: servicePointId, installation: installed.installationId, reading: reading.id, flagged: flagged.id };
+  const { attempt } = await asB.metering.attempts.record({ servicePointId, outcome: "locked_premises", tags: [`${MARK}-tag`], note: `${MARK} locked`, attemptedAt: new Date("2026-04-02T08:00:00Z"), cycleDate: "2026-04-30" });
+  const { snapshot } = await asB.metering.snapshots.take({ routeId, cycleDate: "2026-04-30" });
+  // A handover is opened through Accounts' port; the canary writes the row directly as the owner role.
+  const handover = randomUUID();
+  await t.admin.execute(sql`insert into metering.reading_handover (id, organization_id, command_id, reason, from_account_id, to_account_id, service_point_id, meter_id, effective_date)
+    values (${handover}, ${tenants.b.id}, ${randomUUID()}, 'change_name', ${accountId}, ${accountId}, ${servicePointId}, ${meter.id}, '2026-04-02')`);
+  await t.admin.execute(sql`insert into metering.handover_closing (handover_id, organization_id, reading_id) values (${handover}, ${tenants.b.id}, ${reading.id})`);
+  return { meter: meter.id, spare: spare.id, servicePoint: servicePointId, installation: installed.installationId, reading: reading.id, flagged: flagged.id, attempt: attempt.id, snapshot: snapshot.id, route: routeId, handover };
 }
 
 /**
@@ -291,7 +298,7 @@ async function seedAccounts(
   // The lifecycle (F3a): a command with its client-minted id, a checklist tick, and a write-off request.
   const command = randomUUID();
   await asB.accounts.markPendingPayment({ id: command, accountId: account.id, reason: `${MARK} invoice issued`, note: `${MARK} note` });
-  await asB.accounts.activation.tick({ accountId: account.id, gateKey: "initial_reading", note: `${MARK} receipt` });
+  await asB.accounts.activation.tick({ accountId: account.id, gateKey: "meter_installed", note: `${MARK} receipt` });
   // B has Billing, so a write-off needs a balance owing: post a charge for the child directly (as the importer would).
   const owingTx = randomUUID();
   await t.admin.execute(sql`with h as (
@@ -832,6 +839,17 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "metering.readings.get": (b) => [{ readingId: b.metering.reading }],
   "metering.readings.list": (b) => [{}, { meterId: b.metering.meter }, { servicePointId: b.metering.servicePoint }, { needsReview: true }],
   "metering.readings.latestActual": (b) => [{ meterId: b.metering.meter }, { servicePointId: b.metering.servicePoint }],
+  "metering.attempts.record": (b) => [{ servicePointId: b.metering.servicePoint, outcome: "meter_faulty", attemptedAt: new Date("2026-04-03T08:00:00Z") }],
+  "metering.attempts.list": (b) => [{}, { servicePointId: b.metering.servicePoint }, { cycleDate: "2026-04-30" }],
+  "metering.outcomes.mapping": () => [undefined],
+  "metering.misses.get": (b) => [{ servicePointId: b.metering.servicePoint }],
+  "metering.snapshots.take": (b) => [{ routeId: b.metering.route, cycleDate: "2026-05-31" }, { routeId: b.metering.route, cycleDate: "2026-04-30" }],
+  "metering.snapshots.list": (b) => [{}, { routeId: b.metering.route }],
+  "metering.snapshots.get": (b) => [{ snapshotId: b.metering.snapshot }, { routeId: b.metering.route, cycleDate: "2026-04-30" }],
+  "metering.snapshots.tasks": (b) => [{ snapshotId: b.metering.snapshot }],
+  "metering.handovers.list": () => [{}, { pending: true }],
+  "metering.handovers.linkClosing": (b) => [{ handoverId: b.metering.handover, readingId: b.metering.reading }],
+  "metering.bulk.schedule": () => [{}],
   "billing.balance": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, asOf: "2026-12-31" }],
   "billing.statement": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, from: "2026-01-01", to: "2026-12-31", limit: 10 }],
 };
@@ -872,7 +890,7 @@ describe("isolation canary", () => {
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
     // Every gis, work_orders, accounts (including the command log and the checklist) , tariffs and billing table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(54);
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(59);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {
@@ -920,6 +938,9 @@ describe("isolation canary", () => {
       "billing.documents.list",
       "metering.meters.list",
       "metering.readings.list",
+      "metering.attempts.list",
+      "metering.snapshots.list",
+      "metering.handovers.list",
     ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
@@ -929,7 +950,7 @@ describe("isolation canary", () => {
     }
     expect(seen).toContain(MARK);
     expect(seen).toContain(b.accounts.customer);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document, b.metering.meter, b.metering.reading].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document, b.metering.meter, b.metering.reading, b.metering.attempt, b.metering.snapshot, b.metering.handover].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 

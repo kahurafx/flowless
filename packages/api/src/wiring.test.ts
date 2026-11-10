@@ -14,6 +14,7 @@ describe("wiring", () => {
       "accounts.apply_survey_decision",
       "accounts.record_survey_from_job",
       "accounts.record_relocation_from_job",
+      "metering.close_and_open_on_relocation",
     ]);
   });
 

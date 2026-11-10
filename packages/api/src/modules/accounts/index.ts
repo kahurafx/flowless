@@ -55,6 +55,8 @@ export { dataQualityConfigSchema, type DataQualityConfig } from "./data-quality-
 export { findingsReport as dataQualityFindingsReport, summaryReport as dataQualitySummaryReport } from "./data-quality-queries";
 export { sweepDataQuality, dataQualityKey } from "./data-quality-sweep";
 export { registerDataQualitySource, type DataQualitySource } from "./sources";
+// The resolvers, so a module can test its own port registration end to end (they apply the licence check).
+export { dataQualitySourceIds, gatherFacts, handOverReadings, hasGateSource } from "./sources";
 
 // The state machine (C-03), pure: for UIs that show which commands apply.
 export { planCommand, STATUS_COMMANDS, type AccountState, type StatusCommand } from "./lifecycle";
