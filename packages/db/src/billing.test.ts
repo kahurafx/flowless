@@ -132,6 +132,7 @@ describe("billing schema", () => {
     const txId = await asA((tx) => post(tx, tenants.a.id, [{ side: "debit", amount: 7n }, { side: "credit", amount: 7n }], { documentId: doc.id }));
     const denied = pgError(/permission denied/);
     await expect(asA((tx) => tx.update(document).set({ total: 1n }).where(sql`id = ${doc.id}`))).rejects.toMatchObject(denied);
+    await expect(asA((tx) => tx.update(document).set({ finalBill: true }).where(sql`id = ${doc.id}`))).rejects.toMatchObject(denied);
     await expect(asA((tx) => tx.delete(document).where(sql`id = ${doc.id}`))).rejects.toMatchObject(denied);
     await expect(asA((tx) => tx.update(documentLine).set({ amount: 1n }).where(sql`document_id = ${doc.id}`))).rejects.toMatchObject(denied);
     await expect(asA((tx) => tx.delete(documentLine).where(sql`document_id = ${doc.id}`))).rejects.toMatchObject(denied);
@@ -142,6 +143,13 @@ describe("billing schema", () => {
     for (const table of ["document", "document_line", "ledger_transaction", "ledger_entry"]) {
       await expect(t.app.execute(sql.raw(`truncate billing.${table} cascade`))).rejects.toMatchObject(denied);
     }
+  });
+
+  it("marks a final bill at insert and only on an invoice or credit note (B-12, C-11)", async () => {
+    const doc = await asA((tx) => issue(tx, tenants.a.id, [500n], { finalBill: true }));
+    expect(doc.finalBill).toBe(true);
+    expect((await asA((tx) => issue(tx, tenants.a.id, [500n]))).finalBill).toBe(false);
+    await expect(asA((tx) => issue(tx, tenants.a.id, [500n], { kind: "debit_note", finalBill: true }))).rejects.toMatchObject(pgError(/document_final_kind/));
   });
 
   it("refuses an unbalanced transaction, a wrong entry count and a late entry", async () => {

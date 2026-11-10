@@ -1,0 +1,2 @@
+ALTER TABLE "billing"."document" ADD COLUMN "final_bill" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "billing"."document" ADD CONSTRAINT "document_final_kind" CHECK (not "billing"."document"."final_bill" or "billing"."document"."kind" in ('invoice', 'credit_note'));

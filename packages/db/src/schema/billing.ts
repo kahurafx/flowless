@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   bigint,
+  boolean,
   check,
   date,
   foreignKey,
@@ -118,6 +119,8 @@ export const document = billing.table(
     /** Opaque billing run or cycle, when issued by one. */
     runId: uuid("run_id"),
     source: text("source", { enum: BILLING_SOURCES }).notNull().default("live"),
+    /** The final bill of a disconnection (B-12, C-11): Accounts' termination check looks for a live one. Set at insert, never changed. */
+    finalBill: boolean("final_bill").notNull().default(false),
     idempotencyKey: text("idempotency_key").notNull(),
     note: text("note"),
     createdAt: createdAt(),
@@ -149,6 +152,7 @@ export const document = billing.table(
     check("document_due_after_issue", sql`${t.dueOn} is null or ${t.dueOn} >= ${t.issuedOn}`),
     check("document_reversal_links", sql`coalesce((${t.kind} = 'reversal') = (${t.reversesDocumentId} is not null), false)`),
     check("document_related_kinds", sql`${t.relatedDocumentId} is null or ${t.kind} in ('credit_note', 'debit_note')`),
+    check("document_final_kind", sql`not ${t.finalBill} or ${t.kind} in ('invoice', 'credit_note')`),
     check("document_replaces_invoice", sql`${t.replacesDocumentId} is null or ${t.kind} = 'invoice'`),
     check("document_no_self_link", sql`${t.relatedDocumentId} is distinct from ${t.id} and ${t.reversesDocumentId} is distinct from ${t.id} and ${t.replacesDocumentId} is distinct from ${t.id}`),
     tenantPolicy(t.organizationId),
