@@ -19,6 +19,7 @@ export function toDocumentDto(d: DocumentRow) {
     relatedDocumentId: d.relatedDocumentId,
     reversesDocumentId: d.reversesDocumentId,
     replacesDocumentId: d.replacesDocumentId,
+    finalBill: d.finalBill,
     note: d.note,
     createdAt: d.createdAt,
     createdByUserId: d.createdByUserId,

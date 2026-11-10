@@ -39,6 +39,8 @@ export interface Draft {
   replacesDocumentId?: string | null;
   note?: string | null;
   idempotencyKey: string;
+  /** The final bill of a disconnection (B-12). */
+  finalBill?: boolean;
   dimensions?: Dimensions;
   /** For a reversal: the ledger transaction it mirrors (null when the original posted no entries). */
   mirrorOf?: string | null;
@@ -91,6 +93,7 @@ export async function postDraft(env: ActionEnv, draft: Draft): Promise<{ documen
       reversesDocumentId: draft.reversesDocumentId ?? null,
       replacesDocumentId: draft.replacesDocumentId ?? null,
       idempotencyKey: draft.idempotencyKey,
+      finalBill: draft.finalBill ?? false,
       note: draft.note ?? null,
       createdByUserId: env.actor.userId,
     })
@@ -194,6 +197,12 @@ async function postEntries(env: ActionEnv, draft: Draft, doc: DocumentRow): Prom
     .returning({ id: ledgerTransaction.id });
   await tx.insert(ledgerEntry).values(entries.map((e) => ({ ...e, transactionId: header!.id })));
   return header!.id;
+}
+
+/** The ledger transaction posted under this idempotency key, if any. */
+export async function transactionKeyed(tx: Transaction, key: string): Promise<string | null> {
+  const [row] = await tx.select({ id: ledgerTransaction.id }).from(ledgerTransaction).where(eq(ledgerTransaction.idempotencyKey, key));
+  return row?.id ?? null;
 }
 
 /** The ledger transaction that posted a document, if it posted any entry. */

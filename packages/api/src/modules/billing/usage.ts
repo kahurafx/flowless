@@ -1,4 +1,4 @@
-import { billReading, newAccount, periodFromIndex, periodIndex, type Reading } from "@flowless/billing-engine";
+import { billReading, finalBill, newAccount, periodFromIndex, periodIndex, type Reading } from "@flowless/billing-engine";
 import { organizationSettings, type Transaction } from "@flowless/db";
 import { document, documentLine } from "@flowless/db/schema/billing";
 import { bandsFor } from "@flowless/shared-types";
@@ -10,6 +10,7 @@ import type { ActionEnv, UserActionEnv } from "../../kernel/action-env";
 import { readSetting } from "../../kernel/config-store";
 import { raiseException } from "../../kernel/exception-store";
 import { regionalSetting } from "../../kernel/regional";
+import { chargesApplyingTo } from "../accounts";
 import { categoryPricing, chargeItemAmountInForce, tariffVersionInForce } from "../tariffs";
 import { billHeld, documentIssued } from "./events";
 import { engineDocsFrom, engineTariffs, linesFromEngineDoc, monthStart, type PricedMonth, type StoredDocument } from "./mapping";
@@ -55,8 +56,6 @@ export const usageInputSchema = z.object({
   reading: z.object({ dial: z.number().int().min(0).optional(), units: z.number().int().min(0).optional(), rollover: z.boolean().optional() }),
   /** The account's earlier readings; the latest trusted actual before `period` is the baseline. */
   readings: z.array(readingFactSchema).max(60).default([]),
-  /** False when the account's status says usage is not billed (Accounts' `chargesApplying`): the bill is held. */
-  billable: z.boolean().default(true),
   dueOn: z.iso.date().optional(),
 });
 export type UsageInput = z.infer<typeof usageInputSchema>;
@@ -84,7 +83,7 @@ export const dimensionsOf = (i: { servicePointId?: string | undefined; schemeId?
 });
 
 /** What the category was priced with in each month of the span, read through Tariffs' published interface (T-04). */
-async function pricing(env: ActionEnv, categoryId: string, months: readonly string[]): Promise<PricedMonth[]> {
+async function pricing(env: ActionEnv, categoryId: string, months: readonly string[], recurring = true): Promise<PricedMonth[]> {
   const out: PricedMonth[] = [];
   for (const period of months) {
     const on = monthStart(period);
@@ -99,7 +98,7 @@ async function pricing(env: ActionEnv, categoryId: string, months: readonly stri
       period,
       tariffVersionId: version.id,
       bands: bandsFor(version.content).map((b) => ({ to: b.to, rate: b.rate })),
-      standing: (standing?.amount ?? 0n) + (rent?.amount ?? 0n),
+      standing: recurring ? (standing?.amount ?? 0n) + (rent?.amount ?? 0n) : 0n,
       standingChargeItemId: standing ? assignment.standingChargeItemId : null,
       standingAmountId: standing?.id ?? null,
       meterRentAmountId: rent?.id ?? null,
@@ -135,7 +134,16 @@ async function storedDocuments(tx: Transaction, accountId: string, from: string)
  * Prices the bill without writing anything. `excluded` lists documents to treat as voided (a
  * re-bill prices as if the document it replaces were already reversed).
  */
-export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: ReadonlySet<string> = new Set()): Promise<Prepared> {
+export interface FinalOptions {
+  /** The disconnection event's key; a repeat posts nothing (S-10). */
+  key: string;
+  /** Turn-off fee in minor units and the catalog amount version it was read from (T-04). */
+  fee: bigint;
+  feeChargeItemId: string | null;
+  feeChargeItemAmountId: string | null;
+}
+
+export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: ReadonlySet<string> = new Set(), final?: FinalOptions): Promise<Prepared> {
   const { tx } = env;
   const policy = (await readSetting(tx, billingPolicySetting)).value;
   const p = periodIndex(input.period);
@@ -154,13 +162,17 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
   const first = lp === null ? p : lp + 1;
   if (p - first > 36) throw new TRPCError({ code: "BAD_REQUEST", message: "The reading span is longer than 36 months" });
   const months = Array.from({ length: p - first + 1 }, (_, i) => periodFromIndex(first + i));
-  const tariffs = engineTariffs(await pricing(env, input.categoryId, months));
+  // C-04: Accounts' status-by-charge table decides what applies; an account Accounts does not know is billed as active.
+  const applying = await chargesApplyingTo(tx, input.accountId);
+  const usageApplies = final ? true : (applying?.billsConsumption ?? true);
+  const recurringApplies = final ? true : (applying?.chargeTypes.includes("recurring") ?? true);
+  const tariffs = engineTariffs(await pricing(env, input.categoryId, months, recurringApplies));
   const stored = await storedDocuments(tx, input.accountId, monthStart(periodFromIndex(first)));
   const docs = engineDocsFrom(stored, excluded);
 
   const account = {
     ...newAccount({
-      status: input.billable ? "ACTIVE" : "BLOCKED",
+      status: usageApplies ? "ACTIVE" : "BLOCKED",
       digits: policy.meterDigits,
       policy: { scaling: policy.tierScaling, avgN: policy.estimateAverageOf, fallback: policy.estimateFallbackUnits, ceiling: policy.outlierCeilingUnitsPerMonth },
     }),
@@ -168,16 +180,22 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
     docs,
     seq: readings.length + docs.length,
   };
-  const { outcome } = billReading(account, tariffs, input.period, {
+  const reading = {
     ...(input.reading.dial !== undefined ? { dial: input.reading.dial } : {}),
     ...(input.reading.units !== undefined ? { units: input.reading.units } : {}),
     ...(input.reading.rollover !== undefined ? { rollover: input.reading.rollover } : {}),
-  });
+  };
+  const { outcome } = final
+    ? finalBill(account, tariffs, input.period, { dial: input.reading.dial ?? 0, ...(input.reading.rollover !== undefined ? { rollover: input.reading.rollover } : {}), fee: final.fee, key: final.key })
+    : billReading(account, tariffs, input.period, reading);
   if (outcome.kind === "held") return { kind: "held", code: outcome.exception.code, message: outcome.exception.message, period: input.period };
   if (outcome.kind !== "billed") return { kind: "none", outcome: outcome.kind === "baseline" ? "baseline" : outcome.kind === "duplicate" ? "duplicate" : "none" };
 
   const doc = outcome.doc;
   const credit = doc.type === "credit_note";
+  const lines = linesFromEngineDoc(doc).map((l) =>
+    final && l.calculation?.code === "TURN_OFF" ? { ...l, chargeType: "fee" as const, chargeItemId: final.feeChargeItemId, chargeItemAmountId: final.feeChargeItemAmountId } : l,
+  );
   return {
     kind: "draft",
     draft: {
@@ -187,11 +205,12 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
       accountId: input.accountId,
       customerId: input.customerId ?? null,
       currency: await organizationCurrency(tx),
-      lines: linesFromEngineDoc(doc),
+      lines,
       issuedOn: await todayOf(tx),
       dueOn: input.dueOn ?? null,
       idempotencyKey: input.idempotencyKey,
       dimensions: dimensionsOf(input),
+      finalBill: !!final,
     },
   };
 }

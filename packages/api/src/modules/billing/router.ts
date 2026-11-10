@@ -4,6 +4,8 @@ import { z } from "zod";
 import { procedureEnv } from "../../kernel/action-env";
 import { router } from "../../trpc";
 import { adjustmentApproval } from "./approvals";
+import { finalInputSchema, issueFinal } from "./final";
+import { assertAccountVisible, assertDocumentVisible, listableAccounts } from "./scope";
 import { adjustmentSubject, issueNote, noteInputSchema, NOTE_KINDS } from "./notes";
 import { billingProcedures as p } from "./procedures";
 import { accountBalance, accountStatement, documentWithLines, listDocuments } from "./reads";
@@ -21,7 +23,15 @@ const accountId = z.uuid();
  */
 export const billingRouter = router({
   invoices: router({
-    issueUsage: p.issue.input(usageInputSchema).mutation(({ ctx, input }) => issueUsage(procedureEnv(ctx), input)),
+    issueUsage: p.issue.input(usageInputSchema).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return issueUsage(procedureEnv(ctx), input);
+    }),
+    /** B-12: the final bill on disconnection, once per event key; Accounts' termination check looks for it. */
+    issueFinal: p.issue.input(finalInputSchema).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return issueFinal(procedureEnv(ctx), input);
+    }),
   }),
 
   adjustments: router({
@@ -39,6 +49,7 @@ export const billingRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
         const request = await ctx.requestApproval(adjustmentApproval, {
           subjectRef: adjustmentSubject(input.kind, input.accountId, input.id ?? randomUUID()),
           title: `${input.kind === "credit_note" ? "Credit" : "Debit"} note for account ${input.accountId}`,
@@ -52,14 +63,23 @@ export const billingRouter = router({
   }),
 
   creditNotes: router({
-    issue: p.adjust.input(noteInputSchema).mutation(({ ctx, input }) => issueNote(procedureEnv(ctx), "credit_note", input)),
+    issue: p.adjust.input(noteInputSchema).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return issueNote(procedureEnv(ctx), "credit_note", input);
+    }),
   }),
   debitNotes: router({
-    issue: p.adjust.input(noteInputSchema).mutation(({ ctx, input }) => issueNote(procedureEnv(ctx), "debit_note", input)),
+    issue: p.adjust.input(noteInputSchema).mutation(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return issueNote(procedureEnv(ctx), "debit_note", input);
+    }),
   }),
 
   documents: router({
-    get: p.read.input(z.object({ id: z.uuid() })).query(({ ctx, input }) => documentWithLines(ctx.tx, input.id)),
+    get: p.read.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
+      await assertDocumentVisible(ctx.tx, ctx.viewer, input.id);
+      return documentWithLines(ctx.tx, input.id);
+    }),
     list: p.read
       .input(
         z.object({
@@ -70,16 +90,31 @@ export const billingRouter = router({
         })
         .default({ limit: 50 }),
       )
-      .query(({ ctx, input }) => listDocuments(ctx.tx, input)),
-    void: p.adjust.input(voidInputSchema).mutation(({ ctx, input }) => voidDocument(procedureEnv(ctx), input)),
-    rebill: p.adjust.input(rebillInputSchema).mutation(({ ctx, input }) => rebill(procedureEnv(ctx), input)),
+      .query(async ({ ctx, input }) => {
+        if (input.accountId) await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+        return listDocuments(ctx.tx, { ...input, accountIds: input.accountId ? undefined : await listableAccounts(ctx.tx, ctx.viewer) });
+      }),
+    void: p.adjust.input(voidInputSchema).mutation(async ({ ctx, input }) => {
+      await assertDocumentVisible(ctx.tx, ctx.viewer, input.documentId);
+      return voidDocument(procedureEnv(ctx), input);
+    }),
+    rebill: p.adjust.input(rebillInputSchema).mutation(async ({ ctx, input }) => {
+      await assertDocumentVisible(ctx.tx, ctx.viewer, input.documentId);
+      return rebill(procedureEnv(ctx), input);
+    }),
   }),
 
   /** What the account owes now or as of a date, summed from ledger entries. */
-  balance: p.read.input(z.object({ accountId, asOf: z.iso.date().optional() })).query(({ ctx, input }) => accountBalance(ctx.tx, input.accountId, input.asOf)),
+  balance: p.read.input(z.object({ accountId, asOf: z.iso.date().optional() })).query(async ({ ctx, input }) => {
+    await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+    return accountBalance(ctx.tx, input.accountId, input.asOf);
+  }),
 
   /** The account's statement with a running balance, from ledger entries. */
   statement: p.read
     .input(z.object({ accountId, from: z.iso.date().optional(), to: z.iso.date().optional(), limit: z.number().int().min(1).max(1000).default(200), offset: z.number().int().min(0).default(0) }))
-    .query(({ ctx, input }) => accountStatement(ctx.tx, input.accountId, { limit: input.limit, offset: input.offset, ...(input.from ? { from: input.from } : {}), ...(input.to ? { to: input.to } : {}) })),
+    .query(async ({ ctx, input }) => {
+      await assertAccountVisible(ctx.tx, ctx.viewer, input.accountId);
+      return accountStatement(ctx.tx, input.accountId, { limit: input.limit, offset: input.offset, ...(input.from ? { from: input.from } : {}), ...(input.to ? { to: input.to } : {}) });
+    }),
 });

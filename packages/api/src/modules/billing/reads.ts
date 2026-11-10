@@ -1,7 +1,7 @@
 import type { Transaction } from "@flowless/db";
 import { document } from "@flowless/db/schema/billing";
 import { addDays } from "@flowless/shared-types";
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { documentById, linesOf } from "./post";
 import { toDocumentDto, toLineDto } from "./present";
 import { organizationCurrency } from "./usage";
@@ -12,6 +12,7 @@ import { organizationCurrency } from "./usage";
  * debits minus credits, so a positive balance is what the customer owes.
  */
 
+const NO_ACCOUNT = "00000000-0000-0000-0000-000000000000";
 const SIGNED = sql`case e.side when 'debit' then e.amount else -e.amount end`;
 
 /** What the account owes, optionally as of a date (by the date postings count for). */
@@ -108,11 +109,11 @@ export async function documentWithLines(tx: Transaction, id: string) {
   return { ...toDocumentDto(d), lines: lines.map(toLineDto), reversedByDocumentId: reversedBy?.id ?? null, replacedByDocumentId: replacedBy?.id ?? null, notes };
 }
 
-export async function listDocuments(tx: Transaction, filter: { accountId?: string | undefined; kind?: (typeof document.$inferSelect)["kind"] | undefined; before?: Date | undefined; limit: number }) {
+export async function listDocuments(tx: Transaction, filter: { accountId?: string | undefined; accountIds?: string[] | undefined; kind?: (typeof document.$inferSelect)["kind"] | undefined; before?: Date | undefined; limit: number }) {
   const rows = await tx
     .select()
     .from(document)
-    .where(and(filter.accountId ? eq(document.accountId, filter.accountId) : undefined, filter.kind ? eq(document.kind, filter.kind) : undefined, filter.before ? lt(document.createdAt, filter.before) : undefined))
+    .where(and(filter.accountId ? eq(document.accountId, filter.accountId) : undefined, filter.accountIds ? inArray(document.accountId, filter.accountIds.length ? filter.accountIds : [NO_ACCOUNT]) : undefined, filter.kind ? eq(document.kind, filter.kind) : undefined, filter.before ? lt(document.createdAt, filter.before) : undefined))
     .orderBy(desc(document.createdAt), desc(document.id))
     .limit(filter.limit);
   return rows.map(toDocumentDto);
