@@ -1,7 +1,9 @@
 export { balance, billedConsumption, lastActual, liveDocs, newAccount, totalConsumption } from "./account";
-export { billReading, correctPeriod, finalBill, postPayment, voidDocument } from "./engine";
-export type { DisconnectInput, ReadingInput } from "./engine";
-export { estimateUnits } from "./estimate";
+export { billReading, correctPeriod, finalBill, postPayment, reconnect, voidDocument } from "./engine";
+export type { DisconnectInput, ReadingInput, ReconnectInput } from "./engine";
+export { DEFAULT_OUTCOME_MAPPING, DISPOSITIONS, READING_OUTCOMES, dispositionFor } from "./disposition";
+export type { Disposition, OutcomeMapping, ReadingOutcome } from "./disposition";
+export { estimateUnits, usableSpans, usageHistory } from "./estimate";
 export { assertWhole, roundDiv, sum } from "./money";
 export type { Minor } from "./money";
 export { periodFromIndex, periodIndex } from "./period";
@@ -14,8 +16,10 @@ export type {
   BillException,
   Doc,
   DocType,
+  EstimateMethod,
   ExceptionCode,
   Line,
+  NoneAction,
   LineCode,
   Outcome,
   Policy,
@@ -23,5 +27,5 @@ export type {
   ReadingFlag,
   Result,
 } from "./types";
-export { validateBill } from "./validators";
-export type { ValidationInput } from "./validators";
+export { flagBill, validateBill } from "./validators";
+export type { FlagInput, ValidationInput } from "./validators";

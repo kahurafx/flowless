@@ -1,10 +1,11 @@
 import { balance, billedConsumption, lastActual, liveDocs } from "./account";
-import { estimateUnits } from "./estimate";
+import { dispositionFor, type Disposition, type OutcomeMapping, type ReadingOutcome } from "./disposition";
+import { estimateUnits, usageHistory } from "./estimate";
 import { assertWhole, sum } from "./money";
 import { periodFromIndex, periodIndex, type Period } from "./period";
 import { monthCharge, spanCharge, tariffAt, type TariffVersion } from "./tariff";
 import type { Account, BillException, Doc, ExceptionCode, Line, LineCode, Reading, Result } from "./types";
-import { validateBill } from "./validators";
+import { flagBill, validateBill } from "./validators";
 
 export interface ReadingInput {
   /** The dial reading. Omit it to request an estimate. */
@@ -15,6 +16,17 @@ export interface ReadingInput {
   rollover?: boolean;
   /** The previous dial the importing system claims. With no trusted baseline here this is S-8: held NO_BASELINE. */
   claimedPrevious?: number;
+  /**
+   * Meter change (M-07, I-5): one declared event with the old meter's final reading and the new meter's
+   * initial reading; `dial` is then the new meter's current reading. Consumption is old span + new span:
+   * nothing negative, the swap itself counted once. `rollover` applies to the old span.
+   */
+  meterChange?: { oldFinal: number; newInitial: number };
+  /** M-06: what the technician found. Resolved through `outcomeMapping` (then the default) to a disposition. */
+  outcome?: ReadingOutcome;
+  outcomeMapping?: OutcomeMapping;
+  /** An explicit disposition wins over `outcome`. */
+  disposition?: Disposition;
 }
 
 export interface DisconnectInput {
@@ -44,8 +56,15 @@ const held = (a: Account, code: ExceptionCode, message: string, period: Period):
 
 const heldFrom = (a: Account, e: BillException): Result => held(a, e.code, e.message, e.period);
 
+const skipped = (a: Account, code: ExceptionCode, message: string, period: Period): Result => {
+  const exception: BillException = { code, message, period };
+  return { account: { ...a, exceptions: [...a.exceptions, exception] }, outcome: { kind: "skipped", exception } };
+};
+
 interface IssueOptions extends ReadingInput {
   final?: boolean;
+  /** Bill the standing charge only (M-06 standing only, B-05 none). */
+  standingOnly?: boolean;
   fee?: bigint;
 }
 
@@ -60,6 +79,14 @@ function issue(a: Account, tariffs: readonly TariffVersion[], period: Period, o:
   }
   const t = tariffAt(tariffs, p);
   if (!t) return held(a, "MISSING_TARIFF", "No tariff in force for the period; held", period);
+  if (o.meterChange && estimate) return held(a, "METER_CHANGE_INVALID", "A meter change needs the new meter's reading; held", period);
+
+  // B-05 method none: the organization chose what an unread account gets, and it is always flagged.
+  const none = estimate && !o.standingOnly && o.units == null && a.policy.method === "none";
+  const noneAction = a.policy.noneAction ?? "hold";
+  if (none && noneAction === "hold") return held(a, "NO_ESTIMATE", "Estimation is off for this organization; held for a reading", period);
+  if (none && noneAction === "skip") return skipped(a, "NO_ESTIMATE", "Estimation is off for this organization; period skipped", period);
+  const standingOnly = !!o.standingOnly || (none && noneAction === "standing_only");
 
   let seq = a.seq;
   const last = lastActual(a, p);
@@ -76,14 +103,30 @@ function issue(a: Account, tariffs: readonly TariffVersion[], period: Period, o:
   const n = p - lp;
   const lines: Line[] = [];
   let u: number;
+  let carry: number | undefined;
   if (estimate) {
-    const eu = o.units ?? estimateUnits(a, p);
+    const eu = standingOnly ? 0 : (o.units ?? estimateUnits(a, p));
     if (eu == null) return held(a, "NO_HISTORY", "No usage history to estimate from; held", period);
     u = eu;
-    lines.push(line("USAGE_EST", `Estimated usage, ${u} units`, monthCharge(u, t), period, period, u, [t.id]));
+    if (!standingOnly) lines.push(line("USAGE_EST", `Estimated usage, ${u} units`, monthCharge(u, t), period, period, u, [t.id]));
   } else {
     u = (o.dial as number) - (last.dial as number);
-    if (u < 0) {
+    if (o.meterChange) {
+      const { oldFinal, newInitial } = o.meterChange;
+      assertWhole(oldFinal, "oldFinal");
+      assertWhole(newInitial, "newInitial");
+      let oldSpan = oldFinal - (last.dial as number);
+      if (oldSpan < 0) {
+        if (!o.rollover) {
+          return held(a, "NEGATIVE_OR_ROLLOVER", `Old meter's final reading is below the last actual (${last.dial}); confirm rollover or fix it`, period);
+        }
+        oldSpan += 10 ** a.digits;
+      }
+      const newSpan = (o.dial as number) - newInitial;
+      if (newSpan < 0) return held(a, "METER_CHANGE_INVALID", "New meter's reading is below its initial reading; held", period);
+      carry = oldSpan + newSpan - u;
+      u = oldSpan + newSpan;
+    } else if (u < 0) {
       if (!o.rollover) {
         return held(a, "NEGATIVE_OR_ROLLOVER", `Reading is below the last actual (${last.dial}); confirm rollover or fix the reading`, period);
       }
@@ -118,18 +161,55 @@ function issue(a: Account, tariffs: readonly TariffVersion[], period: Period, o:
   const failure = validateBill({ period, lines, total, estimate, units: u, months: n, tariff: t, ceiling: a.policy.ceiling });
   if (failure) return heldFrom(a, failure);
 
+  const flags: BillException[] = flagBill({
+    period,
+    lines,
+    estimate,
+    units: u,
+    months: n,
+    history: usageHistory(a, p),
+    outlierFactor: a.policy.outlierFactor ?? 3,
+  });
+  if (none) flags.unshift({ code: "NO_ESTIMATE", message: "Estimation is off; standing charge only, account flagged", period });
+
   const readingId = ++seq;
   const reading: Reading = estimate
     ? { id: readingId, period, kind: "estimate", units: u, voided: false, flags: [] }
-    : { id: readingId, period, kind: "actual", dial: o.dial as number, units: u, months: n, voided: false, flags: [] };
+    : { id: readingId, period, kind: "actual", dial: o.dial as number, units: u, months: n, ...(carry !== undefined ? { carry } : {}), voided: false, flags: [] };
   // The credit-note rule: a negative total is a credit note, never a negative invoice.
   const doc: Doc = { id: ++seq, period, type: total < 0n ? "credit_note" : "invoice", lines, total, readingId, final: !!o.final, voided: false };
-  return { account: { ...a, seq, readings: [...a.readings, reading], docs: [...a.docs, doc] }, outcome: { kind: "billed", doc } };
+  return { account: { ...a, seq, readings: [...a.readings, reading], docs: [...a.docs, doc] }, outcome: { kind: "billed", doc, ...(flags.length ? { flags } : {}) } };
 }
 
 /** Bill a reading or, with no dial, an estimate: actual with true-up, estimate, baseline or held (B-08, B-10). */
 export function billReading(a: Account, tariffs: readonly TariffVersion[], period: Period, input: ReadingInput = {}): Result {
-  return issue(a, tariffs, period, input);
+  const disposition = input.disposition ?? (input.outcome ? dispositionFor(input.outcome, input.outcomeMapping) : undefined);
+  if (!disposition) return issue(a, tariffs, period, input);
+  // M-06: the reading outcome decides what happens; an estimate or standing-only bill ignores any dial.
+  const rest: ReadingInput = { ...input };
+  delete rest.dial;
+  delete rest.meterChange;
+  delete rest.rollover;
+  delete rest.claimedPrevious;
+  const dial = input.dial;
+  const why = input.outcome ? ` (reading outcome ${input.outcome})` : "";
+  switch (disposition) {
+    case "bill_actual":
+      return dial == null ? held(a, "NO_READING", `Disposition is bill actual but no dial was captured${why}`, period) : issue(a, tariffs, period, input);
+    case "estimate":
+      return issue(a, tariffs, period, rest);
+    case "standing_only":
+      return issue(a, tariffs, period, { ...rest, standingOnly: true });
+    case "hold":
+    case "skip": {
+      if (liveDocs(a).some((d) => d.period === period && d.type !== "correction")) {
+        return held(a, "DUPLICATE_PERIOD", "This period is already billed", period);
+      }
+      return disposition === "hold"
+        ? held(a, "OUTCOME_HOLD", `Held by the reading outcome${why}`, period)
+        : skipped(a, "OUTCOME_HOLD", `Skipped by the reading outcome${why}`, period);
+    }
+  }
 }
 
 /**
@@ -171,7 +251,7 @@ export function correctPeriod(a: Account, tariffs: readonly TariffVersion[], per
   const last = lastActual(a, p);
   if (!last) return held(a, "NO_BASELINE", "No earlier actual reading", period);
   const lp = periodIndex(last.period);
-  const u = (r.dial as number) - (last.dial as number);
+  const u = (r.dial as number) - (last.dial as number) + (r.carry ?? 0);
   if (u < 0) return held(a, "NEGATIVE_OR_ROLLOVER", "Reading is below the new baseline", period);
   const c = spanCharge(u, lp, p, tariffs, a.policy.scaling);
   if (!c) return held(a, "MISSING_TARIFF", "No tariff in force for part of the span; held", period);
@@ -211,3 +291,35 @@ export function postPayment(a: Account, amount: bigint): Account {
 }
 
 export { balance };
+
+export interface ReconnectInput {
+  /** The dial found at reconnection. */
+  dial: number;
+  /** The reconnection event's key: a repeat does nothing. */
+  key: string;
+}
+
+/**
+ * Reconnection (B-12): billing restarts from the final reading, so no new reading is stored, in the same
+ * month or later, and an account cannot hold two different readings for one month. If the dial has moved
+ * since the final reading, the account is still reconnected but a SUSPECTED_ILLEGAL_CONSUMPTION case is
+ * raised (outcome and exception); the moved units are not billed here, the next reading's span covers them.
+ */
+export function reconnect(a: Account, period: Period, input: ReconnectInput): Result {
+  assertWhole(input.dial, "dial");
+  const key = `reconnect:${input.key}`;
+  if (a.keys.includes(key)) return { account: a, outcome: { kind: "duplicate" } };
+  if (a.status !== "DISCONNECTED") return held(a, "NOT_DISCONNECTED", `Account is ${a.status}; nothing to reconnect`, period);
+  const finalDoc = [...liveDocs(a)].reverse().find((d) => d.final);
+  const finalReading = a.readings.find((r) => r.id === finalDoc?.readingId && !r.voided && r.dial != null);
+  if (!finalReading) return held(a, "NO_READING", "No final reading on file to reconnect from", period);
+  const base = { ...a, status: "ACTIVE", keys: [...a.keys, key] };
+  if (input.dial === finalReading.dial) return { account: base, outcome: { kind: "reconnected" } };
+  const movedBy = input.dial - (finalReading.dial as number);
+  const exception: BillException = {
+    code: "SUSPECTED_ILLEGAL_CONSUMPTION",
+    message: `Dial read ${input.dial} at reconnection but ${finalReading.dial} at disconnection (${finalReading.period}); suspected illegal consumption`,
+    period,
+  };
+  return { account: { ...base, exceptions: [...a.exceptions, exception] }, outcome: { kind: "suspected_illegal_consumption", exception, movedBy } };
+}

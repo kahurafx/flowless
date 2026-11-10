@@ -48,16 +48,36 @@ export interface Reading {
   units?: number;
   /** Months in the span ending at this reading. */
   months?: number;
+  /**
+   * Meter change (M-07, I-5): units = dial - previous dial + carry, where carry = old final - new initial
+   * (plus the dial wrap when the old span rolled over). Absent for an ordinary reading.
+   */
+  carry?: number;
   voided: boolean;
   flags: readonly ReadingFlag[];
 }
 
+/** B-05 estimation methods. */
+export type EstimateMethod = "median" | "trimmed_mean" | "same_month_last_year" | "last_actual" | "fixed_minimum" | "none";
+/** Under method `none` the organization chooses what an unread account gets (B-05); the account is always flagged. */
+export type NoneAction = "hold" | "standing_only" | "skip";
+
 export interface Policy {
   scaling: TierScaling;
-  /** Estimate: median of the last N usable actual spans, as units per month. */
+  /** Estimate: the last N usable actual spans, as units per month. */
   avgN: number;
-  /** Estimate units when there is no usable history; null means hold (NO_HISTORY). */
+  /** The baseline: estimate units when there is no usable history; null means hold (NO_HISTORY). */
   fallback: number | null;
+  /** Estimation method (B-05); default median. */
+  method?: EstimateMethod;
+  /** Fraction dropped from each end by trimmed_mean; default 0.2. */
+  trim?: number;
+  /** Units a month for fixed_minimum. */
+  fixedMinimum?: number | null;
+  /** What method `none` does with an unread account; default hold. */
+  noneAction?: NoneAction;
+  /** B-08: flag a bill whose units a month exceed this multiple of the history median; default 3, 0 turns it off. */
+  outlierFactor?: number;
   /** Absolute ceiling in units per month; above it the bill is held (B-08). */
   ceiling: number;
 }
@@ -73,7 +93,15 @@ export type ExceptionCode =
   | "NO_STANDING"
   | "MISSING_TARIFF"
   | "LINES_NOT_SUMMING"
-  | "NO_READING";
+  | "NO_READING"
+  | "NO_ESTIMATE"
+  | "OUTCOME_HOLD"
+  | "NOT_DISCONNECTED"
+  | "METER_CHANGE_INVALID"
+  | "ZERO_CONSUMPTION"
+  | "STANDING_ONLY"
+  | "OUTLIER_HISTORY"
+  | "SUSPECTED_ILLEGAL_CONSUMPTION";
 
 /** A held bill: never silent (NF-24). The caller turns it into a visible exception with owner and age. */
 export interface BillException {
@@ -98,7 +126,13 @@ export interface Account {
 }
 
 export type Outcome =
-  | { kind: "billed"; doc: Doc }
+  /** `flags` are B-08/B-10 findings that do not block the bill: the caller shows them as flags or exceptions. */
+  | { kind: "billed"; doc: Doc; flags?: readonly BillException[] }
+  /** Nothing billed for this period on purpose (M-06 skip, B-05 none/skip); the account is flagged. */
+  | { kind: "skipped"; exception: BillException }
+  /** B-12: reconnected from the final reading; the dial had moved, so a suspected illegal consumption case is raised. */
+  | { kind: "suspected_illegal_consumption"; exception: BillException; movedBy: number }
+  | { kind: "reconnected" }
   | { kind: "baseline" }
   | { kind: "held"; exception: BillException }
   | { kind: "duplicate" }
