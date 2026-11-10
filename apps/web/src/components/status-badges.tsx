@@ -60,6 +60,8 @@ export function AgeBadge({ days, bucket }: { days: number; bucket: AgeBucket }) 
 
 export const exceptionTypeLabel: Record<ExceptionType, string> = {
   UNBILLED_ACCOUNT: "Unbilled account",
+  CORRECTION_NEEDED: "Correction needed",
+  REVENUE_CASE: "Revenue case",
   READING_EXCEPTION: "Reading",
   UNMATCHED_PAYMENT: "Unmatched payment",
   UNDELIVERED_MESSAGE: "Undelivered message",
