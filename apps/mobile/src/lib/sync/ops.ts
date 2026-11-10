@@ -1,4 +1,4 @@
-import type { AssetCondition, JunctionType, NodeType, PipeMaterial, StructureType, WorkOrderOutcome } from "@flowless/shared-types";
+import type { AssetCondition, JunctionType, NodeType, PipeMaterial, ReadingOutcome, ReadingQuality, StructureType, WorkOrderOutcome } from "@flowless/shared-types";
 import type { LatLng } from "../types";
 
 /**
@@ -71,12 +71,34 @@ export type Op =
     }
   | { proc: "workOrders.review"; input: { eventId: string; workOrderId: string; decision: "approve" | "return"; note: string; occurredAt: string } }
   | { proc: "workOrders.finalize"; input: { eventId: string; workOrderId: string; outcome: WorkOrderOutcome; note: string; occurredAt: string } }
+  /** A reading entered on the dial (`readAt` and ids are minted on the phone, M-04). */
+  | { proc: "metering.readings.record"; input: ReadingOpInput }
+  /** One visit to a service point (M-06). `read_ok` carries the reading, whose id is minted too. */
+  | {
+      proc: "metering.attempts.record";
+      input: {
+        id: string;
+        servicePointId: string;
+        outcome: ReadingOutcome;
+        tags: string[];
+        note: string;
+        photoFileId?: string;
+        attemptedAt: string;
+        cycleDate?: string;
+        reading?: { id: string; value: number; readAt: string; quality: ReadingQuality; latitude?: number; longitude?: number; rolloverConfirmed: boolean };
+      };
+    }
+  /** M-07: final reading on the old meter, initial on the new one, in one step. */
+  | {
+      proc: "metering.installations.replace";
+      input: { id: string; oldMeterId: string; newMeterId: string; replacedAt: string; reason: string; finalReading: BoundaryOpInput; initialReading: BoundaryOpInput };
+    }
   /** Three steps on the wire (announce, PUT the bytes, confirm), one op here. `path` is relative to the documents folder. */
   | {
       proc: "files.upload";
       input: {
         id: string;
-        subjectKind: "work_order" | "gis_asset";
+        subjectKind: "work_order" | "gis_asset" | "reading";
         subjectId: string;
         fileName: string;
         mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/heic" | "application/pdf";
@@ -86,6 +108,21 @@ export type Op =
         capturedAt?: string;
       };
     };
+
+export type ReadingOpInput = {
+  id: string;
+  meterId: string;
+  value: number;
+  readAt: string;
+  source: "technician";
+  quality: ReadingQuality;
+  note: string;
+  photoFileId?: string;
+  latitude?: number;
+  longitude?: number;
+  rolloverConfirmed: boolean;
+};
+export type BoundaryOpInput = { id: string; value: number; quality: ReadingQuality; note: string; photoFileId?: string; latitude?: number; longitude?: number; rolloverConfirmed: boolean };
 
 export type OpName = Op["proc"];
 
@@ -105,7 +142,7 @@ export type SyncStatus = "queued" | "failed" | "applied" | "unchanged" | "stale"
 /** One thing the person did, with the ops that tell the server about it. The Sync screen lists these. */
 export type SyncItem = {
   id: string;
-  kind: "condition" | "valve" | "create" | "workorder";
+  kind: "condition" | "valve" | "create" | "workorder" | "reading" | "attempt" | "meter";
   assetId: string | null;
   title: string;
   assetName: string;

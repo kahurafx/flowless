@@ -21,6 +21,15 @@ describe("abilities from the default roles", () => {
   });
 });
 
+describe("metering abilities", () => {
+  it("need the licence and the permissions", () => {
+    expect(abilitiesOf(DEFAULT_ROLES.technician, "full", ["metering"])).toMatchObject({ readings: true, changeMeter: false });
+    expect(abilitiesOf(DEFAULT_ROLES.technician, "full", []).readings).toBe(false);
+    expect(abilitiesOf(DEFAULT_ROLES.supervisor, "full", ["metering"])).toMatchObject({ readings: false, changeMeter: true });
+    expect(abilitiesOf(DEFAULT_ROLES.cashier, "full", ["metering"])).toMatchObject({ readings: false, changeMeter: false });
+  });
+});
+
 describe("labels", () => {
   it("names roles", () => {
     expect(roleLabel("gis_engineer")).toBe("GIS engineer");

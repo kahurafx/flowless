@@ -9,6 +9,7 @@ import { Text } from "../components/ui";
 import { api, authClient } from "../lib/api";
 import { haptic, type HapticCue } from "../lib/haptics";
 import { abilitiesOf, type Abilities } from "../lib/permissions";
+import { assembleTasks, inChunks, latestPerRoute, type PastReading, type Round, type RoundTask } from "../lib/readings";
 import { fromPreview, type ReviewBranch } from "../lib/review";
 import { loadMeta, loadRows, openUserDb, saveChanges, stringifyMeta, type CollectionChange } from "../lib/storage/db";
 import { clearLastUser, readLastUser, writeLastUser, writeOrgCode } from "../lib/storage/last-user";
@@ -20,6 +21,7 @@ import type { AppNode, Area, ConditionLog, Connection, Dma, Pipe, Structure, Sub
 import { FieldContext, useFieldValue } from "./field";
 import { JobsContext, useJobsState } from "./jobs";
 import { NetworkContext, useNetworkState } from "./network";
+import { ReadingsContext, useReadingsState } from "./readings";
 import { ReviewContext, useReviewState, type ReviewValue } from "./review";
 import { SessionContext, SIGNED_OUT, useSessionState, type SessionMeta, type SessionValue, type SignInResult } from "./session";
 import { SyncContext, useSyncState, type SyncValue } from "./sync";
@@ -68,6 +70,8 @@ type Lists = {
   kinds: WorkKind[];
   workOrders: WorkOrder[];
   branches: ReviewBranch[];
+  rounds: Round[];
+  readingTasks: RoundTask[];
   queue: SyncItem[];
 };
 
@@ -88,6 +92,8 @@ const keyOf: { [K in keyof Lists]: (row: Lists[K][number]) => string } = {
   queue: byId,
   kinds: (k) => k.key,
   branches: (b) => b.branch,
+  rounds: byId,
+  readingTasks: byId,
 };
 
 /** A branch's own versions replace main's by id. */
@@ -135,6 +141,8 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
       review.setBranches((bs) => bs.map((b) => (b.origin?.ref === code ? { ...b, origin: { ...b.origin, status: approved ? "completed" : "in_progress" } } : b))),
   });
 
+  const readings = useReadingsState({ enqueue: sync.enqueue });
+
   const field = useFieldValue({
     userId,
     abilities: session.abilities,
@@ -168,6 +176,8 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
     kinds: jobs.kinds,
     workOrders: jobs.workOrders,
     branches: review.branches,
+    rounds: readings.value.rounds,
+    readingTasks: readings.value.tasks,
     queue: sync.queue,
   };
 
@@ -210,6 +220,8 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
       kinds: loadRows<WorkKind>(db, "kinds"),
       workOrders: sortByDue(loadRows<WorkOrder>(db, "workOrders")),
       branches: loadRows<ReviewBranch>(db, "branches"),
+      rounds: loadRows<Round>(db, "rounds"),
+      readingTasks: loadRows<RoundTask>(db, "readingTasks"),
       // Newest first on screen; saved in the order they were made. Old finished items age out.
       queue: loadRows<SyncItem>(db, "queue")
         .reverse()
@@ -228,6 +240,8 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
     jobs.setKinds(lists.kinds);
     jobs.setWorkOrders(lists.workOrders);
     review.setBranches(lists.branches);
+    readings.setRounds(lists.rounds);
+    readings.setTasks(lists.readingTasks);
     sync.setQueue(lists.queue);
     if (meta) {
       session.setMeta(meta.session);
@@ -300,6 +314,36 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
     jobs.setWorkOrders(orders);
     review.setBranches(rows.flatMap((r, i) => (previews[i]?.status === "fulfilled" ? [fromPreview(r, previews[i].value)] : [])));
     sync.setLastSyncedAt(new Date());
+    // After the main pull: a failure here (Metering trouble) must not hide the rest of what was read.
+    await pullRounds(abilities).catch((err) => console.warn("Couldn't refresh the reading round", err));
+  };
+
+  /** The route's reading tasks, with what the phone needs to validate offline (M-08). Nothing is stored that the server can derive. */
+  const pullRounds = async (abilities: Abilities) => {
+    if (!abilities.readings) {
+      readings.setRounds([]);
+      readings.setTasks([]);
+      return;
+    }
+    const [heads, routes] = await Promise.all([api.metering.snapshots.list.query({ limit: 100 }), api.hierarchy.routes.query({})]);
+    const names = new Map(routes.map((r) => [r.id, r.name]));
+    const latest = latestPerRoute(heads, 6);
+    const nextRounds: Round[] = latest.map((h) => ({ id: h.id, routeId: h.routeId, routeName: names.get(h.routeId) ?? "Route", cycleDate: h.cycleDate }));
+    const nextTasks: RoundTask[] = [];
+    for (const head of latest) {
+      const server = await api.metering.snapshots.tasks.query({ snapshotId: head.id });
+      const meterIds = [...new Set(server.flatMap((t) => (t.meterId ? [t.meterId] : [])))];
+      const meters = new Map<string, { serial: string; dialDigits: number }>();
+      const past = new Map<string, PastReading[]>();
+      await inChunks(meterIds, 20, async (meterId) => {
+        const [detail, list] = await Promise.all([api.metering.meters.get.query({ meterId }), api.metering.readings.list.query({ meterId, status: "valid", limit: 6 })]);
+        meters.set(meterId, { serial: detail.meter.serial, dialDigits: detail.meter.dialDigits });
+        past.set(meterId, list);
+      });
+      nextTasks.push(...assembleTasks(head, server, meters, past));
+    }
+    readings.setRounds(nextRounds);
+    readings.setTasks(nextTasks);
   };
 
   /** A session exists: find out who this is and load their world. Work that hasn't gone up yet stays as it is on the phone. */
@@ -325,7 +369,7 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
       modules,
       level: workLevel(modules),
     };
-    const abilities = abilitiesOf(meta.permissions, meta.level);
+    const abilities = abilitiesOf(meta.permissions, meta.level, meta.modules);
     const unsent = (stored ? stored.lists.queue : sync.queueRef.current).some(isUnsent);
     if (!unsent) await pull(meta, abilities);
     session.setMeta(meta);
@@ -353,6 +397,8 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
     jobs.setKinds([]);
     jobs.setWorkOrders([]);
     review.setBranches([]);
+    readings.setRounds([]);
+    readings.setTasks([]);
     sync.setQueue([]);
     sync.setLastSyncedAt(null);
   };
@@ -528,6 +574,7 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
     <SessionContext.Provider value={sessionValue}>
       <NetworkContext.Provider value={network.value}>
         <JobsContext.Provider value={jobs.value}>
+          <ReadingsContext.Provider value={readings.value}>
           <FieldContext.Provider value={field}>
             <ReviewContext.Provider value={reviewValue}>
               <SyncContext.Provider value={syncValue}>
@@ -544,6 +591,7 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
               </SyncContext.Provider>
             </ReviewContext.Provider>
           </FieldContext.Provider>
+          </ReadingsContext.Provider>
         </JobsContext.Provider>
       </NetworkContext.Provider>
     </SessionContext.Provider>
@@ -553,6 +601,7 @@ export function AppProvider({ children, transport = trpcTransport }: { children:
 export { useField } from "./field";
 export { useJobs } from "./jobs";
 export { useNetwork } from "./network";
+export { useReadings } from "./readings";
 export { useReview } from "./review";
 export { useSession } from "./session";
 export { useSync } from "./sync";

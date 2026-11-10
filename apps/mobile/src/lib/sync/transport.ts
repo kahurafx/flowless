@@ -1,3 +1,4 @@
+import { readingFlagLabel } from "@flowless/shared-types";
 import { TRPCClientError } from "@trpc/client";
 import { UploadType } from "expo-file-system";
 import { api } from "../api";
@@ -59,6 +60,18 @@ async function branchFor(op: { input: { branch: string }; workOrderId?: string }
   return op.workOrderId ? (await api.workOrders.changeSet.mutate({ workOrderId: op.workOrderId })).branch : op.input.branch;
 }
 
+/**
+ * A reading the server kept but holds for review (a blocking validation flag, M-05) is neither a
+ * refusal nor a plain success: it is reported `stale` ("kept as history") with the reasons, so the
+ * Sync screen shows it. A replay answers `replayed`.
+ */
+function held(res: { replayed?: boolean; reading?: { flags: string[]; cleared: boolean } | null; finalReading?: { flags: string[]; cleared: boolean }; initialReading?: { flags: string[]; cleared: boolean } }): OpOutcome {
+  if (res.replayed) return { outcome: "replayed" };
+  const unclear = [res.reading, res.finalReading, res.initialReading].find((r) => r && !r.cleared);
+  if (unclear) return { outcome: "stale", reason: `Held for review: ${unclear.flags.map(readingFlagLabel).join("; ") || "needs approval"}` };
+  return { outcome: "applied" };
+}
+
 /** Spelled out per proc so the compiler checks every Op's input against the real procedure. */
 async function call(op: Op): Promise<{ outcome?: string; reason?: string } | object> {
   switch (op.proc) {
@@ -88,6 +101,14 @@ async function call(op: Op): Promise<{ outcome?: string; reason?: string } | obj
       return api.workOrders.review.mutate({ ...op.input, occurredAt: at(op.input.occurredAt) });
     case "workOrders.finalize":
       return api.workOrders.finalize.mutate({ ...op.input, occurredAt: at(op.input.occurredAt) });
+    case "metering.readings.record":
+      return held(await api.metering.readings.record.mutate({ ...op.input, readAt: at(op.input.readAt) }));
+    case "metering.attempts.record": {
+      const { reading, attemptedAt, ...rest } = op.input;
+      return held(await api.metering.attempts.record.mutate({ ...rest, attemptedAt: at(attemptedAt), ...(reading ? { reading: { ...reading, source: "technician" as const, readAt: at(reading.readAt) } } : {}) }));
+    }
+    case "metering.installations.replace":
+      return held(await api.metering.installations.replace.mutate({ ...op.input, replacedAt: at(op.input.replacedAt) }));
     case "files.upload":
       return upload(op);
   }

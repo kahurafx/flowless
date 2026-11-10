@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { ChevronDown, ChevronRight, CircleCheck, ClipboardCheck, CloudOff, GitPullRequest, RefreshCw } from "lucide-react-native";
+import { Gauge, ChevronDown, ChevronRight, CircleCheck, ClipboardCheck, CloudOff, GitPullRequest, RefreshCw } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { AssetRow, TypeTile } from "../../../components/asset-row";
@@ -12,7 +12,7 @@ import { usePullToRefresh } from "../../../lib/refresh";
 import { radius, TAB_SPACE, TOUCH, useTheme } from "../../../lib/theme";
 import type { AppNode } from "../../../lib/types";
 import { rankOrders } from "../../../lib/work-orders";
-import { useJobs, useNetwork, useReview, useSession, useSync } from "../../../state/app";
+import { useJobs, useNetwork, useReadings, useReview, useSession, useSync } from "../../../state/app";
 
 /** Critical first, then poor, then whatever has gone longest without a visit. */
 const rank = (n: AppNode) => (n.condition === "critical" ? 0 : n.condition === "poor" ? 1 : 2);
@@ -33,6 +33,7 @@ export default function HomeScreen() {
   const { nodes } = useNetwork();
   const { myOrders, approvals } = useJobs();
   const { branches } = useReview();
+  const { tasks: readingTasks } = useReadings();
   const { pending, awaitingReview, online, syncing, syncNow, lastSyncedAt } = useSync();
   const { point, status: gpsStatus, request: requestGps } = useLocation();
   const [syncOpen, setSyncOpen] = useState(false);
@@ -150,6 +151,14 @@ export default function HomeScreen() {
             <ClipboardCheck size={22} color={c.primary} />,
             `${approvals.length} job${approvals.length === 1 ? "" : "s"} waiting for approval`,
             "Work sent in by your team",
+          )}
+
+        {abilities.readings && readingTasks.length > 0 &&
+          banner(
+            () => router.push("/reading-round"),
+            <Gauge size={22} color={c.primary} />,
+            "Reading round",
+            `${readingTasks.filter((t) => t.state === "to_read").length} of ${readingTasks.length} to read`,
           )}
 
         {orders.length > 0 && (

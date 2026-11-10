@@ -45,3 +45,9 @@ export type LocalFile = {
 
 /** A network node as this phone holds it: the server's row, or one created here and not yet sent. */
 export type AppNode = ServerNode & { attachments?: LocalFile[]; pending?: boolean };
+
+export type SnapshotHead = Out<typeof api.metering.snapshots.list.query>[number];
+export type ServerReadingTask = Out<typeof api.metering.snapshots.tasks.query>[number];
+export type ServerReading = Out<typeof api.metering.readings.list.query>[number];
+export type MeterRow = Out<typeof api.metering.meters.list.query>["meters"][number];
+export type RouteRow = Out<typeof api.hierarchy.routes.query>[number];

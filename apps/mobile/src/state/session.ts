@@ -50,7 +50,7 @@ export function useSessionState() {
   const [signedIn, setSignedIn] = useState(false);
   const [meta, setMeta] = useState<SessionMeta>(SIGNED_OUT);
   const [savedOrgCode, setSavedOrgCode] = useState("");
-  const abilities = useMemo(() => abilitiesOf(meta.permissions, meta.level), [meta.permissions, meta.level]);
+  const abilities = useMemo(() => abilitiesOf(meta.permissions, meta.level, meta.modules), [meta.permissions, meta.level, meta.modules]);
   const hasGis = meta.modules.includes("gis") && meta.permissions.includes("gis:read");
   return { booting, setBooting, signedIn, setSignedIn, meta, setMeta, savedOrgCode, setSavedOrgCode, abilities, hasGis };
 }

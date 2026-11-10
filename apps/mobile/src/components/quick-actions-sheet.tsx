@@ -1,5 +1,5 @@
 import { useRouter, type Href } from "expo-router";
-import { Box, CircleDot, ClipboardCheck, MapPin, Plug, Route, TriangleAlert, type LucideIcon } from "lucide-react-native";
+import { Box, CircleDot, Gauge, ClipboardCheck, MapPin, Plug, Route, TriangleAlert, type LucideIcon } from "lucide-react-native";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { radius, useTheme } from "../lib/theme";
 import { useJobs, useSession } from "../state/app";
@@ -14,6 +14,7 @@ const ACTIONS: Action[] = [
   { key: "pipe", label: "Add a pipe", hint: "Connect two existing nodes", icon: Route, href: { pathname: "/add-asset", params: { kind: "pipe" } } },
   { key: "structure", label: "Add a structure", hint: "Manhole, chamber, vault, kiosk", icon: Box, href: { pathname: "/add-asset", params: { kind: "structure" } } },
   { key: "connection", label: "Capture a connection", hint: "A service connection on a pipe", icon: Plug, href: "/capture-connection" },
+  { key: "readings", label: "Reading round", hint: "Read meters on your route", icon: Gauge, href: "/reading-round" },
   { key: "report", label: "Report a problem", hint: "Raise a job for something you found", icon: TriangleAlert, href: "/report" },
 ];
 
@@ -25,7 +26,7 @@ export default function QuickActionsSheet({ visible, onClose }: { visible: boole
 
   // Network actions need GIS and edit rights; "Report a problem" raises a job, so only where this person may.
   const canReport = abilities.seeJobs && abilities.act && kinds.some((k) => k.canRaise);
-  const shown = ACTIONS.filter((a) => (a.key === "report" ? canReport : hasGis && abilities.edit));
+  const shown = ACTIONS.filter((a) => (a.key === "report" ? canReport : a.key === "readings" ? abilities.readings : hasGis && abilities.edit));
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
