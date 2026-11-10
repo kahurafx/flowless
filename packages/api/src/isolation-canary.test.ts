@@ -33,6 +33,8 @@ interface Canary {
   accounts: AccountsCanary;
   /** Tenant B's category, tariff, charge items and invoice type, built through the Tariffs API (Phase 3 F2). */
   tariffs: TariffsCanary;
+  /** Tenant B's invoice and its account (Phase 4 P4-3). */
+  billing: { document: string; account: string };
 }
 
 interface TariffsCanary {
@@ -198,7 +200,7 @@ async function seedB(): Promise<Canary> {
   const gis = await seedNetwork(asB, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
   const accounts = await seedAccounts(asB, { schemeId: scheme.id, zoneId: zone.id, dmaId: dmaArea.id, routeId: route.id, connectionId: gis.connection.id });
   const tariffs = await seedTariffs(asB);
-  await seedBillingRows();
+  const billing = await seedBillingRows();
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -212,6 +214,7 @@ async function seedB(): Promise<Canary> {
     gis,
     accounts,
     tariffs,
+    billing,
     ...seeded,
   };
 }
@@ -221,7 +224,7 @@ async function seedB(): Promise<Canary> {
  * rows are written directly (as the owner role); the canary then proves A never sees or
  * changes them. Replace with API calls when `modules/billing` lands.
  */
-async function seedBillingRows(): Promise<void> {
+async function seedBillingRows(): Promise<{ document: string; account: string }> {
   const org = tenants.b.id;
   const doc = randomUUID();
   const txId = randomUUID();
@@ -238,6 +241,7 @@ async function seedBillingRows(): Promise<void> {
     await tx.execute(sql`insert into billing.ledger_entry (organization_id, transaction_id, line_no, currency, side, amount, ledger_account, account_id)
       values (${org}, ${txId}, 0, 'KES', 'debit', 645, 'receivable', ${account}), (${org}, ${txId}, 1, 'KES', 'credit', 645, 'revenue', ${account})`);
   });
+  return { document: doc, account };
 }
 
 /**
@@ -765,6 +769,26 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "tariffs.invoiceTypes.update": (b) => [{ id: b.tariffs.invoiceType, name: "Renamed by A", dueDays: 1 }],
   "tariffs.invoiceTypes.setLines": (b) => [{ id: b.tariffs.invoiceType, lines: [] }],
   "tariffs.invoiceTypes.setLateFeeRule": (b) => [{ id: b.tariffs.invoiceType, rule: null }],
+  "billing.invoices.issueUsage": (b) => [
+    { idempotencyKey: "canary-a-bill-1", accountId: randomUUID(), categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-02", reading: { dial: 110 }, readings: [{ period: "2026-01", kind: "actual", dial: 100 }] },
+    // B's account and invoice type under A's key: nothing of B's may come back.
+    { idempotencyKey: "canary-a-bill-2", accountId: b.billing.account, categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-10", reading: { dial: 110 }, readings: [{ period: "2026-09", kind: "actual", dial: 100 }] },
+  ],
+  "billing.adjustments.request": (b) => [{ accountId: b.billing.account, kind: "credit_note", amount: 100n, reasonCode: "OTHER", note: "A asks about B's account", relatedDocumentId: b.billing.document }],
+  "billing.creditNotes.issue": (b) => [
+    { approvalId: b.approval, accountId: b.billing.account, invoiceTypeId: b.tariffs.invoiceType, relatedDocumentId: b.billing.document, lines: [{ description: "x", amount: 100n }], note: "x" },
+  ],
+  "billing.debitNotes.issue": (b) => [
+    { approvalId: b.approval, accountId: b.billing.account, invoiceTypeId: b.tariffs.invoiceType, relatedDocumentId: b.billing.document, lines: [{ description: "x", amount: 100n }], note: "x" },
+  ],
+  "billing.documents.get": (b) => [{ id: b.billing.document }],
+  "billing.documents.list": (b) => [{}, { accountId: b.billing.account }, { kind: "invoice", limit: 5 }],
+  "billing.documents.void": (b) => [{ idempotencyKey: "canary-a-void-1", documentId: b.billing.document, reason: "A voids B's invoice" }],
+  "billing.documents.rebill": (b) => [
+    { idempotencyKey: "canary-a-rebill-1", documentId: b.billing.document, reason: "x", bill: { accountId: b.billing.account, categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-10", reading: { dial: 110 }, readings: [] } },
+  ],
+  "billing.balance": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, asOf: "2026-12-31" }],
+  "billing.statement": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, from: "2026-01-01", to: "2026-12-31", limit: 10 }],
 };
 
 beforeAll(async () => {
@@ -848,6 +872,7 @@ describe("isolation canary", () => {
       "tariffs.categories.list",
       "tariffs.chargeItems.list",
       "tariffs.invoiceTypes.list",
+      "billing.documents.list",
     ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
@@ -857,7 +882,7 @@ describe("isolation canary", () => {
     }
     expect(seen).toContain(MARK);
     expect(seen).toContain(b.accounts.customer);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 

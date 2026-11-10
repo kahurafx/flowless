@@ -107,6 +107,7 @@ describe("billing.invoices.issueUsage", () => {
 });
 
 const STANDING_AMOUNT = 15_000n;
+const withoutKey = <T extends { idempotencyKey: string }>(input: T) => Object.fromEntries(Object.entries(input).filter(([k]) => k !== "idempotencyKey"));
 
 // B-08, NF-24: a held bill is a visible exception with an owner and an age.
 describe("held bills", () => {
@@ -189,7 +190,7 @@ describe("void and re-bill", () => {
     const { document } = await issued(account);
     const key = env.key("rebill");
     const input = env.usage(account, { reading: { dial: 120 } });
-    const { idempotencyKey: _ignored, ...bill } = input;
+    const bill = withoutKey(input);
     const result = await env.admin.billing.documents.rebill({ idempotencyKey: key, documentId: document.id, reason: "Reading was 120", bill: bill as never });
     if (!("replacement" in result)) throw new Error("expected a replacement");
     // 20 units: 6 x 8250 + 14 x 9600 = 183,900 plus standing 15,000.
@@ -205,7 +206,7 @@ describe("void and re-bill", () => {
   it("holds a re-bill the engine refuses and leaves the original alone", async () => {
     const account = env.newAccount();
     const { document } = await issued(account);
-    const { idempotencyKey: _ignored, ...bill } = env.usage(account, { reading: { dial: 9_000 } });
+    const bill = withoutKey(env.usage(account, { reading: { dial: 9_000 } }));
     const result = await env.admin.billing.documents.rebill({ idempotencyKey: env.key(), documentId: document.id, reason: "Typo", bill: bill as never });
     expect(result).toMatchObject({ outcome: "held", code: "OUTLIER_HOLD" });
     expect((await env.admin.billing.documents.get({ id: document.id })).reversedByDocumentId).toBeNull();
@@ -215,7 +216,7 @@ describe("void and re-bill", () => {
   it("refuses a re-bill for another period or account", async () => {
     const account = env.newAccount();
     const { document } = await issued(account);
-    const { idempotencyKey: _ignored, ...bill } = env.usage(account);
+    const bill = withoutKey(env.usage(account));
     await expectCode(env.admin.billing.documents.rebill({ idempotencyKey: env.key(), documentId: document.id, reason: "x", bill: { ...bill, period: "2025-03" } as never }), "PRECONDITION_FAILED");
     await expectCode(env.admin.billing.documents.rebill({ idempotencyKey: env.key(), documentId: document.id, reason: "x", bill: { ...bill, accountId: env.newAccount() } as never }), "PRECONDITION_FAILED");
   });

@@ -67,7 +67,8 @@ export const billingRouter = router({
           kind: z.enum(document.kind.enumValues).optional(),
           before: z.date().optional(),
           limit: z.number().int().min(1).max(200).default(50),
-        }),
+        })
+        .default({ limit: 50 }),
       )
       .query(({ ctx, input }) => listDocuments(ctx.tx, input)),
     void: p.adjust.input(voidInputSchema).mutation(({ ctx, input }) => voidDocument(procedureEnv(ctx), input)),
