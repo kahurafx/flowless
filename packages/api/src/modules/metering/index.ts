@@ -14,7 +14,9 @@ export { meteringValidationSchema, meteringValidationSetting, type MeteringValid
 export { meterInstalled, meterRemoved, meterReplaced, meterStatusChanged, readingRecorded, readingStatusChanged } from "./events";
 
 // Derived reads for Billing and Phase 5 jobs (M-02, M-03): baseline, previous reading and units are computed, never stored.
-export { latestActualReading, readingsFor, type ReadingsFor, type ReadingView } from "./reads";
+export { latestActualReading, readingById, readingsFor, type ReadingsFor, type ReadingView } from "./reads";
+// Billing's disconnection (B-12): the installed meter and the final reading.
+export { currentMeterOf, recordFinalReading } from "./final-reading";
 
 // Pure rules, for tests and for clients that want to explain a flag.
 export { blocks, expectedPerDay, validateReading, type ValidationInput, type ValidationResult } from "./validate";

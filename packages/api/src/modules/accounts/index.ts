@@ -37,8 +37,10 @@ export {
 } from "./numbering";
 
 // Billing's reads and system steps (P4-4): status, charges applying now, scope visibility, application invoice and payment references.
-export { accountStatusOf, accountVisibleTo, chargesApplyingTo, recordApplicationInvoiced, recordApplicationPaid, routeServicePointFacts, servicePointOf, servicePointOwners, visibleAccountIds, type AccountStatusView, type RouteServicePointFact, type ServicePointView } from "./billing-reads";
+export { accountStatusOf, accountVisibleTo, chargesApplyingTo, recordApplicationInvoiced, recordApplicationPaid, routeServicePointFacts, servicePointOf, servicePointsOf, servicePointOwners, visibleAccountIds, type AccountStatusView, type RouteServicePointFact, type ServicePointView } from "./billing-reads";
 export type { Viewer } from "./access";
+// The status command as a published step (B-12): Billing's disconnection and reconnection drive it as the actor.
+export { runCommand as runStatusCommand, type CommandRequest as StatusCommandRequest, type CommandResult as StatusCommandResult } from "./commands";
 
 // Charges by status (C-04): Billing asks what applies to an account in its status.
 export { chargeTypeApplies, chargesApplying, statusRuleTable, DEFAULT_STATUS_RULES, type ChargesApplying, type StatusRules } from "./status-rules";

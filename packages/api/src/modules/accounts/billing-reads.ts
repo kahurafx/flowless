@@ -1,7 +1,7 @@
 import type { Transaction } from "@flowless/db";
 import { account, servicePoint } from "@flowless/db/schema/accounts";
 import type { CommercialStatus, ServiceState } from "@flowless/shared-types";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import type { ActionEnv } from "../../kernel/action-env";
 import { readSetting } from "../../kernel/config-store";
 import { accountVisible, type Viewer } from "./access";
@@ -113,6 +113,15 @@ export async function servicePointOwners(tx: Transaction, ids: readonly string[]
   if (!ids.length) return [];
   const rows = await tx.select({ id: servicePoint.id, accountId: servicePoint.accountId, status: servicePoint.connectionStatus }).from(servicePoint).where(inArray(servicePoint.id, [...ids]));
   return rows.map((r) => ({ servicePointId: r.id, accountId: r.accountId, live: r.status !== "DECOMMISSIONED" }));
+}
+
+/** The account's service points that are still in use, for Billing's disconnection (B-12): ids only, never rows. */
+export async function servicePointsOf(tx: Transaction, accountId: string): Promise<ServicePointView[]> {
+  const rows = await tx
+    .select({ id: servicePoint.id, accountId: servicePoint.accountId, dma: servicePoint.dmaId, zone: servicePoint.zoneId, scheme: servicePoint.schemeId, routeId: servicePoint.routeId, status: servicePoint.connectionStatus })
+    .from(servicePoint)
+    .where(and(eq(servicePoint.accountId, accountId), ne(servicePoint.connectionStatus, "DECOMMISSIONED")));
+  return rows.map((row) => ({ servicePointId: row.id, accountId: row.accountId, areaId: row.dma ?? row.zone ?? row.scheme ?? null, routeId: row.routeId, connectionStatus: row.status }));
 }
 
 /** Can the viewer see this account (K-03)? An account that does not exist is not visible to a limited viewer. */

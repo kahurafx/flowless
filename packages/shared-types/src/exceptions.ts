@@ -18,6 +18,8 @@ export const EXCEPTION_TYPES = [
   "WORK_ORDER_OVERDUE",
   "ACCOUNT_NOT_ACTIVE_WITH_METER",
   "DATA_QUALITY",
+  "CORRECTION_NEEDED",
+  "REVENUE_CASE",
 ] as const;
 export type ExceptionType = (typeof EXCEPTION_TYPES)[number];
 
