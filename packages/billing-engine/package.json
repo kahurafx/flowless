@@ -1,0 +1,25 @@
+{
+  "name": "@flowless/billing-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flowless/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@flowless/eslint-config": "workspace:*",
+    "@flowless/typescript-config": "workspace:*",
+    "eslint": "^9",
+    "fast-check": "^4.10.2",
+    "typescript": "^5",
+    "vitest": "^5.1.0"
+  }
+}
