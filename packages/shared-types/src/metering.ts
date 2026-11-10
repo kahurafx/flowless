@@ -64,3 +64,34 @@ export const isBlockingFlag = (flag: string): boolean => (READING_FLAGS as Recor
 export function consumptionBetween(previous: number, value: number, digits: number, rollover: boolean): number {
   return rollover ? 10 ** digits - previous + value : value - previous;
 }
+
+/** M-12: what a meter measures. A customer meter bills an account; bulk (DMA inlet) and master (scheme) meters measure supply for water balance. */
+export const METER_KINDS = ["customer", "bulk", "master"] as const;
+export type MeterKind = (typeof METER_KINDS)[number];
+
+/*
+ * M-06 reading outcomes and dispositions. The lists are the billing engine's (`disposition.ts`,
+ * which has no dependencies and so cannot import from here); a test in packages/api keeps the
+ * two identical. The database checks and the API validate against these.
+ */
+export const READING_OUTCOMES = [
+  "read_ok",
+  "meter_inaccessible",
+  "meter_faulty",
+  "no_meter_found",
+  "locked_premises",
+  "dog_or_hazard",
+  "customer_refused",
+  "illegal_connection_suspected",
+] as const;
+export type ReadingOutcome = (typeof READING_OUTCOMES)[number];
+
+export const DISPOSITIONS = ["bill_actual", "estimate", "hold", "standing_only", "skip"] as const;
+export type Disposition = (typeof DISPOSITIONS)[number];
+
+/** Condition tags on one attempt, at most. */
+export const ATTEMPT_MAX_TAGS = 12;
+
+/** M-08: why a service point is, or is not, eligible on a route's round. */
+export const ELIGIBILITY_REASONS = ["eligible", "consumption_not_billed", "no_meter", "service_point_not_live"] as const;
+export type EligibilityReason = (typeof ELIGIBILITY_REASONS)[number];

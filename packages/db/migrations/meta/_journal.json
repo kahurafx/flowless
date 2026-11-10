@@ -281,6 +281,20 @@
       "when": 1794287387747,
       "tag": "0039_metering_access",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794289191506,
+      "tag": "0040_metering_outcomes_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794289192506,
+      "tag": "0041_metering_outcomes_access",
+      "breakpoints": true
     }
   ]
 }

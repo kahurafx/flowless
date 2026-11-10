@@ -4,6 +4,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   doublePrecision,
   foreignKey,
   index,
@@ -16,7 +17,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { MAX_DIAL_DIGITS, METER_STATUSES, MIN_DIAL_DIGITS, READING_PURPOSES, READING_QUALITIES, READING_SOURCES, READING_STATUSES } from "@flowless/shared-types";
+import { ELIGIBILITY_REASONS, MAX_DIAL_DIGITS, METER_KINDS, METER_STATUSES, READING_OUTCOMES, MIN_DIAL_DIGITS, READING_PURPOSES, READING_QUALITIES, READING_SOURCES, READING_STATUSES } from "@flowless/shared-types";
 import { tenantPolicy } from "../tenant";
 import { organization } from "./auth";
 
@@ -60,6 +61,10 @@ export const meter = metering.table(
     model: text("model").notNull().default(""),
     dialDigits: integer("dial_digits").notNull(),
     status: text("status", { enum: METER_STATUSES }).notNull(),
+    /** M-12: a customer meter, or a bulk (DMA) or master (scheme) meter that measures supply. */
+    kind: text("kind", { enum: METER_KINDS }).notNull().default("customer"),
+    /** M-12: the DMA a bulk meter measures (an opaque kernel area id). */
+    dmaId: uuid("dma_id"),
     /** The event that put the meter in this status; set with every status change (trigger). */
     statusEventId: uuid("status_event_id"),
     note: text("note").notNull().default(""),
@@ -70,6 +75,8 @@ export const meter = metering.table(
     unique("meter_organization_id_id_unique").on(t.organizationId, t.id),
     uniqueIndex("meter_serial_unique").on(t.organizationId, sql`lower(btrim(${t.serial}))`),
     check("meter_status_valid", oneOf(t.status, METER_STATUSES)),
+    check("meter_kind_valid", oneOf(t.kind, METER_KINDS)),
+    check("meter_customer_has_no_dma", sql`${t.kind} <> 'customer' or ${t.dmaId} is null`),
     check("meter_serial_present", sql`length(btrim(${t.serial})) > 0`),
     check("meter_dial_digits_valid", sql`${t.dialDigits} between ${sql.raw(String(MIN_DIAL_DIGITS))} and ${sql.raw(String(MAX_DIAL_DIGITS))}`),
     index("meter_status_idx").on(t.organizationId, t.status),
@@ -215,6 +222,140 @@ export const readingStatus = metering.table(
     check("reading_status_valid", oneOf(t.status, READING_STATUSES)),
     check("reading_status_voided_not_cleared", sql`${t.status} = 'valid' or ${t.cleared} = false`),
     index("reading_status_latest_idx").on(t.organizationId, t.readingId, t.seq.desc()),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/* ---------- outcomes and attempts (M-06, M-09) ---------- */
+
+/**
+ * One visit to read a service point (M-06): what the technician found (`outcome`), condition
+ * tags, a note and a photo. Append-only. A `read_ok` attempt links the reading it produced;
+ * the others have none. The consecutive-miss counter (M-09) is derived from these rows and
+ * the readings, never stored. `id` is minted by the device so a retried sync returns the same row.
+ */
+export const readAttempt = metering.table(
+  "read_attempt",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    /** Opaque Accounts ids as they were at the visit. */
+    servicePointId: uuid("service_point_id").notNull(),
+    accountId: uuid("account_id"),
+    meterId: uuid("meter_id"),
+    /** The eligibility snapshot's cycle date this visit served, when it served one. */
+    cycleDate: date("cycle_date", { mode: "string" }),
+    outcome: text("outcome", { enum: READING_OUTCOMES }).notNull(),
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    note: text("note").notNull().default(""),
+    photoFileId: uuid("photo_file_id"),
+    readingId: uuid("reading_id"),
+    readerUserId: uuid("reader_user_id"),
+    source: text("source", { enum: METERING_SOURCES }).notNull(),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+    fingerprint: text("fingerprint").notNull(),
+  },
+  (t) => [
+    unique("read_attempt_organization_id_id_unique").on(t.organizationId, t.id),
+    foreignKey({ name: "read_attempt_reading_fk", columns: [t.organizationId, t.readingId], foreignColumns: [reading.organizationId, reading.id] }),
+    check("read_attempt_outcome_valid", oneOf(t.outcome, READING_OUTCOMES)),
+    check("read_attempt_reading_only_when_read", sql`${t.readingId} is null or ${t.outcome} = 'read_ok'`),
+    index("read_attempt_service_point_idx").on(t.organizationId, t.servicePointId, t.attemptedAt.desc()),
+    index("read_attempt_cycle_idx").on(t.organizationId, t.cycleDate).where(sql`${t.cycleDate} is not null`),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/* ---------- eligibility snapshot (M-08) ---------- */
+
+/** One snapshot per route and cycle date; insert-only, immutable once taken. Reading tasks and billing derive from it. */
+export const eligibilitySnapshot = metering.table(
+  "eligibility_snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    /** Opaque kernel route id. */
+    routeId: uuid("route_id").notNull(),
+    cycleDate: date("cycle_date", { mode: "string" }).notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+    takenByUserId: uuid("taken_by_user_id"),
+    source: text("source", { enum: METERING_SOURCES }).notNull(),
+  },
+  (t) => [
+    unique("eligibility_snapshot_organization_id_id_unique").on(t.organizationId, t.id),
+    unique("eligibility_snapshot_route_cycle_unique").on(t.organizationId, t.routeId, t.cycleDate),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+export const eligibilityRow = metering.table(
+  "eligibility_row",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    snapshotId: uuid("snapshot_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    servicePointId: uuid("service_point_id").notNull(),
+    routeId: uuid("route_id").notNull(),
+    meterId: uuid("meter_id"),
+    /** Walking sequence on the route (S); null until Accounts holds one. */
+    walkingSequence: integer("walking_sequence"),
+    eligible: boolean("eligible").notNull(),
+    reason: text("reason", { enum: ELIGIBILITY_REASONS }).notNull(),
+  },
+  (t) => [
+    foreignKey({ name: "eligibility_row_snapshot_fk", columns: [t.organizationId, t.snapshotId], foreignColumns: [eligibilitySnapshot.organizationId, eligibilitySnapshot.id] }),
+    unique("eligibility_row_snapshot_sp_unique").on(t.snapshotId, t.servicePointId),
+    check("eligibility_row_reason_valid", oneOf(t.reason, ELIGIBILITY_REASONS)),
+    check("eligibility_row_eligible_reason", sql`(${t.eligible} and ${t.reason} = 'eligible') or (not ${t.eligible} and ${t.reason} <> 'eligible')`),
+    index("eligibility_row_snapshot_idx").on(t.organizationId, t.snapshotId, t.walkingSequence),
+    index("eligibility_row_account_idx").on(t.organizationId, t.accountId),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/* ---------- reading handover (C-08, C-10) ---------- */
+
+/**
+ * A closing reading owed when an account changes hands (succession) or holder (change of
+ * name): one row per service point and Accounts command, insert-only. The closing reading is
+ * linked later by an insert into `handover_closing`; no link means it is still pending.
+ */
+export const readingHandover = metering.table(
+  "reading_handover",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    commandId: uuid("command_id").notNull(),
+    reason: text("reason", { enum: ["succession", "change_name"] }).notNull(),
+    fromAccountId: uuid("from_account_id").notNull(),
+    toAccountId: uuid("to_account_id").notNull(),
+    servicePointId: uuid("service_point_id").notNull(),
+    meterId: uuid("meter_id").notNull(),
+    /** The local date the new account or holder takes over. */
+    effectiveDate: date("effective_date", { mode: "string" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("reading_handover_organization_id_id_unique").on(t.organizationId, t.id),
+    unique("reading_handover_command_sp_unique").on(t.organizationId, t.commandId, t.servicePointId),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+export const handoverClosing = metering.table(
+  "handover_closing",
+  {
+    handoverId: uuid("handover_id").primaryKey(),
+    organizationId: organizationId(),
+    readingId: uuid("reading_id").notNull(),
+    linkedByUserId: uuid("linked_by_user_id"),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ name: "handover_closing_handover_fk", columns: [t.organizationId, t.handoverId], foreignColumns: [readingHandover.organizationId, readingHandover.id] }),
+    foreignKey({ name: "handover_closing_reading_fk", columns: [t.organizationId, t.readingId], foreignColumns: [reading.organizationId, reading.id] }),
     tenantPolicy(t.organizationId),
   ],
 );

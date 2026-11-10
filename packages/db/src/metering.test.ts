@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Transaction } from "./client";
-import { installation, meter, meterEvent, reading, readingStatus } from "./schema";
+import { eligibilityRow, eligibilitySnapshot, installation, meter, meterEvent, readAttempt, reading, readingHandover, readingStatus } from "./schema";
 import { withTenant } from "./tenant";
 import { startTestDatabase, tenants, type TestDatabase } from "./testing";
 
@@ -92,5 +92,37 @@ describe("metering schema", () => {
     await asA((tx) => newMeter(tx));
     const seen = await asB((tx) => tx.select().from(meter));
     expect(seen.every((m) => m.organizationId === tenants.b.id)).toBe(true);
+  });
+});
+
+describe("metering outcomes, snapshots and handovers", () => {
+  it("keeps attempts append-only and ties a reading to read_ok", async () => {
+    const sp = randomUUID();
+    const id = randomUUID();
+    await asA((tx) => tx.insert(readAttempt).values({ id, organizationId: org, servicePointId: sp, outcome: "locked_premises", source: "mobile", attemptedAt: new Date(), fingerprint: "f" }));
+    await expect(asA((tx) => tx.update(readAttempt).set({ note: "x" }).where(sql`id = ${id}`))).rejects.toMatchObject(pgError(/permission denied/));
+    await expect(asA((tx) => tx.delete(readAttempt).where(sql`id = ${id}`))).rejects.toMatchObject(pgError(/permission denied/));
+    const m = await asA((tx) => newMeter(tx));
+    const r = await asA((tx) => newReading(tx, m));
+    await expect(asA((tx) => tx.insert(readAttempt).values({ organizationId: org, servicePointId: sp, outcome: "meter_faulty", readingId: r.id, source: "mobile", attemptedAt: new Date(), fingerprint: "f" }))).rejects.toMatchObject(pgError(/read_attempt_reading_only_when_read/));
+    await expect(asA((tx) => tx.insert(readAttempt).values({ organizationId: org, servicePointId: sp, outcome: "nonsense" as never, source: "mobile", attemptedAt: new Date(), fingerprint: "f" }))).rejects.toMatchObject(pgError(/read_attempt_outcome_valid/));
+  });
+
+  it("makes a snapshot unique per route and cycle and immutable", async () => {
+    const routeId = randomUUID();
+    const [snap] = await asA((tx) => tx.insert(eligibilitySnapshot).values({ organizationId: org, routeId, cycleDate: "2026-05-31", source: "api" }).returning());
+    await expect(asA((tx) => tx.insert(eligibilitySnapshot).values({ organizationId: org, routeId, cycleDate: "2026-05-31", source: "api" }))).rejects.toMatchObject(pgError(/eligibility_snapshot_route_cycle_unique/));
+    await asA((tx) => tx.insert(eligibilityRow).values({ organizationId: org, snapshotId: snap!.id, accountId: randomUUID(), servicePointId: randomUUID(), routeId, eligible: true, reason: "eligible" }));
+    await expect(asA((tx) => tx.insert(eligibilityRow).values({ organizationId: org, snapshotId: snap!.id, accountId: randomUUID(), servicePointId: randomUUID(), routeId, eligible: true, reason: "no_meter" }))).rejects.toMatchObject(pgError(/eligibility_row_eligible_reason/));
+    await expect(asA((tx) => tx.update(eligibilityRow).set({ eligible: false }).where(sql`snapshot_id = ${snap!.id}`))).rejects.toMatchObject(pgError(/permission denied/));
+    await expect(asA((tx) => tx.delete(eligibilitySnapshot).where(sql`id = ${snap!.id}`))).rejects.toMatchObject(pgError(/permission denied/));
+  });
+
+  it("limits a customer meter to no DMA and keeps handovers insert-only", async () => {
+    await expect(asA((tx) => tx.insert(meter).values({ organizationId: org, serial: `K-${randomUUID()}`, dialDigits: 5, status: "in_stock", dmaId: randomUUID() }))).rejects.toMatchObject(pgError(/meter_customer_has_no_dma/));
+    const [bulk] = await asA((tx) => tx.insert(meter).values({ organizationId: org, serial: `B-${randomUUID()}`, dialDigits: 6, status: "in_stock", kind: "bulk", dmaId: randomUUID() }).returning());
+    expect(bulk!.kind).toBe("bulk");
+    const [h] = await asA((tx) => tx.insert(readingHandover).values({ organizationId: org, commandId: randomUUID(), reason: "succession", fromAccountId: randomUUID(), toAccountId: randomUUID(), servicePointId: randomUUID(), meterId: bulk!.id, effectiveDate: "2026-05-01" }).returning());
+    await expect(asA((tx) => tx.update(readingHandover).set({ effectiveDate: "2026-06-01" }).where(sql`id = ${h!.id}`))).rejects.toMatchObject(pgError(/permission denied/));
   });
 });
