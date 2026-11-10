@@ -98,7 +98,7 @@ export const dimensionsOf = (i: { servicePointId?: string | undefined; schemeId?
 });
 
 /** What the category was priced with in each month of the span, read through Tariffs' published interface (T-04). */
-async function pricing(env: ActionEnv, categoryId: string, months: readonly string[], recurring = true): Promise<PricedMonth[]> {
+export async function pricing(env: ActionEnv, categoryId: string, months: readonly string[], recurring = true): Promise<PricedMonth[]> {
   const out: PricedMonth[] = [];
   for (const period of months) {
     const on = monthStart(period);
@@ -123,7 +123,7 @@ async function pricing(env: ActionEnv, categoryId: string, months: readonly stri
 }
 
 /** The account's engine-made documents from `from` on, with whether each was reversed. */
-async function storedDocuments(tx: Transaction, accountId: string, from: string): Promise<StoredDocument[]> {
+export async function storedDocuments(tx: Transaction, accountId: string, from: string): Promise<StoredDocument[]> {
   const docs = await tx
     .select()
     .from(document)
@@ -222,9 +222,11 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
 
   const doc = outcome.doc;
   const credit = doc.type === "credit_note";
-  const lines = linesFromEngineDoc(doc).map((l) =>
-    final && l.calculation?.code === "TURN_OFF" ? { ...l, chargeType: "fee" as const, chargeItemId: final.feeChargeItemId, chargeItemAmountId: final.feeChargeItemAmountId } : l,
-  );
+  // A final bill records the final dial on its lines, so a reconnection can restart from it (B-12).
+  const lines = linesFromEngineDoc(doc).map((l) => {
+    const withDial = final ? { ...l, calculation: { ...(l.calculation ?? {}), finalDial: input.reading.dial ?? null, disconnectionKey: final.key } } : l;
+    return final && l.calculation?.code === "TURN_OFF" ? { ...withDial, chargeType: "fee" as const, chargeItemId: final.feeChargeItemId, chargeItemAmountId: final.feeChargeItemAmountId } : withDial;
+  });
   return {
     kind: "draft",
     flags: (outcome.flags ?? []).map((f) => ({ code: f.code, message: f.message })),
