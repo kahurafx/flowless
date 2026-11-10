@@ -23,3 +23,4 @@ export * from "./notifications";
 export * from "./support";
 export * from "./work";
 export * from "./gis";
+export * from "./reading-entry";
