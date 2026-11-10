@@ -295,6 +295,20 @@
       "when": 1794289192506,
       "tag": "0041_metering_outcomes_access",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794291114842,
+      "tag": "0042_billing_cycles",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794291125160,
+      "tag": "0043_billing_cycles_access",
+      "breakpoints": true
     }
   ]
 }

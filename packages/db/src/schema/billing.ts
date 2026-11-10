@@ -303,3 +303,168 @@ export const ledgerEntry = billing.table(
     tenantPolicy(t.organizationId),
   ],
 );
+
+/* ---------- billing cycles (B-02, B-03, B-04, B-15, B-16) ---------- */
+
+/** The cycle's states in order (B-02); `closed` is terminal and locks the period (B-15). */
+export const CYCLE_STATES = ["open", "reading_window", "validation", "estimation", "calculation", "review", "issue", "deliver", "completeness", "closed"] as const;
+export type CycleState = (typeof CYCLE_STATES)[number];
+/** `skip` jumps forward over a state, `retreat` goes back; both carry a reason. */
+export const CYCLE_EVENT_KINDS = ["open", "advance", "skip", "retreat", "close"] as const;
+export type CycleEventKind = (typeof CYCLE_EVENT_KINDS)[number];
+export const CYCLE_FREQUENCIES = ["monthly", "bimonthly", "quarterly"] as const;
+export type CycleFrequency = (typeof CYCLE_FREQUENCIES)[number];
+export const CYCLE_TRIGGERS = ["on_reading", "batch"] as const;
+export type CycleTrigger = (typeof CYCLE_TRIGGERS)[number];
+/** What happened to an expected account in a cycle (B-03, B-04). */
+export const CYCLE_OUTCOMES = ["billed", "billed_estimate", "exception", "excluded"] as const;
+export type CycleOutcomeKind = (typeof CYCLE_OUTCOMES)[number];
+export const REVIEW_DECISIONS = ["approve", "hold"] as const;
+export const REVIEW_BASES = ["bulk", "sample", "individual"] as const;
+
+/**
+ * A billing cycle for one route and period. `state` is a convenience copy of the newest
+ * `cycle_event`'s `to_state`; a trigger refuses a change that is not the next logged event
+ * (same pattern as `accounts.account_command`). `snapshot_id` is Metering's eligibility
+ * snapshot (opaque; null when Metering is not licensed and Accounts' facts were used).
+ */
+export const cycle = billing.table(
+  "cycle",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    /** The billing period, YYYY-MM. */
+    period: text("period").notNull(),
+    cycleDate: date("cycle_date", { mode: "string" }).notNull(),
+    frequency: text("frequency", { enum: CYCLE_FREQUENCIES }).notNull().default("monthly"),
+    /** Opaque kernel route. One cycle per route and period. */
+    routeId: uuid("route_id").notNull(),
+    snapshotId: uuid("snapshot_id"),
+    trigger: text("trigger", { enum: CYCLE_TRIGGERS }).notNull().default("batch"),
+    state: text("state", { enum: CYCLE_STATES }).notNull().default("open"),
+    openedByUserId: uuid("opened_by_user_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("cycle_organization_id_id_unique").on(t.organizationId, t.id),
+    unique("cycle_route_period_unique").on(t.organizationId, t.routeId, t.period),
+    unique("cycle_route_date_unique").on(t.organizationId, t.routeId, t.cycleDate),
+    index("cycle_state_idx").on(t.organizationId, t.state, t.period),
+    check("cycle_period_valid", sql`${t.period} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    check("cycle_state_valid", oneOf(t.state, CYCLE_STATES)),
+    check("cycle_frequency_valid", oneOf(t.frequency, CYCLE_FREQUENCIES)),
+    check("cycle_trigger_valid", oneOf(t.trigger, CYCLE_TRIGGERS)),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/** The append-only log that drives the state machine; `id` is minted by the client (replay). */
+export const cycleEvent = billing.table(
+  "cycle_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: organizationId(),
+    cycleId: uuid("cycle_id").notNull(),
+    seq: integer("seq").notNull(),
+    fromState: text("from_state", { enum: CYCLE_STATES }),
+    toState: text("to_state", { enum: CYCLE_STATES }).notNull(),
+    kind: text("kind", { enum: CYCLE_EVENT_KINDS }).notNull(),
+    reason: text("reason"),
+    actorUserId: uuid("actor_user_id"),
+    source: text("source").notNull().default("web"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("cycle_event_seq_unique").on(t.organizationId, t.cycleId, t.seq),
+    foreignKey({ name: "cycle_event_cycle_fk", columns: [t.organizationId, t.cycleId], foreignColumns: [cycle.organizationId, cycle.id] }),
+    check("cycle_event_to_valid", oneOf(t.toState, CYCLE_STATES)),
+    check("cycle_event_kind_valid", oneOf(t.kind, CYCLE_EVENT_KINDS)),
+    check("cycle_event_first", sql`(${t.seq} = 1) = (${t.fromState} is null)`),
+    check("cycle_event_reason", sql`${t.kind} in ('open', 'advance', 'close') or length(btrim(coalesce(${t.reason}, ''))) > 0`),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/** An account the cycle looked at, from the eligibility snapshot (B-03); `expected` accounts need an outcome. */
+export const cycleAccount = billing.table(
+  "cycle_account",
+  {
+    organizationId: organizationId(),
+    cycleId: uuid("cycle_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    servicePointId: uuid("service_point_id"),
+    expected: boolean("expected").notNull(),
+    /** The snapshot's reason (`eligible`, `no_meter`, ...). */
+    reason: text("reason").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ name: "cycle_account_pk", columns: [t.organizationId, t.cycleId, t.accountId] }),
+    foreignKey({ name: "cycle_account_cycle_fk", columns: [t.organizationId, t.cycleId], foreignColumns: [cycle.organizationId, cycle.id] }),
+    index("cycle_account_account_idx").on(t.organizationId, t.accountId),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/**
+ * One row per outcome of an expected account; the newest by `seq` is current (insert-only,
+ * so a later `billed` after an `exception` is a new row). `exception` links the kernel
+ * exception (NF-24); `billed` and `billed_estimate` cite the document. `flagged` marks a bill
+ * that needs a look in review (B-16).
+ */
+export const cycleOutcome = billing.table(
+  "cycle_outcome",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity().notNull(),
+    organizationId: organizationId(),
+    cycleId: uuid("cycle_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    outcome: text("outcome", { enum: CYCLE_OUTCOMES }).notNull(),
+    reason: text("reason"),
+    exceptionId: uuid("exception_id"),
+    documentId: uuid("document_id"),
+    amount: money("amount"),
+    flagged: boolean("flagged").notNull().default(false),
+    actorUserId: uuid("actor_user_id"),
+    source: text("source").notNull().default("web"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("cycle_outcome_seq_unique").on(t.seq),
+    foreignKey({ name: "cycle_outcome_account_fk", columns: [t.organizationId, t.cycleId, t.accountId], foreignColumns: [cycleAccount.organizationId, cycleAccount.cycleId, cycleAccount.accountId] }),
+    index("cycle_outcome_latest_idx").on(t.organizationId, t.cycleId, t.accountId, t.seq),
+    check("cycle_outcome_valid", oneOf(t.outcome, CYCLE_OUTCOMES)),
+    check("cycle_outcome_reason", sql`${t.outcome} in ('billed', 'billed_estimate') or length(btrim(coalesce(${t.reason}, ''))) > 0`),
+    check("cycle_outcome_exception_link", sql`(${t.outcome} = 'exception') = (${t.exceptionId} is not null)`),
+    check("cycle_outcome_document", sql`(${t.outcome} in ('billed', 'billed_estimate')) = (${t.documentId} is not null)`),
+    tenantPolicy(t.organizationId),
+  ],
+);
+
+/** A reviewer's decision on one account's outcome (B-16); the newest row per account stands. */
+export const cycleReview = billing.table(
+  "cycle_review",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity().notNull(),
+    organizationId: organizationId(),
+    cycleId: uuid("cycle_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    outcomeId: uuid("outcome_id").notNull(),
+    decision: text("decision", { enum: REVIEW_DECISIONS }).notNull(),
+    basis: text("basis", { enum: REVIEW_BASES }).notNull(),
+    reason: text("reason"),
+    actorUserId: uuid("actor_user_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("cycle_review_seq_unique").on(t.seq),
+    foreignKey({ name: "cycle_review_account_fk", columns: [t.organizationId, t.cycleId, t.accountId], foreignColumns: [cycleAccount.organizationId, cycleAccount.cycleId, cycleAccount.accountId] }),
+    index("cycle_review_latest_idx").on(t.organizationId, t.cycleId, t.accountId, t.seq),
+    check("cycle_review_decision_valid", oneOf(t.decision, REVIEW_DECISIONS)),
+    check("cycle_review_basis_valid", oneOf(t.basis, REVIEW_BASES)),
+    check("cycle_review_hold_reason", sql`${t.decision} = 'approve' or length(btrim(coalesce(${t.reason}, ''))) > 0`),
+    tenantPolicy(t.organizationId),
+  ],
+);
