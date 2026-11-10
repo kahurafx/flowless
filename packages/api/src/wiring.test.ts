@@ -30,10 +30,20 @@ describe("wiring", () => {
     expect(fileSubjects.map((s) => s.kind)).toContain("reading");
     expect(fileSubjects.map((s) => s.kind)).toContain("work_order");
     expect(reports.map((r) => r.key)).toEqual([
+      "kernel.exceptions",
       "gis.recent_findings",
       "gis.condition_trend",
       "accounts.data_quality_summary",
       "accounts.data_quality_findings",
+      "billing.register",
+      "billing.receivables_aging",
+      "billing.cycle_completeness",
+      "billing.unbilled_accounts",
+      "billing.estimates_share",
+      "billing.revenue_cases",
+      "billing.corrections",
+      "metering.readings_by_outcome",
+      "metering.read_streaks",
     ]);
     expect(approvals.map((a) => a.key)).toEqual(["accounts.write_off", "accounts.connection_survey", "billing.adjustment", "billing.correction"]);
   });

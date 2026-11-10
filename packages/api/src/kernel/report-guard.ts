@@ -1,5 +1,5 @@
 import type { Transaction } from "@flowless/db";
-import type { ModuleKey } from "@flowless/shared-types";
+import type { ModuleKey, Permission, Scope } from "@flowless/shared-types";
 import { sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 
@@ -8,7 +8,49 @@ import type { z } from "zod";
  * by a module. It runs inside the caller's `withTenant`, so RLS applies, and it may only be
  * published if `reportPublishProblems` finds nothing (X-04).
  */
+export type ReportColumnType = "text" | "integer" | "money" | "date" | "timestamp" | "percent";
+
+/** One output column. Dimensions group or describe a row; measures are aggregates (X-01). */
+export interface ReportColumn {
+  key: string;
+  label: string;
+  type: ReportColumnType;
+  role: "dimension" | "measure";
+}
+
+/** A filter the report accepts as a parameter, described for a form. */
+export interface ReportFilter {
+  key: string;
+  label: string;
+  type: "text" | "date" | "enum" | "uuid" | "integer";
+  options?: readonly string[];
+}
+
+/**
+ * What makes a report publishable through the reporting engine (X-01, X-03): who may run it,
+ * what it returns, how many rows, and how the member's scope (K-03) reaches its query. A report
+ * without `meta` is internal (its module calls it) and is not offered by `reports.*`.
+ */
+export interface ReportMeta {
+  /** Needed on top of `reports:read` (run) or `reports:export` (export). */
+  permissions: readonly Permission[];
+  columns: readonly ReportColumn[];
+  filters: readonly ReportFilter[];
+  /** Rows a run returns; one more is read to say "truncated". */
+  rowCap: number;
+  /** Rows an export may hold. */
+  exportRowCap: number;
+  /** The column keys a run with these parameters returns (a grouped report returns the dimensions and measures chosen); all when absent. */
+  select?: (params: Record<string, unknown>) => readonly string[];
+  /**
+   * Scope (K-03): the parameters the engine sets from the caller, whatever the caller sent
+   * (for example the account ids a limited member may see).
+   */
+  scope?: (ctx: { tx: Transaction; userId: string; scope: Scope }) => Promise<Record<string, unknown>>;
+}
+
 export interface ReportDef<P = unknown> {
+  meta?: ReportMeta;
   /** "<module>.<report>", unique. */
   readonly key: string;
   readonly module: ModuleKey | "kernel";

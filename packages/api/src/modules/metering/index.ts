@@ -1,3 +1,4 @@
+import { meteringReports } from "./reports";
 import type { KernelRegistrar } from "../../kernel/registrar";
 import { readingFileSubject } from "./files";
 import { meteringBulkSetting, meteringMissesSetting, meteringOutcomesSetting, meteringZeroSetting } from "./policy-settings";
@@ -39,6 +40,10 @@ export function registerKernel(kernel: KernelRegistrar) {
   kernel.setting(meteringZeroSetting);
   kernel.setting(meteringBulkSetting);
   kernel.fileSubject(readingFileSubject);
+  for (const report of meteringReports) kernel.report(report);
   kernel.consumer(closeAndOpenOnRelocation);
   registerPorts();
 }
+
+// X-01: the registered reports, for tests.
+export { meteringReports } from "./reports";

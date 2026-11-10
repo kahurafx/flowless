@@ -887,6 +887,13 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "billing.cases.addEvidence": (b) => [{ caseId: b.billing.case, detail: "A adds evidence to B's case" }],
   "billing.cases.resolve": (b) => [{ caseId: b.billing.case, decision: "no_action", note: "A resolves B's case" }],
   "billing.cases.requestBackBilling": (b) => [{ caseId: b.billing.case, amount: 100n, note: "A asks about B's case" }],
+  // The reporting engine (X-01, X-03): every published report as A, in every format, with a group-by of every dimension.
+  "reports.list": () => [undefined],
+  "reports.run": () => [
+    ...reports.filter((r) => r.meta).map((r) => ({ key: r.key, params: {} })),
+    ...reports.filter((r) => r.meta).map((r) => ({ key: r.key, params: { groupBy: r.meta!.columns.filter((c) => c.role === "dimension").map((c) => c.key) } })),
+  ],
+  "reports.export": () => reports.filter((r) => r.meta).flatMap((r) => [{ key: r.key, format: "csv" as const }, { key: r.key, format: "xlsx" as const }]),
   "billing.simulation.run": (b) => [
     { draft: { type: "uniform", content: { type: "uniform", rate: 100n } }, accountIds: [b.billing.account] },
     { draft: { type: "uniform", content: { type: "uniform", rate: 100n } }, categoryId: b.tariffs.category },
@@ -998,12 +1005,19 @@ describe("isolation canary", () => {
   });
 
   it("returns nothing of tenant B from any report", async () => {
+    // Calls above made A rows that cite B's opaque ids (A supplied them: a case on "B's account", a cycle on "B's route"). Those are A's data.
+    const own = await withTenant(t.app, tenants.a.id, (tx) =>
+      tx.execute<{ id: string }>(sql`
+        select account_id::text as id from billing.revenue_case union select account_id::text from billing.cycle_account union select route_id::text from billing.cycle
+        union select account_id::text from billing.document union select account_id::text from billing.ledger_entry`),
+    );
+    const ownIds = new Set(own.map((r) => r.id));
     for (const report of reports) {
       const rows = await withTenant(t.app, tenants.a.id, async (tx) => {
         expect(await reportPublishProblems(tx, report.query(report.params.parse({})))).toEqual([]);
         return tx.execute(report.query(report.params.parse({})));
       });
-      expect(leaks(JSON.stringify(rows), null)).toEqual([]);
+      expect({ report: report.key, leaks: leaks(JSON.stringify(rows), null).filter((id) => !ownIds.has(id)) }).toEqual({ report: report.key, leaks: [] });
     }
   });
 });

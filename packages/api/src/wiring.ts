@@ -1,3 +1,4 @@
+import { exceptionsReport } from "./kernel/exception-report";
 import { kernelRegistrar } from "./kernel/registrar";
 import { WorkRegistry } from "./kernel/work";
 import { register as registerAccounts, registerKernel as registerAccountsKernel } from "./modules/accounts";
@@ -25,6 +26,7 @@ registerWorkOrders(work);
 registerGis(work);
 registerAccounts(work);
 
+kernelRegistrar.report(exceptionsReport);
 registerWorkOrdersKernel(kernelRegistrar);
 registerGisKernel(kernelRegistrar);
 registerTariffsKernel(kernelRegistrar);

@@ -25,6 +25,7 @@ const KERNEL = new Set([
   "files",
   "notifications",
   "support",
+  "reports",
 ]);
 /** Module routers are mounted at the camelCase of their module key ("work-orders" → workOrders). */
 const routerKey = (m: ModuleKey) => m.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());

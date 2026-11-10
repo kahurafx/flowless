@@ -5,6 +5,7 @@ import { correctionNeededOnRecorded, correctionNeededOnStatus } from "./correcti
 import { revenueProtectionSetting } from "./cases";
 import { billAccountJob, billOnReading } from "./bill-job";
 import { registerPorts } from "./ports";
+import { billingReports } from "./reports";
 import { billingCycleSetting, billingReviewSetting } from "./cycle-settings";
 import { billingPolicySetting as policy } from "./settings";
 
@@ -34,6 +35,8 @@ export { correctionPath, correctionSettings, graceEnd, isLargeDeviation, renderT
 export { proposeCorrection, postCorrection } from "./corrections";
 export { openCase, revenueProtectionSetting } from "./cases";
 export { correctionApproval, CORRECTION_APPROVAL_KIND } from "./approvals";
+// X-01: the registered reports, for tests.
+export { billingReports } from "./reports";
 export { billHeld, documentIssued, documentReversed } from "./events";
 
 // Derived reads for other modules (Collections, Payments, the portal): always from ledger entries, with the caller's transaction.
@@ -55,6 +58,7 @@ export function registerKernel(kernel: KernelRegistrar) {
   kernel.consumer(correctionNeededOnStatus);
   kernel.job(billAccountJob);
   kernel.consumer(billOnReading);
+  for (const report of billingReports) kernel.report(report);
   // Accounts' termination check, payment gate and balance transfer (each `requires: ["billing"]`) and Tariffs' closed-period source.
   registerPorts();
 }

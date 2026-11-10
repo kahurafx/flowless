@@ -6,6 +6,7 @@ import { configRouter } from "./kernel/config";
 import { entitlementsRouter } from "./kernel/entitlements";
 import { exceptionsRouter } from "./kernel/exceptions";
 import { filesRouter } from "./kernel/files";
+import { reportsRouter } from "./kernel/reports";
 import { notificationsRouter } from "./kernel/notifications";
 import { supportRouter } from "./kernel/support";
 import { hierarchyRouter } from "./kernel/hierarchy";
@@ -36,6 +37,7 @@ export const appRouter = router({
   files: filesRouter,
   notifications: notificationsRouter,
   support: supportRouter,
+  reports: reportsRouter,
   // Modules, at the camelCase of their module key (module-matrix.test.ts).
   workOrders: createWorkOrdersRouter(work),
   gis: createGisRouter(work),
