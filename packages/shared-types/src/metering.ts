@@ -64,14 +64,3 @@ export const isBlockingFlag = (flag: string): boolean => (READING_FLAGS as Recor
 export function consumptionBetween(previous: number, value: number, digits: number, rollover: boolean): number {
   return rollover ? 10 ** digits - previous + value : value - previous;
 }
-
-/**
- * Does a drop from `previous` to `value` look like the dial wrapping (M-07)? The previous
- * reading was in the top half of the dial's range and the new one is lower than it by more
- * than it could have wrapped from (i.e. the wrapped consumption is smaller than the dial's half range).
- */
-export function looksLikeRollover(previous: number, value: number, digits: number): boolean {
-  if (value >= previous) return false;
-  const capacity = 10 ** digits;
-  return capacity - previous + value < capacity / 2;
-}

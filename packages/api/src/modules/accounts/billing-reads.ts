@@ -1,5 +1,5 @@
 import type { Transaction } from "@flowless/db";
-import { account } from "@flowless/db/schema/accounts";
+import { account, servicePoint } from "@flowless/db/schema/accounts";
 import type { CommercialStatus, ServiceState } from "@flowless/shared-types";
 import { and, eq } from "drizzle-orm";
 import type { ActionEnv } from "../../kernel/action-env";
@@ -40,6 +40,26 @@ export async function chargesApplyingTo(tx: Transaction, accountId: string): Pro
   if (!status) return null;
   const rules = (await readSetting(tx, statusRulesSetting)).value;
   return { ...status, ...chargesApplying(rules, status.commercialStatus, status.serviceStatus) };
+}
+
+/** Where a service point is and whose it is, for Metering (NF-30): ids only, never the rows. */
+export interface ServicePointView {
+  servicePointId: string;
+  accountId: string;
+  areaId: string | null;
+  routeId: string | null;
+  connectionStatus: string;
+}
+
+/** The service point's account and placement (most specific area); null when this organization has no such service point. */
+export async function servicePointOf(tx: Transaction, servicePointId: string): Promise<ServicePointView | null> {
+  const [row] = await tx
+    .select({ id: servicePoint.id, accountId: servicePoint.accountId, dma: servicePoint.dmaId, zone: servicePoint.zoneId, scheme: servicePoint.schemeId, routeId: servicePoint.routeId, status: servicePoint.connectionStatus })
+    .from(servicePoint)
+    .where(eq(servicePoint.id, servicePointId));
+  return row
+    ? { servicePointId: row.id, accountId: row.accountId, areaId: row.dma ?? row.zone ?? row.scheme ?? null, routeId: row.routeId, connectionStatus: row.status }
+    : null;
 }
 
 /** Can the viewer see this account (K-03)? An account that does not exist is not visible to a limited viewer. */

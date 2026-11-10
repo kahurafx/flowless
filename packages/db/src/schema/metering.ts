@@ -44,7 +44,7 @@ const oneOf = (column: AnyPgColumn, values: readonly string[]) =>
   sql`${column} in (${sql.raw(values.map((v) => `'${v}'`).join(", "))})`;
 
 /** How a step reached the system, as the audit log names it. */
-export const METERING_SOURCES = ["web", "mobile", "api", "import", "system"] as const;
+export const METERING_SOURCES = ["web", "mobile", "api", "import", "system", "support"] as const;
 
 export const METER_EVENT_KINDS = ["register", "status_change", "install", "remove", "replace"] as const;
 export type MeterEventKind = (typeof METER_EVENT_KINDS)[number];

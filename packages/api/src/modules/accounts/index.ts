@@ -35,7 +35,7 @@ export {
 } from "./numbering";
 
 // Billing's reads and system steps (P4-4): status, charges applying now, scope visibility, application invoice and payment references.
-export { accountStatusOf, accountVisibleTo, chargesApplyingTo, recordApplicationInvoiced, recordApplicationPaid, visibleAccountIds, type AccountStatusView } from "./billing-reads";
+export { accountStatusOf, accountVisibleTo, chargesApplyingTo, recordApplicationInvoiced, recordApplicationPaid, servicePointOf, visibleAccountIds, type AccountStatusView, type ServicePointView } from "./billing-reads";
 export type { Viewer } from "./access";
 
 // Charges by status (C-04): Billing asks what applies to an account in its status.

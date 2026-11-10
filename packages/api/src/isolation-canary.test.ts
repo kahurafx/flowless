@@ -35,6 +35,8 @@ interface Canary {
   tariffs: TariffsCanary;
   /** Tenant B's invoice and its account (Phase 4 P4-3). */
   billing: { document: string; account: string };
+  /** Tenant B's meters, installation and readings, through the Metering API (Phase 5 P5-1a). */
+  metering: { meter: string; spare: string; servicePoint: string; installation: string; reading: string; flagged: string };
 }
 
 interface TariffsCanary {
@@ -104,7 +106,7 @@ let bIdentifiers: Set<string>;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 /** Schemas holding tenant tables: the kernel and every module schema. */
-const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts", "tariffs", "billing"];
+const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts", "tariffs", "billing", "metering"];
 
 async function tenantTables(): Promise<{ schema: string; table: string }[]> {
   const rows = await t.admin.execute<{ table_schema: string; table_name: string }>(sql`
@@ -201,6 +203,7 @@ async function seedB(): Promise<Canary> {
   const accounts = await seedAccounts(asB, { schemeId: scheme.id, zoneId: zone.id, dmaId: dmaArea.id, routeId: route.id, connectionId: gis.connection.id });
   const tariffs = await seedTariffs(asB);
   const billing = await seedBillingRows();
+  const metering = await seedMetering(asB, accounts.servicePoint);
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -215,8 +218,19 @@ async function seedB(): Promise<Canary> {
     accounts,
     tariffs,
     billing,
+    metering,
     ...seeded,
   };
+}
+
+/** Tenant B's meters, an installation and readings (one flagged, so it also holds an exception), through the Metering API. */
+async function seedMetering(asB: ReturnType<typeof callerFor>, servicePointId: string) {
+  const { meter } = await asB.metering.meters.register({ serial: `${MARK}-M1`, model: "DN15", dialDigits: 5 });
+  const { meter: spare } = await asB.metering.meters.register({ serial: `${MARK}-M2`, dialDigits: 5 });
+  const installed = await asB.metering.installations.install({ meterId: meter.id, servicePointId, installedAt: new Date("2026-01-01T08:00:00Z"), initialReading: { value: 10 } });
+  const { reading } = await asB.metering.readings.record({ meterId: meter.id, value: 25, readAt: new Date("2026-02-01T08:00:00Z"), source: "technician", latitude: -1.2, longitude: 36.8 });
+  const { reading: flagged } = await asB.metering.readings.record({ meterId: meter.id, value: 0, readAt: new Date("2026-03-01T08:00:00Z"), source: "office", note: `${MARK} zero` });
+  return { meter: meter.id, spare: spare.id, servicePoint: servicePointId, installation: installed.installationId, reading: reading.id, flagged: flagged.id };
 }
 
 /**
@@ -800,6 +814,24 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "billing.documents.rebill": (b) => [
     { idempotencyKey: "canary-a-rebill-1", documentId: b.billing.document, reason: "x", bill: { accountId: b.billing.account, categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-10", reading: { dial: 110 }, readings: [] } },
   ],
+  "metering.meters.list": (b) => [{}, { search: b.metering.meter }, { status: "installed" }],
+  "metering.meters.get": (b) => [{ meterId: b.metering.meter }],
+  "metering.meters.register": () => [{ serial: "CANARY-A-1", dialDigits: 5 }],
+  "metering.meters.changeStatus": (b) => [{ meterId: b.metering.spare, to: "disposed", reason: "A disposes of B's meter" }],
+  "metering.installations.list": (b) => [{}, { meterId: b.metering.meter }, { servicePointId: b.metering.servicePoint }],
+  "metering.installations.install": (b) => [{ meterId: b.metering.spare, servicePointId: b.metering.servicePoint, installedAt: new Date("2026-04-01T08:00:00Z") }],
+  "metering.installations.remove": (b) => [{ meterId: b.metering.meter, removedAt: new Date("2026-04-01T08:00:00Z"), reason: "A removes B's meter" }],
+  "metering.installations.replace": (b) => [
+    { oldMeterId: b.metering.meter, newMeterId: b.metering.spare, replacedAt: new Date("2026-04-01T08:00:00Z"), reason: "x", finalReading: { value: 30 }, initialReading: { value: 0 } },
+  ],
+  "metering.readings.record": (b) => [{ meterId: b.metering.meter, value: 40, readAt: new Date("2026-04-01T08:00:00Z"), source: "office" }],
+  "metering.readings.recordEstimate": (b) => [{ meterId: b.metering.meter, value: 40, readAt: new Date("2026-04-01T08:00:00Z") }],
+  "metering.readings.correct": (b) => [{ readingId: b.metering.reading, value: 26, source: "office", reason: "A corrects B's reading" }],
+  "metering.readings.approve": (b) => [{ readingId: b.metering.flagged, reason: "A approves B's reading" }],
+  "metering.readings.void": (b) => [{ readingId: b.metering.reading, reason: "A voids B's reading" }],
+  "metering.readings.get": (b) => [{ readingId: b.metering.reading }],
+  "metering.readings.list": (b) => [{}, { meterId: b.metering.meter }, { servicePointId: b.metering.servicePoint }, { needsReview: true }],
+  "metering.readings.latestActual": (b) => [{ meterId: b.metering.meter }, { servicePointId: b.metering.servicePoint }],
   "billing.balance": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, asOf: "2026-12-31" }],
   "billing.statement": (b) => [{ accountId: b.billing.account }, { accountId: b.billing.account, from: "2026-01-01", to: "2026-12-31", limit: 10 }],
 };
@@ -840,7 +872,7 @@ describe("isolation canary", () => {
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
     // Every gis, work_orders, accounts (including the command log and the checklist) , tariffs and billing table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(49);
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(54);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {
@@ -886,6 +918,8 @@ describe("isolation canary", () => {
       "tariffs.chargeItems.list",
       "tariffs.invoiceTypes.list",
       "billing.documents.list",
+      "metering.meters.list",
+      "metering.readings.list",
     ]) {
       for (const id of leaks(JSON.stringify(superjson.serialize(await callPath(caller, path, undefined)).json), null)) seen.add(id);
     }
@@ -895,7 +929,7 @@ describe("isolation canary", () => {
     }
     expect(seen).toContain(MARK);
     expect(seen).toContain(b.accounts.customer);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document, b.metering.meter, b.metering.reading].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 

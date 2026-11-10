@@ -18,7 +18,8 @@ describe("wiring", () => {
   });
 
   it("registers file subjects, reports and approval kinds", () => {
-    expect(fileSubjects.map((s) => s.kind)).toHaveLength(2);
+    expect(fileSubjects.map((s) => s.kind)).toHaveLength(3);
+    expect(fileSubjects.map((s) => s.kind)).toContain("reading");
     expect(fileSubjects.map((s) => s.kind)).toContain("work_order");
     expect(reports.map((r) => r.key)).toEqual([
       "gis.recent_findings",
@@ -34,6 +35,7 @@ describe("wiring", () => {
     expect(keys[0]).toBe("kernel.regional");
     expect(keys).toContain("tariffs.policy");
     expect(keys).toContain("billing.policy");
+    expect(keys).toContain("metering.validation");
     const policies = approvals.map((a) => `approvals.${a.key}`);
     expect(keys.slice(-policies.length)).toEqual(policies);
     expect(new Set(keys).size).toBe(keys.length);
