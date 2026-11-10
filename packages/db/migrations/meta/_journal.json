@@ -267,6 +267,20 @@
       "when": 1794283852564,
       "tag": "0037_billing_final_bill",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794287379911,
+      "tag": "0038_metering",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794287387747,
+      "tag": "0039_metering_access",
+      "breakpoints": true
     }
   ]
 }

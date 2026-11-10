@@ -4,6 +4,7 @@ export * from "./modules";
 export * from "./accounts";
 export * from "./data-quality";
 export * from "./tariffs";
+export * from "./metering";
 export * from "./tariff-content";
 export * from "./invoice-policy";
 export * from "./late-fee";

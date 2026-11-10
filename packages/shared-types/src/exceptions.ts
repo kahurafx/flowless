@@ -24,7 +24,7 @@ export type ExceptionType = (typeof EXCEPTION_TYPES)[number];
 export const EXCEPTION_STATUSES = ["open", "in_progress", "resolved"] as const;
 export type ExceptionStatus = (typeof EXCEPTION_STATUSES)[number];
 
-export const EXCEPTION_SUBJECT_KINDS = ["account", "payment", "message", "job", "event", "approval", "work_order"] as const;
+export const EXCEPTION_SUBJECT_KINDS = ["account", "payment", "message", "job", "event", "approval", "work_order", "reading", "meter"] as const;
 export type ExceptionSubjectKind = (typeof EXCEPTION_SUBJECT_KINDS)[number];
 
 export interface ExceptionItem {

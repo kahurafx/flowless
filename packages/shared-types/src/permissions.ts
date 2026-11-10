@@ -10,6 +10,7 @@ export const PERMISSION_STATEMENTS = {
   access: ["manage"],
   accounts: ["read", "create", "update", "change_status"],
   tariffs: ["read", "manage"],
+  meters: ["read", "manage"],
   readings: ["read", "capture", "approve"],
   billing: ["read", "run", "approve", "adjust"],
   payments: ["read", "receipt", "allocate", "reverse"],
@@ -50,6 +51,7 @@ export const DEFAULT_ROLES = {
   accountant: [
     "accounts:read",
     "tariffs:read",
+    "meters:read",
     "readings:read",
     "billing:read",
     "billing:run",
@@ -72,6 +74,7 @@ export const DEFAULT_ROLES = {
     "accounts:create",
     "accounts:update",
     "tariffs:read",
+    "meters:read",
     "readings:read",
     "readings:capture",
     "billing:read",
@@ -84,6 +87,8 @@ export const DEFAULT_ROLES = {
   cashier: ["accounts:read", "payments:read", "payments:receipt", "payments:allocate", "exceptions:read", "reports:read"],
   supervisor: [
     "accounts:read",
+    "meters:read",
+    "meters:manage",
     "readings:read",
     "readings:approve",
     "work_orders:read",
@@ -116,6 +121,7 @@ export const DEFAULT_ROLES = {
   // gis:edit is limited to the technician's own job branches by the GIS branch guard (Phase 2).
   technician: [
     "accounts:read",
+    "meters:read",
     "readings:read",
     "readings:capture",
     // No work_orders:read: technicians see the jobs given to them or their crew (W-01).
