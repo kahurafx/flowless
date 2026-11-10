@@ -114,3 +114,21 @@ The status table decides (C-04): DISCONNECTED (consumption not billed), DORMANT 
 - A debit correction has no due date; Collections will need one.
 - Corrections need Metering licensed; revenue-case `penalty_applied` records the decision but posts no penalty.
 - Reconnection history: after reconnect the next bill still spans from the last routine reading with a true-up (the final reading is not a routine baseline in `analyseReadings`).
+
+## Statements, simulation and reports (P5-6: B-17, T-06, X-01, X-03)
+Files: `reads.ts` (statement), `simulation.ts` + `simulation-core.ts`, `reports.ts`; the engine is in `kernel/report-*.ts` (see `packages/api/CLAUDE.md`).
+
+### Statement (B-17)
+`billing.statement` rows keep every old field and gain `lineType` (`invoice`, `payment`, `adjustment`, `credit_note`, `debit_note`, `transfer`, `reversal`, `correction`; pure `statementLineType` in shared-types; a `correction` is a note whose idempotency key starts `correction:`), `key` (document id, else transaction id), `linkedTo` (the row it offsets: a reversal's original, a note's cited invoice, a reversed transaction's document), `replacesDocumentId` (a re-bill's replacement) and `pair` (`{ pairId, role: original | offset, settled }`). A pair is `settled` when the original and its offsets net to zero; `collapsePairs(rows)` (shared-types, pure) drops settled pairs for the customer view, the office view shows all. A partial credit note is never collapsed. The running balance is the ledger's over the whole history, so it is the same in both views. Pairs are computed inside the returned window only.
+
+### Tariff simulation (T-06): `billing.simulation.run`
+`billing:read` plus `tariffs:read` or `tariffs:manage` (FORBIDDEN otherwise). Input: `draft { type, content }` (checked with Tariffs' published `validateTariffContent`; flat rate refused), a selection (`accountIds`, `routeId` through Accounts' `routeServicePointFacts`, `categoryId`; at least one; intersected with the viewer's scope), `cap` (200, max 1000), `spansPerAccount` (3), `topMovers` (10). Spans are Billing's own live (not reversed) invoice lines `USAGE`/`USAGE_EST` (units and months from the line, category from the ledger entry of that line); the current column prices each span's months with the tariff in force in each of those months (Tariffs' `categoryPricing`, `tariffVersionInForce` through `pricing()`), the draft column with the draft's bands for the whole span, both with the engine's `spanCharge` and the organization's tier scaling, rounded once per span, bigint. `billed` is what was actually charged, for reference. Spans with no category or no tariff in force are skipped from both columns and listed. Returns per-account and total deltas, `affected` count, `topMovers`, `truncated`. Writes nothing (a test compares document, ledger and exception counts).
+
+### Reports (X-01)
+`billing.register` (documents by month, type, status, invoice type, source, account), `billing.receivables_aging` (the balance carried by the newest debits; buckets 0-30, 31-60, 61-90, 90+; `asOf`; by zone, category, account), `billing.cycle_completeness`, `billing.unbilled_accounts`, `billing.estimates_share`, `billing.revenue_cases`, `billing.corrections` (corrections and back-billing notes). All `billing:read`, scoped to visible accounts, from ledger, document and cycle tables only.
+
+### Gaps
+- No web page for the simulation or the reports yet (API only); the reports pick ids (zone, category, route, account) without names.
+- Aging has no per-invoice open items (Payments' allocation, Phase 6): the balance is attributed to the newest charges; accounts in credit are left out. Zone and category come from the ledger entry's snapshot, which carries only service point and category today (zone empty).
+- Simulation prices consumption only (no standing charge, flat-rate or fees) and ignores spans not billed through `issueUsage`/cycles.
+- Scheduled delivery (X-03) needs a `report_schedule` (see the api CLAUDE.md).

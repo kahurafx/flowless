@@ -16,6 +16,7 @@ export const EXPORT_TYPES: Record<ExportFormat, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
+const BOM = String.fromCharCode(0xfeff);
 const FORMULA = /^[=+\-@\t\r]/;
 
 /** A cell's text: money in major units, timestamps ISO, formulas defused. */
@@ -36,7 +37,7 @@ export function headerOf(column: ReportColumn, currency: string): string {
 export function toCsv(columns: readonly ReportColumn[], rows: readonly ReportRow[], currency: string): string {
   const lines = [columns.map((c) => csvField(headerOf(c, currency))).join(",")];
   for (const row of rows) lines.push(columns.map((c) => csvField(cellText(c, row[c.key] ?? null, currency))).join(","));
-  return `﻿${lines.join("\r\n")}\r\n`;
+  return `${BOM}${lines.join("\r\n")}\r\n`;
 }
 
 export async function toXlsx(title: string, columns: readonly ReportColumn[], rows: readonly ReportRow[], currency: string): Promise<Buffer> {
