@@ -238,17 +238,3 @@ export function CommandsSection({ page }: { page: AccountPage }) {
     </Section>
   );
 }
-
-/**
- * The statement and ledger are Phase 4 (Billing). There is nothing real to show, and the Phase 1
- * demo ledger belonged to demo accounts that no longer exist, so this says so instead of inventing numbers.
- */
-export function StatementPlaceholder() {
-  return (
-    <Section id="statement" title="Statement" aside={<Badge variant="outline">Phase 4</Badge>}>
-      <p className="text-sm text-muted-foreground">
-        The ledger, balance and statement arrive with Billing. Until then an account holds no balance, which is why terminating one asks you to confirm that nothing is owing.
-      </p>
-    </Section>
-  );
-}

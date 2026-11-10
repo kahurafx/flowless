@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { accountNumberFrom, getAccountPage } from "@/data/accounts";
 import { ActivationPanel } from "./activation-panel";
-import { CommandsSection, CustomerSection, HoldersSection, Overview, ServicePointsSection, StatementPlaceholder } from "./account-sections";
+import { CommandsSection, CustomerSection, HoldersSection, Overview, ServicePointsSection } from "./account-sections";
 import { LifecycleActions } from "./lifecycle-actions";
 import { RelocationsPanel } from "./relocations-panel";
+import { StatementSection } from "./statement-section";
 
 export const metadata = { title: "Account" };
 
@@ -56,7 +57,9 @@ async function Account({ params }: { params: PageProps<"/accounts/[number]">["pa
         <RelocationsPanel page={page} />
         <HoldersSection page={page} />
         <CommandsSection page={page} />
-        <StatementPlaceholder />
+        <Suspense fallback={<Skeleton className="h-48" />}>
+          <StatementSection account={{ id: account.id, number: account.number }} />
+        </Suspense>
       </div>
     </>
   );
