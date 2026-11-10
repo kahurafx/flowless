@@ -6,6 +6,8 @@ import { CommercialStatusBadge, ServiceStatusBadge } from "@/components/status-b
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { accountNumberFrom, getAccountPage } from "@/data/accounts";
+import { getAccountOperations } from "@/data/billing-ops";
+import { CorrectionDialog } from "./operations";
 import { ActivationPanel } from "./activation-panel";
 import { CommandsSection, CustomerSection, HoldersSection, Overview, ServicePointsSection } from "./account-sections";
 import { LifecycleActions } from "./lifecycle-actions";
@@ -32,6 +34,7 @@ async function Account({ params }: { params: PageProps<"/accounts/[number]">["pa
   const { number } = await params;
   const page = await getAccountPage(accountNumberFrom(number));
   const { account } = page;
+  const ops = await getAccountOperations({ id: account.id, servicePointIds: account.servicePoints.map((s) => s.id) });
 
   return (
     <>
@@ -47,7 +50,12 @@ async function Account({ params }: { params: PageProps<"/accounts/[number]">["pa
         }
       />
       <div className="grid gap-6">
-        <LifecycleActions page={page} />
+        <LifecycleActions page={page} ops={ops} />
+        {ops?.canRun && ops.meteringLicensed && ops.periods.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label="Billing actions">
+            <CorrectionDialog accountId={account.id} ops={ops} />
+          </div>
+        )}
         <Overview page={page} />
         <ActivationPanel page={page} />
         <div className="grid items-start gap-6 lg:grid-cols-2">

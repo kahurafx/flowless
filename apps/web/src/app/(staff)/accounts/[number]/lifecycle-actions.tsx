@@ -18,6 +18,8 @@ import { customerChoiceInput, customerChoiceProblem, emptyPlace, nextDay, placeF
 import { DISCONNECT_REASONS, successionBasisLabel, WRITE_OFF_REASONS } from "@/lib/account-labels";
 import { lifecycleActionsFor, type LifecycleAction } from "@/lib/account-lifecycle";
 import { optionalText } from "@/lib/optional-text";
+import type { AccountOperations } from "@/data/billing-ops";
+import { DisconnectWithBill, ReconnectWithCheck } from "./operations";
 import { changeNameAction, requestRelocationAction, requestWriteOffAction, runLifecycle, succeedAction } from "../actions";
 
 const outcome = (result: { error: string | null }) => ({ error: result.error });
@@ -309,7 +311,7 @@ function StartRelocation({ page }: { page: AccountPage }) {
  * wayfinding: the state machine and permissions are enforced by the procedures, and a refusal
  * shows in the dialog. Activation has its own panel.
  */
-export function LifecycleActions({ page }: { page: AccountPage }) {
+export function LifecycleActions({ page, ops }: { page: AccountPage; ops: AccountOperations | null }) {
   const actions: LifecycleAction[] = lifecycleActionsFor(page.account, page.permissions).filter((a) => a !== "activate");
   if (actions.length === 0) return null;
   const has = (a: LifecycleAction) => actions.includes(a);
@@ -319,7 +321,8 @@ export function LifecycleActions({ page }: { page: AccountPage }) {
       {has("mark_pending_payment") && <SimpleCommand kind="mark_pending_payment" accountId={accountId} />}
       {has("make_dormant") && <SimpleCommand kind="make_dormant" accountId={accountId} />}
       {has("reactivate") && <SimpleCommand kind="reactivate" accountId={accountId} />}
-      {has("disconnect_service") && <Disconnect accountId={accountId} />}
+      {has("disconnect_service") && (ops?.canDisconnect ? <DisconnectWithBill accountId={accountId} ops={ops} /> : <Disconnect accountId={accountId} />)}
+      {has("reconnect_service") && ops?.canDisconnect && <ReconnectWithCheck accountId={accountId} ops={ops} />}
       {has("reconnect_service") && <SimpleCommand kind="reconnect_service" accountId={accountId} />}
       {has("change_name") && <ChangeName page={page} />}
       {has("succeed") && <Succeed page={page} />}
