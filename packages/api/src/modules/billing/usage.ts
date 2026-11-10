@@ -1,4 +1,5 @@
 import { billReading, finalBill, newAccount, periodFromIndex, periodIndex, type Reading } from "@flowless/billing-engine";
+import { DISPOSITIONS, READING_OUTCOMES } from "@flowless/shared-types";
 import { organizationSettings, type Transaction } from "@flowless/db";
 import { document, documentLine } from "@flowless/db/schema/billing";
 import { bandsFor } from "@flowless/shared-types";
@@ -6,7 +7,7 @@ import { todayIn } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
-import type { ActionEnv, UserActionEnv } from "../../kernel/action-env";
+import type { ActionEnv } from "../../kernel/action-env";
 import { readSetting } from "../../kernel/config-store";
 import { raiseException } from "../../kernel/exception-store";
 import { regionalSetting } from "../../kernel/regional";
@@ -58,11 +59,24 @@ export const usageInputSchema = z.object({
   /** The account's earlier readings; the latest trusted actual before `period` is the baseline. */
   readings: z.array(readingFactSchema).max(60).default([]),
   dueOn: z.iso.date().optional(),
+  /** M-06: what the reader found. With `disposition` it decides what is billed (the dial is then ignored unless `bill_actual`). */
+  outcome: z.enum(READING_OUTCOMES).optional(),
+  /** The disposition Metering's mapping gave `outcome`; wins over it. */
+  disposition: z.enum(DISPOSITIONS).optional(),
+  /** M-07: one declared meter change; `reading.dial` is then the new meter's current reading. */
+  meterChange: z.object({ oldFinal: z.number().int().min(0), newInitial: z.number().int().min(0) }).optional(),
 });
 export type UsageInput = z.infer<typeof usageInputSchema>;
 
+/** A finding that does not block the bill (B-08, B-10): zero consumption, standing only, outlier against history. */
+export interface BillFlag {
+  code: string;
+  message: string;
+}
+
 export type Prepared =
-  | { kind: "draft"; draft: Draft }
+  | { kind: "draft"; draft: Draft; flags: BillFlag[]; estimate: boolean }
+  | { kind: "skipped"; code: string; message: string; period: string }
   | { kind: "held"; code: string; message: string; period: string }
   | { kind: "none"; outcome: "baseline" | "duplicate" | "none" };
 
@@ -175,7 +189,17 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
     ...newAccount({
       status: usageApplies ? "ACTIVE" : "BLOCKED",
       digits: policy.meterDigits,
-      policy: { scaling: policy.tierScaling, avgN: policy.estimateAverageOf, fallback: policy.estimateFallbackUnits, ceiling: policy.outlierCeilingUnitsPerMonth },
+      policy: {
+        scaling: policy.tierScaling,
+        avgN: policy.estimateAverageOf,
+        fallback: policy.estimateFallbackUnits,
+        ceiling: policy.outlierCeilingUnitsPerMonth,
+        method: policy.estimateMethod,
+        trim: policy.estimateTrim,
+        fixedMinimum: policy.estimateFixedMinimum,
+        noneAction: policy.noneAction,
+        outlierFactor: policy.outlierFactor,
+      },
     }),
     readings,
     docs,
@@ -185,11 +209,15 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
     ...(input.reading.dial !== undefined ? { dial: input.reading.dial } : {}),
     ...(input.reading.units !== undefined ? { units: input.reading.units } : {}),
     ...(input.reading.rollover !== undefined ? { rollover: input.reading.rollover } : {}),
+    ...(input.meterChange ? { meterChange: input.meterChange } : {}),
+    ...(input.outcome ? { outcome: input.outcome } : {}),
+    ...(input.disposition ? { disposition: input.disposition } : {}),
   };
   const { outcome } = final
     ? finalBill(account, tariffs, input.period, { dial: input.reading.dial ?? 0, ...(input.reading.rollover !== undefined ? { rollover: input.reading.rollover } : {}), fee: final.fee, key: final.key })
     : billReading(account, tariffs, input.period, reading);
   if (outcome.kind === "held") return { kind: "held", code: outcome.exception.code, message: outcome.exception.message, period: input.period };
+  if (outcome.kind === "skipped") return { kind: "skipped", code: outcome.exception.code, message: outcome.exception.message, period: input.period };
   if (outcome.kind !== "billed") return { kind: "none", outcome: outcome.kind === "baseline" ? "baseline" : outcome.kind === "duplicate" ? "duplicate" : "none" };
 
   const doc = outcome.doc;
@@ -199,6 +227,8 @@ export async function prepareUsage(env: ActionEnv, input: UsageInput, excluded: 
   );
   return {
     kind: "draft",
+    flags: (outcome.flags ?? []).map((f) => ({ code: f.code, message: f.message })),
+    estimate: doc.lines.some((l) => l.code === "USAGE_EST"),
     draft: {
       kind: credit ? "credit_note" : "invoice",
       entryType: credit ? "credit" : "charge",
@@ -255,12 +285,13 @@ export async function announceIssued(env: ActionEnv, posted: Awaited<ReturnType<
 }
 
 export type IssueResult =
-  | { outcome: "issued"; replayed: boolean; document: Awaited<ReturnType<typeof presentPosted>> }
+  | { outcome: "issued"; replayed: boolean; document: Awaited<ReturnType<typeof presentPosted>>; flags?: BillFlag[]; estimate?: boolean }
   | { outcome: "held"; code: string; message: string; exceptionId: string }
+  | { outcome: "skipped"; code: string; message: string }
   | { outcome: "baseline" | "duplicate" | "none" };
 
 /** B-10: issues the bill for an account and period, or holds it. Idempotent on the key. */
-export async function issueUsage(env: UserActionEnv, input: UsageInput): Promise<IssueResult> {
+export async function issueUsage(env: ActionEnv, input: UsageInput, options: { quietHold?: boolean } = {}): Promise<IssueResult> {
   await lockAccount(env.tx, input.accountId);
   const earlier = await documentByKey(env.tx, input.idempotencyKey);
   if (earlier) {
@@ -273,10 +304,12 @@ export async function issueUsage(env: UserActionEnv, input: UsageInput): Promise
   await assertPeriodOpen(env.tx, input.accountId, input.period);
   const prepared = await prepareUsage(env, input);
   if (prepared.kind === "held") {
-    return { outcome: "held", code: prepared.code, message: prepared.message, exceptionId: await holdBill(env, input.accountId, prepared) };
+    // quietHold: a billing run records the hold as the cycle's own exception outcome instead.
+    return { outcome: "held", code: prepared.code, message: prepared.message, exceptionId: options.quietHold ? "" : await holdBill(env, input.accountId, prepared) };
   }
+  if (prepared.kind === "skipped") return { outcome: "skipped", code: prepared.code, message: prepared.message };
   if (prepared.kind === "none") return { outcome: prepared.outcome };
   const posted = await postDraft(env, prepared.draft);
   await announceIssued(env, posted);
-  return { outcome: "issued", replayed: false, document: await presentPosted(env.tx, posted.document) };
+  return { outcome: "issued", replayed: false, document: await presentPosted(env.tx, posted.document), ...(prepared.flags.length ? { flags: prepared.flags } : {}), ...(prepared.estimate ? { estimate: true } : {}) };
 }

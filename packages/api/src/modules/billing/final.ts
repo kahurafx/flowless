@@ -57,6 +57,7 @@ export async function issueFinal(env: UserActionEnv, input: FinalInput): Promise
     return { outcome: "held", code: prepared.code, message: prepared.message, exceptionId: await holdBill(env, input.accountId, prepared) };
   }
   if (prepared.kind === "none") return { outcome: prepared.outcome };
+  if (prepared.kind === "skipped") return { outcome: "skipped", code: prepared.code, message: prepared.message };
   const posted = await postDraft(env, prepared.draft);
   await announceIssued(env, posted);
   return { outcome: "issued", replayed: false, document: await presentPosted(env.tx, posted.document) };

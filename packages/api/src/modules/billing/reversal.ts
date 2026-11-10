@@ -124,6 +124,7 @@ export async function rebill(env: UserActionEnv, input: RebillInput): Promise<Re
     return { outcome: "held", code: prepared.code, message: prepared.message, exceptionId: await holdBill(env, original.accountId, prepared) };
   }
   if (prepared.kind === "none") return { outcome: prepared.outcome };
+  if (prepared.kind === "skipped") throw refuse(`The re-bill would be skipped (${prepared.message})`);
   if (prepared.draft.kind !== "invoice") throw refuse("The corrected bill is a credit, not an invoice: void the document and issue a credit note instead");
   const reversal = await postReversal(env, original, input.reason, voidKey);
   const replacement = await postDraft(env, { ...prepared.draft, replacesDocumentId: original.id, note: input.reason, dimensions: dimensionsOf(input.bill) });

@@ -18,6 +18,8 @@ export interface AccountStatusView {
   accountId: string;
   number: string;
   customerId: string;
+  /** Tariffs' category id, opaque here; null until the account has one. */
+  categoryId: string | null;
   commercialStatus: CommercialStatus;
   serviceStatus: ServiceState;
 }
@@ -25,10 +27,10 @@ export interface AccountStatusView {
 /** Who the account is and what state it is in; null when this organization has no such account. */
 export async function accountStatusOf(tx: Transaction, accountId: string): Promise<AccountStatusView | null> {
   const [row] = await tx
-    .select({ id: account.id, number: account.number, customerId: account.customerId, commercialStatus: account.commercialStatus, serviceStatus: account.serviceStatus })
+    .select({ id: account.id, number: account.number, customerId: account.customerId, categoryId: account.categoryId, commercialStatus: account.commercialStatus, serviceStatus: account.serviceStatus })
     .from(account)
     .where(eq(account.id, accountId));
-  return row ? { accountId: row.id, number: row.number, customerId: row.customerId, commercialStatus: row.commercialStatus, serviceStatus: row.serviceStatus } : null;
+  return row ? { accountId: row.id, number: row.number, customerId: row.customerId, categoryId: row.categoryId, commercialStatus: row.commercialStatus, serviceStatus: row.serviceStatus } : null;
 }
 
 /**

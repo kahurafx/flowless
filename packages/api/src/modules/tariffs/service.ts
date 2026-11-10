@@ -258,6 +258,12 @@ export function toChargeItemDto(c: ChargeItemRow, amounts: readonly AmountRow[],
 }
 export type ChargeItemDto = ReturnType<typeof toChargeItemDto>;
 
+/** An invoice type's id by code (published read for Billing's runs); null when the code is unknown. */
+export async function invoiceTypeIdByCode(tx: Transaction, organizationId: string, code: string): Promise<string | null> {
+  const [row] = await tx.select({ id: invoiceType.id }).from(invoiceType).where(and(eq(invoiceType.organizationId, organizationId), eq(invoiceType.code, code)));
+  return row?.id ?? null;
+}
+
 /** A charge item by code with its amount in force on a date (published read for Billing). Null when the code is unknown. */
 export async function chargeItemByCode(tx: Transaction, organizationId: string, code: string, on: Date | IsoDate): Promise<{ item: ChargeItemRow; amount: AmountDto | null } | null> {
   const [item] = await tx
