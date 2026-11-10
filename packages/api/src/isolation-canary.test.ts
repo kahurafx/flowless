@@ -277,7 +277,15 @@ async function seedAccounts(
   // The lifecycle (F3a): a command with its client-minted id, a checklist tick, and a write-off request.
   const command = randomUUID();
   await asB.accounts.markPendingPayment({ id: command, accountId: account.id, reason: `${MARK} invoice issued`, note: `${MARK} note` });
-  await asB.accounts.activation.tick({ accountId: account.id, gateKey: "payment_threshold", note: `${MARK} receipt` });
+  await asB.accounts.activation.tick({ accountId: account.id, gateKey: "initial_reading", note: `${MARK} receipt` });
+  // B has Billing, so a write-off needs a balance owing: post a charge for the child directly (as the importer would).
+  const owingTx = randomUUID();
+  await t.admin.execute(sql`with h as (
+      insert into billing.ledger_transaction (id, organization_id, entry_type, currency, entry_count, effective_on, idempotency_key)
+      values (${owingTx}, ${tenants.b.id}, 'charge', 'KES', 2, '2026-10-31', ${`${MARK}-owing`}) returning id)
+    insert into billing.ledger_entry (organization_id, transaction_id, line_no, currency, side, amount, ledger_account, account_id)
+    select ${tenants.b.id}, h.id, v.n, 'KES', v.side, 55000, v.acct, ${child.id}::uuid
+      from h, (values (0, 'debit', 'receivable'), (1, 'credit', 'revenue')) as v(n, side, acct)`);
   const writeOff = await asB.accounts.requestWriteOff({ accountId: child.id, amount: 55_000n, reasonCode: "OTHER", note: `${MARK} write-off` });
   // Applications, relocation and succession (F3b): an application with a survey waiting for approval, a relocation under way, and an account succeeded.
   const place = { schemeId: at.schemeId, zoneId: at.zoneId, dmaId: at.dmaId, routeId: at.routeId };
@@ -669,8 +677,8 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "accounts.commands.list": (b) => [{ accountId: b.accounts.account }, { accountId: b.accounts.account, before: new Date() }],
   "accounts.statusRules": () => [undefined, { at: new Date(Date.now() + 86_400_000) }],
   "accounts.activation.status": (b) => [{ accountId: b.accounts.account }],
-  "accounts.activation.tick": (b) => [{ accountId: b.accounts.account, gateKey: "payment_threshold", note: "A tries" }],
-  "accounts.activation.untick": (b) => [{ accountId: b.accounts.account, gateKey: "payment_threshold" }],
+  "accounts.activation.tick": (b) => [{ accountId: b.accounts.account, gateKey: "initial_reading", note: "A tries" }],
+  "accounts.activation.untick": (b) => [{ accountId: b.accounts.account, gateKey: "initial_reading" }],
   "accounts.activation.activate": (b) => [{ accountId: b.accounts.account, reason: "A tries", override: true }],
   // Applications, memberships, succession, relocation and change of name (Phase 3 F3b): aimed at B's ids.
   "accounts.applications.create": (b) => [
@@ -773,6 +781,11 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
     { idempotencyKey: "canary-a-bill-1", accountId: randomUUID(), categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-02", reading: { dial: 110 }, readings: [{ period: "2026-01", kind: "actual", dial: 100 }] },
     // B's account and invoice type under A's key: nothing of B's may come back.
     { idempotencyKey: "canary-a-bill-2", accountId: b.billing.account, categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-10", reading: { dial: 110 }, readings: [{ period: "2026-09", kind: "actual", dial: 100 }] },
+  ],
+  "billing.invoices.issueFinal": (b) => [
+    { eventKey: "canary-a-final-1", accountId: randomUUID(), categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-02", dial: 110, readings: [{ period: "2026-01", kind: "actual", dial: 100 }] },
+    // B's account, invoice type and fee item under A's key: nothing of B's may come back.
+    { eventKey: "canary-a-final-2", accountId: b.billing.account, categoryId: b.tariffs.category, invoiceTypeId: b.tariffs.invoiceType, period: "2026-10", dial: 110, readings: [{ period: "2026-09", kind: "actual", dial: 100 }], turnOffFeeChargeItemId: b.tariffs.chargeItem },
   ],
   "billing.adjustments.request": (b) => [{ accountId: b.billing.account, kind: "credit_note", amount: 100n, reasonCode: "OTHER", note: "A asks about B's account", relatedDocumentId: b.billing.document }],
   "billing.creditNotes.issue": (b) => [

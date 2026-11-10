@@ -128,14 +128,12 @@ describe("held bills", () => {
     expect((await env.events(env.orgA, "billing.bill_held")).some((e) => e.accountId === account)).toBe(true);
   });
 
-  it("holds an estimate with no baseline as NO_BASELINE, and an account that is not billable", async () => {
+  it("holds an estimate with no baseline as NO_BASELINE, (a status-blocked account is in ports.test.ts)", async () => {
     const account = env.newAccount();
     const estimate = await env.admin.billing.invoices.issueUsage(env.usage(account, { readings: [], reading: { units: 5 } }) as never);
     expect(estimate).toMatchObject({ outcome: "held", code: "NO_BASELINE" });
     const [row] = await env.rows<{ type: string }>(sql`select type from kernel.exception where subject_ref = ${account}`);
     expect(row!.type).toBe("NO_BASELINE");
-    const blocked = await env.admin.billing.invoices.issueUsage(env.usage(env.newAccount(), { billable: false }) as never);
-    expect(blocked).toMatchObject({ outcome: "held", code: "STATUS_BLOCKED" });
   });
 
   it("holds a second bill for a billed period", async () => {
