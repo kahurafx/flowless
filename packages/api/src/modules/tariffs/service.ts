@@ -269,6 +269,17 @@ export async function chargeItemByCode(tx: Transaction, organizationId: string, 
   return { item, amount: current ? toAmountDto(current, null) : null };
 }
 
+/** The amount version of a charge item in force on a date (published read for Billing, by id as the category assignment holds it). Null when none has started. */
+export async function chargeItemAmountInForce(tx: Transaction, organizationId: string, chargeItemId: string, on: Date | IsoDate): Promise<AmountDto | null> {
+  const rows = await tx
+    .select()
+    .from(chargeItemAmount)
+    .where(and(eq(chargeItemAmount.organizationId, organizationId), eq(chargeItemAmount.chargeItemId, chargeItemId)))
+    .orderBy(asc(chargeItemAmount.effectiveFrom), asc(chargeItemAmount.versionNo));
+  const current = versionInForce(rows, on);
+  return current ? toAmountDto(current, null) : null;
+}
+
 /* ---------- invoice types (T-08 to T-10) ---------- */
 
 export function termsOf(row: InvoiceTypeRow): Terms {

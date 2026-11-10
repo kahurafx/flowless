@@ -26,6 +26,7 @@ export {
   categoriesById,
   categoryExists,
   categoryPricing,
+  chargeItemAmountInForce,
   chargeItemByCode,
   tariffVersionInForce,
 } from "./service";

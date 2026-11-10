@@ -11,6 +11,7 @@ import { supportRouter } from "./kernel/support";
 import { hierarchyRouter } from "./kernel/hierarchy";
 import { organizationsRouter } from "./kernel/organizations";
 import { accountsRouter } from "./modules/accounts";
+import { billingRouter } from "./modules/billing";
 import { createGisRouter } from "./modules/gis";
 import { tariffsRouter } from "./modules/tariffs";
 import { createWorkOrdersRouter } from "./modules/work-orders";
@@ -39,6 +40,7 @@ export const appRouter = router({
   gis: createGisRouter(work),
   accounts: accountsRouter,
   tariffs: tariffsRouter,
+  billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -2,6 +2,7 @@ import { kernelRegistrar } from "./kernel/registrar";
 import { WorkRegistry } from "./kernel/work";
 import { register as registerAccounts, registerKernel as registerAccountsKernel } from "./modules/accounts";
 import { register as registerGis, registerKernel as registerGisKernel } from "./modules/gis";
+import { registerKernel as registerBillingKernel } from "./modules/billing";
 import { registerKernel as registerTariffsKernel } from "./modules/tariffs";
 import { register as registerWorkOrders, registerKernel as registerWorkOrdersKernel } from "./modules/work-orders";
 
@@ -27,6 +28,7 @@ registerWorkOrdersKernel(kernelRegistrar);
 registerGisKernel(kernelRegistrar);
 registerTariffsKernel(kernelRegistrar);
 registerAccountsKernel(kernelRegistrar);
+registerBillingKernel(kernelRegistrar);
 
 export { approvals } from "./kernel/approval-registry";
 export { settings } from "./kernel/config-registry";

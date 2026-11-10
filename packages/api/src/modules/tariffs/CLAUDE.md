@@ -18,7 +18,7 @@ Invoice types: `applies_to` `application` or `account`; an application's type ca
 Defaults (`defaults.ts`, `ensureDefaults`): six categories, eleven charge items (no amounts) and five invoice types (the new-connection template carries application fee, connection fee, meter, materials, labour, deposit), added by code with `ON CONFLICT DO NOTHING` by the consumers `tariffs.seed_defaults_on_creation` (`organization.created`) and `tariffs.seed_defaults_on_licence` (`entitlements.changed` when Tariffs is newly licensed), both skipped while Tariffs is unlicensed, so the licence event is what seeds most organizations; write procedures do not seed.
 
 ## Published interface and the Accounts boundary
-Published reads in `index.ts`: `categoryExists`, `categoriesById`, `categoryPricing`, `tariffVersionInForce`, `chargeItemByCode`, `allocateInvoiceNumber`. `accounts.account.category_id` stays an opaque uuid: Accounts does not import Tariffs (it must work without it), so nothing yet checks that a category exists when an account is opened; a caller that wants that uses `categoryExists`.
+Published reads in `index.ts`: `categoryExists`, `categoriesById`, `categoryPricing`, `tariffVersionInForce`, `chargeItemByCode`, `chargeItemAmountInForce`, `allocateInvoiceNumber`. `accounts.account.category_id` stays an opaque uuid: Accounts does not import Tariffs (it must work without it), so nothing yet checks that a category exists when an account is opened; a caller that wants that uses `categoryExists`.
 
 ## Events
 Events (`events.ts`): `tariffs.tariff_version_created`, `.charge_item_created`, `.charge_item_amount_changed`, `.invoice_type_changed`.

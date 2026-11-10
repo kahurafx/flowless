@@ -26,13 +26,14 @@ describe("wiring", () => {
       "accounts.data_quality_summary",
       "accounts.data_quality_findings",
     ]);
-    expect(approvals.map((a) => a.key)).toEqual(["accounts.write_off", "accounts.connection_survey"]);
+    expect(approvals.map((a) => a.key)).toEqual(["accounts.write_off", "accounts.connection_survey", "billing.adjustment"]);
   });
 
   it("lists the kernel and module settings first, then each approval's policy", () => {
     const keys = settings.map((s) => s.key);
     expect(keys[0]).toBe("kernel.regional");
     expect(keys).toContain("tariffs.policy");
+    expect(keys).toContain("billing.policy");
     const policies = approvals.map((a) => `approvals.${a.key}`);
     expect(keys.slice(-policies.length)).toEqual(policies);
     expect(new Set(keys).size).toBe(keys.length);
