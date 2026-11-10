@@ -1,6 +1,6 @@
 import { formatMoney } from "@flowless/shared-types";
 import { describe, expect, it } from "vitest";
-import { asMoney, balanceSummary, billingErrorMessage, citedVersionIds, formatDay, marksFor, newestFirst, rebillBill, reversedIds, servicePeriod, type RebillForm } from "./billing-view";
+import { asMoney, balanceSummary, billingErrorMessage, citedVersionIds, formatDay, marksFor, newestFirst, rebillBill, reversedIds, servicePeriod, statementRowsFor, STATEMENT_TYPE_MARK, type RebillForm } from "./billing-view";
 
 describe("money display", () => {
   it("formats bigint minor units exactly, beyond float precision", () => {
@@ -72,5 +72,20 @@ describe("re-bill input", () => {
     expect(rebillBill({ ...base, categoryId: null }).ok).toBe(false);
     expect(rebillBill({ ...base, periodTo: null }).ok).toBe(false);
     expect(rebillBill({ ...base, value: "1.5" }).ok).toBe(false);
+  });
+});
+
+describe("statement views (B-17)", () => {
+  const rows = [
+    { key: "a", amount: 100n, linkedTo: null },
+    { key: "b", amount: -100n, linkedTo: "a" },
+    { key: "c", amount: 80n, linkedTo: null },
+  ];
+  it("shows the office everything and the customer only unsettled rows", () => {
+    expect(statementRowsFor(rows, "office")).toHaveLength(3);
+    expect(statementRowsFor(rows, "customer").map((r) => r.key)).toEqual(["c"]);
+  });
+  it("has a mark for every line type", () => {
+    expect(Object.keys(STATEMENT_TYPE_MARK).sort()).toEqual(["adjustment", "correction", "credit_note", "debit_note", "invoice", "payment", "reversal", "transfer"]);
   });
 });

@@ -1,4 +1,4 @@
-import { money, type Money } from "@flowless/shared-types";
+import { collapsePairs, money, type Money, type PairableRow, type StatementLineType } from "@flowless/shared-types";
 
 /*
  * Pure helpers for the account statement and document screens (Phase 4 P4-5: B-11, B-17, T-04, K-05).
@@ -61,6 +61,29 @@ export function marksFor(input: { entryType?: string | null; documentKind: strin
   if (input.reversed) marks.push({ label: "Reversed", tone: "destructive" });
   return marks;
 }
+
+/* ---------- statement views (B-17) ---------- */
+
+export const documentHref = (accountNumber: string, documentId: string) => `/accounts/${encodeURIComponent(accountNumber)}/documents/${documentId}`;
+
+export type StatementView = "customer" | "office";
+export const STATEMENT_VIEW_LABEL: Record<StatementView, string> = { customer: "Customer view", office: "Office view" };
+
+/** The rows a view shows: the office sees all; the customer does not see settled pairs (a voided invoice and its reversal, an invoice and its full credit note). */
+export function statementRowsFor<T extends PairableRow>(rows: readonly T[], view: StatementView): T[] {
+  return view === "office" ? [...rows] : collapsePairs(rows);
+}
+
+export const STATEMENT_TYPE_MARK: Record<StatementLineType, Mark> = {
+  invoice: { label: "Invoice", tone: "outline" },
+  payment: { label: "Payment", tone: "success" },
+  adjustment: { label: "Adjustment", tone: "secondary" },
+  credit_note: { label: "Credit note", tone: "success" },
+  debit_note: { label: "Debit note", tone: "warning" },
+  transfer: { label: "Transfer", tone: "secondary" },
+  reversal: { label: "Reversal", tone: "destructive" },
+  correction: { label: "Correction", tone: "info" },
+};
 
 /** Ids of documents some reversal document reverses. */
 export function reversedIds(documents: readonly { reversesDocumentId: string | null }[]): Set<string> {

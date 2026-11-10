@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { MoneyText } from "@/components/money-text";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getAccountStatement } from "@/data/billing";
 import { formatWhen } from "@/lib/dates";
-import { asMoney, balanceSummary, entryTypeLabel, formatDay, marksFor, newestFirst, servicePeriod } from "@/lib/billing-view";
+import { asMoney, balanceSummary, documentHref } from "@/lib/billing-view";
 import { Section } from "./account-sections";
 import { RequestNoteDialog } from "./billing-dialogs";
+import { StatementTable } from "./statement-table";
 
-export const documentHref = (accountNumber: string, documentId: string) => `/accounts/${encodeURIComponent(accountNumber)}/documents/${documentId}`;
+export { documentHref };
 
 const APPROVAL_TONE = { pending: "warning", approved: "success", rejected: "destructive", cancelled: "outline" } as const;
 const APPROVAL_TEXT = { pending: "Pending", approved: "Approved", rejected: "Rejected", cancelled: "Withdrawn" } as const;
@@ -32,7 +32,6 @@ export async function StatementSection({ account }: { account: { id: string; num
 
   const owed = data.balance.balance;
   const summary = balanceSummary(owed);
-  const rows = newestFirst(data.statement.items);
   return (
     <Section
       id="statement"
@@ -65,68 +64,14 @@ export async function StatementSection({ account }: { account: { id: string; num
         )}
       </dl>
 
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nothing has been posted to this account yet.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Document</TableHead>
-                <TableHead>Service period</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const doc = r.documentId ? data.documents.get(r.documentId) : undefined;
-                const reversed = r.documentId ? data.reversed.has(r.documentId) : false;
-                const marks = marksFor({ entryType: r.entryType, documentKind: r.documentKind, reversed, finalBill: doc?.finalBill ?? false });
-                const reverses = doc?.reversesDocumentId ? data.documents.get(doc.reversesDocumentId) : undefined;
-                return (
-                  <TableRow key={r.transactionId} className={reversed ? "text-muted-foreground" : undefined}>
-                    <TableCell className="whitespace-nowrap">{formatDay(r.effectiveOn, locale)}</TableCell>
-                    <TableCell className="min-w-56 whitespace-normal">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {r.documentId && r.documentNumber ? (
-                          <Link href={documentHref(account.number, r.documentId)} className="font-mono text-xs text-primary hover:underline">
-                            {r.documentNumber}
-                          </Link>
-                        ) : (
-                          <span className="text-xs">{entryTypeLabel(r.entryType)}</span>
-                        )}
-                        {marks.map((m) => (
-                          <Badge key={m.label} variant={m.tone}>
-                            {m.label}
-                          </Badge>
-                        ))}
-                      </div>
-                      {reverses && (
-                        <span className="block text-xs text-muted-foreground">
-                          Reverses{" "}
-                          <Link href={documentHref(account.number, reverses.id)} className="text-primary hover:underline">
-                            {reverses.number}
-                          </Link>
-                        </span>
-                      )}
-                      {r.description && <span className="block text-xs text-muted-foreground">{r.description}</span>}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{doc ? servicePeriod(doc.periodFrom, doc.periodTo, locale) : "—"}</TableCell>
-                    <TableCell className="text-right">
-                      <MoneyText value={asMoney(r.amount, data.balance.currency)} locale={locale} />
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      <MoneyText value={asMoney(r.runningBalance, data.balance.currency)} locale={locale} tone="plain" />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <StatementTable
+        items={data.statement.items}
+        currency={data.balance.currency}
+        locale={locale}
+        accountNumber={account.number}
+        documents={[...data.documents.values()].map((d) => ({ id: d.id, number: d.number, periodFrom: d.periodFrom, periodTo: d.periodTo, finalBill: d.finalBill, reversesDocumentId: d.reversesDocumentId }))}
+        reversed={[...data.reversed]}
+      />
       {data.truncated && <p className="text-xs text-muted-foreground">Showing the first {data.statement.items.length} postings; the running balance still covers the whole history.</p>}
 
       {data.adjustments.length > 0 && (

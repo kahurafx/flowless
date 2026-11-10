@@ -1,6 +1,6 @@
 import type { Transaction } from "@flowless/db";
 import { document } from "@flowless/db/schema/billing";
-import { addDays } from "@flowless/shared-types";
+import { addDays, pairMarks, statementLineType, type StatementLineType } from "@flowless/shared-types";
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { documentById, linesOf } from "./post";
 import { toDocumentDto, toLineDto } from "./present";
@@ -39,6 +39,15 @@ export interface StatementRow {
   amount: bigint;
   /** The balance after this row, over the account's whole history in posting order. */
   runningBalance: bigint;
+  /** B-17: the typed line (invoice, payment, adjustment, credit note, debit note, transfer, reversal, correction). */
+  lineType: StatementLineType;
+  /** The row's own key (document id, else transaction id) and the key of the row it offsets, if any. */
+  key: string;
+  linkedTo: string | null;
+  /** The document this row's document replaces (a re-bill): a linked pair too, but it stays visible to the customer. */
+  replacesDocumentId: string | null;
+  /** Set when this row is the original of an offset or the offset itself; `settled` pairs net to zero and collapse in the customer view. */
+  pair: { pairId: string; role: "original" | "offset"; settled: boolean } | null;
 }
 
 /**
@@ -58,6 +67,12 @@ export async function accountStatement(tx: Transaction, accountId: string, windo
     description: string | null;
     amount: string;
     running: string;
+    related: string | null;
+    reverses: string | null;
+    replaces: string | null;
+    reverses_txn_doc: string | null;
+    reverses_txn: string | null;
+    correction: boolean;
   }>(sql`
     with moves as (
       select t.id as transaction_id, t.effective_on::text as effective_on, t.posted_at, t.entry_type, t.document_id, t.description,
@@ -70,14 +85,29 @@ export async function accountStatement(tx: Transaction, accountId: string, windo
       select m.*, sum(m.amount) over (order by m.effective_on, m.posted_at, m.transaction_id) as running from moves m
     )
     select r.transaction_id, r.effective_on, r.posted_at, r.entry_type, r.document_id, d.kind as document_kind, d.number as document_number,
-           r.description, r.amount::text as amount, r.running::text as running
+           r.description, r.amount::text as amount, r.running::text as running,
+           d.related_document_id::text as related, d.reverses_document_id::text as reverses, d.replaces_document_id::text as replaces,
+           rd.document_id::text as reverses_txn_doc, lt.reverses_transaction_id::text as reverses_txn,
+           coalesce(d.idempotency_key like 'correction:%', false) as correction
       from running r left join billing.document d on d.id = r.document_id
+      left join billing.ledger_transaction lt on lt.id = r.transaction_id
+      left join billing.ledger_transaction rd on rd.id = lt.reverses_transaction_id
      where true
        ${window.from ? sql`and r.effective_on >= ${window.from}` : sql``}
        ${window.to ? sql`and r.effective_on <= ${window.to}` : sql``}
      order by r.effective_on, r.posted_at, r.transaction_id
      limit ${window.limit} offset ${window.offset}`);
-  const items: StatementRow[] = rows.map((r) => ({
+  const base = rows.map((r) => {
+    const key = r.document_id ?? r.transaction_id;
+    return { key, linkedTo: r.reverses ?? r.related ?? r.reverses_txn_doc ?? r.reverses_txn };
+  });
+  const marks = pairMarks(rows.map((r, i) => ({ key: base[i]!.key, amount: BigInt(r.amount), linkedTo: base[i]!.linkedTo })));
+  const items: StatementRow[] = rows.map((r, i) => ({
+    lineType: statementLineType({ entryType: r.entry_type, documentKind: r.document_kind, correction: r.correction }),
+    key: base[i]!.key,
+    linkedTo: base[i]!.linkedTo,
+    replacesDocumentId: r.replaces,
+    pair: marks.get(base[i]!.key) ?? null,
     transactionId: r.transaction_id,
     effectiveOn: r.effective_on,
     postedAt: new Date(r.posted_at),

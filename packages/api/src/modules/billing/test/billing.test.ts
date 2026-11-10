@@ -161,6 +161,13 @@ describe("void and re-bill", () => {
       ["charge", TEN_UNITS_BILL, TEN_UNITS_BILL],
       ["reversal", -TEN_UNITS_BILL, 0n],
     ]);
+    // B-17: typed lines, and the invoice and its reversal marked as a settled pair the customer view collapses.
+    expect(statement.items.map((i) => i.lineType)).toEqual(["invoice", "reversal"]);
+    expect(statement.items.map((i) => i.pair)).toEqual([
+      { pairId: document.id, role: "original", settled: true },
+      { pairId: document.id, role: "offset", settled: true },
+    ]);
+    expect(statement.items[1]!.linkedTo).toBe(document.id);
     const [tx] = await env.rows<{ id: string; reverses_transaction_id: string | null }>(
       sql`select id, reverses_transaction_id from billing.ledger_transaction where document_id = ${voided.reversal.id}`,
     );
