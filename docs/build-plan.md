@@ -89,16 +89,16 @@ These rules turn the CLAUDE.md rules into code. Each one is enforced by a check,
 
 ## Status and how to resume
 
-**Last updated:** end of Phase 3 (local `main`, nothing pushed). Phases 0 to 3 are done and verified: `pnpm lint`, `pnpm check-types` and `pnpm test` pass (about 1,350 tests: api 952, web 121, db 71, shared-types 76, network 47, mobile 44, auth 21, eslint-config 19). Migrations run 0000 to 0034. The next phase is **Phase 4: Billing engine and sub-ledger**; do not start it without the owner's go-ahead.
+**Last updated:** end of Phase 4 (local `main`, nothing pushed). Phases 0 to 4 are done and verified: `pnpm lint`, `pnpm check-types` and `pnpm test` pass (about 1,450 tests: api 975, web 138, db 84, shared-types 133, billing-engine 59, network 47, mobile 44, eslint-config 38, auth 21). Migrations run 0000 to 0037. The next phase is **Phase 5: Metering, readings and billing runs**; do not start it without the owner's go-ahead.
 
 | Phase | State |
 | --- | --- |
-| 0 Foundations, 1 Kernel, 2 Work Orders core and GIS, 3 Foundation domain | Done (Phase 2 and 3 acceptance notes are in their sections below) |
-| 4 Billing engine, 5 Metering, 6 Payments (and K-11), 7 Communications, 8 Import, 9 Portal and mobile readings, 10 Collections and Inventory, 11 NRW and Finance | Not started |
+| 0 Foundations, 1 Kernel, 2 Work Orders core and GIS, 3 Foundation domain, 4 Billing engine and sub-ledger | Done (acceptance notes are in their sections below) |
+| 5 Metering, 6 Payments (and K-11), 7 Communications, 8 Import, 9 Portal and mobile readings, 10 Collections and Inventory, 11 NRW and Finance | Not started |
 
 **Start of a new session**
 
-1. Read the root `CLAUDE.md`, then this file's Phase 4 section and the reference `docs/billing-engine.html` (requirements section 6 wins where they disagree).
+1. Read the root `CLAUDE.md`, then this file's Phase 5 section (the Phase 4 notes say what Billing already offers) and, for the engine, `docs/billing-engine.html` (requirements section 6 wins where they disagree).
 2. Read `packages/api/CLAUDE.md` and the module notes it points to (`packages/api/src/modules/<module>/CLAUDE.md`), `apps/web/CLAUDE.md`, `apps/mobile/CLAUDE.md`, `packages/seed/CLAUDE.md`.
 3. `git status`, `git log --oneline -15`, `git worktree list` (nothing should be left over), then `pnpm install --frozen-lockfile && pnpm lint && pnpm check-types && pnpm test` to confirm a green start. Docker must be running (`pnpm bootstrap` starts Postgres with PostGIS and Redis).
 4. Dev data: `pnpm db:seed` is idempotent. MAJISAFI (code `majisafi`, owner wanjiru@majisafi.test, clerk `baraka`, cashier `achieng`, technician `juma`, supervisor `njeri`, password `flowless-dev-password`) has the Phase 2 network and jobs and the Phase 3 tariffs, accounts, applications and exceptions. KILIMA has the foundation only.
@@ -115,7 +115,7 @@ These rules turn the CLAUDE.md rules into code. Each one is enforced by a check,
 - Accounts (`modules/accounts/index.ts`): `registerTerminationCheck(check, { requires: ["billing"] })` (final bill and balance), `registerGateSource("payment_threshold", source, { requires })`, `registerBalanceTransfer` (succession), `registerReadingHandover` (Metering), `registerDataQualitySource("active_metered_no_meter", ...)`, `recheckActivation(tx, orgId, accountId)` when a payment lands, `chargesApplying`/`statusRuleTable` (what each status bills), `membershipFor`, `holderAt`/`holdersOf` (split bills at a change of name). Billing consumes `accounts.application_stage_changed` and calls `markInvoiced`/`markPaid` as the system until then they take opaque references.
 - Tariffs (`modules/tariffs/index.ts`): `registerClosedPeriodSource` (call once at start-up), `allocateInvoiceNumber`, `categoryPricing`, `tariffVersionInForce`/`versionSpans`, `chargeItemByCode`; cite `tariff_version.id` and `charge_item_amount` ids on invoice lines (T-04). Tier scaling (T-05) and the reading-date rule are Billing's.
 - Metering registers the `initial_reading` gate and reading handover; Work Orders with Inventory register `meter_installed` (Phase 10). Registries are in `kernel/port-registry.ts`; a port with `requires` is used only while those modules are licensed (NF-31).
-- Statement section of the account page is a "Phase 4" placeholder in the web.
+- Phase 4 is built: Billing registers the termination check, the `payment_threshold` gate source, the balance transfer and the closed-period source, and uses `chargesApplyingTo`. Payments (Phase 6) calls `recheckActivation` and `markPaid`.
 
 **Open items for the owner (not code)**
 
@@ -279,6 +279,9 @@ Activation gates that depend on later modules work by office checklist until tho
 - Scenarios S-1 to S-10, invariants I-1 to I-8, and every test in `billing-engine.html` pass as Vitest tests.
 - A fast-check property test of at least 200 runs confirms that a span's total does not depend on the estimate path (I-7).
 - The engine package has no I/O imports. A lint rule bans `@flowless/db`, `node:*` and network libraries there.
+
+**Phase 4 acceptance notes (done):** P4-1 `packages/billing-engine` (pure; scenarios S-1 to S-10, invariants I-1 to I-8, the I-7 property test at 500 runs; purity rules in `@flowless/eslint-config/pure`). P4-2 `billing` schema (migrations 0035 to 0037: `document`, `document_line`, `ledger_transaction`, `ledger_entry`, insert-only, balance and total checks by deferred trigger, `final_bill` marker). P4-3 and P4-4 `modules/billing` (usage invoices, credit and debit notes through K-05 `billing.adjustment`, void, re-bill, final bill, derived balance and statement, held bills as exceptions; ports to Accounts and Tariffs; reads respect member scope). P4-5 the account statement and document page in the web.
+**Known follow-ups after Phase 4:** the connection-fee invoice is not issued when an application reaches the invoice stage (documents belong to an account; issue at `convert`, or the office enters references); flat-rate tariffs, discounts and quarterly or annual recurrence are not priced; only the median estimate exists (B-05 methods, meter-change path and the no-baseline policies belong with Phase 5); issuing an approved note, `issueUsage` and `issueFinal` have no web UI; web forms were not driven in a browser; reversals use the original invoice type's number series; void and re-bill need permission, reason and audit, not K-05; the statement reads at most 1000 postings; scoped viewers get a visible-account id list; the above-300-unit rate is the html's placeholder (OQ-1).
 
 ### Phase 5: Metering, readings and billing runs
 
