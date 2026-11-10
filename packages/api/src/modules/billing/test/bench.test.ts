@@ -41,7 +41,7 @@ describe.skipIf(!enabled)("billing run throughput", () => {
       }
     };
     await Promise.all(Array.from({ length: 12 }, worker));
-    console.log(`bench: seeded ${N} accounts in ${((Date.now() - seedStart) / 1000).toFixed(1)}s`);
+    process.stderr.write(`bench: seeded ${N} accounts in ${((Date.now() - seedStart) / 1000).toFixed(1)}s` + "\n");
 
     const cycleId = (await env.admin.billing.cycles.open({ routeId: route, period: "2025-02" })).cycle.id;
     for (const to of ["reading_window", "validation", "estimation"] as const) await env.admin.billing.cycles.advance({ cycleId, to });
@@ -58,7 +58,7 @@ describe.skipIf(!enabled)("billing run throughput", () => {
     );
     const seconds = (Date.now() - runStart) / 1000;
     const progress = await env.admin.billing.cycles.progress({ cycleId });
-    console.log(`bench: enqueue ${enqueueMs} ms; ${N} accounts with ${WORKERS} runner(s) in ${seconds.toFixed(1)}s = ${(N / seconds).toFixed(1)} accounts/s; outcomes ${JSON.stringify(progress.byOutcome)}`);
+    process.stderr.write(`bench: enqueue ${enqueueMs} ms; ${N} accounts with ${WORKERS} runner(s) in ${seconds.toFixed(1)}s = ${(N / seconds).toFixed(1)} accounts/s; outcomes ${JSON.stringify(progress.byOutcome)}` + "\n");
     expect(progress.byOutcome.none).toBe(0);
     expect(progress.byOutcome.billed).toBe(N);
   }, 3_600_000);
