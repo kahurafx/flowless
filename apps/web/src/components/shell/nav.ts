@@ -14,6 +14,7 @@ import {
   ArrowLeftRightIcon,
   SlidersHorizontalIcon,
   SirenIcon,
+  BarChart3Icon,
   LayersIcon,
   ReceiptTextIcon,
   FilePlus2Icon,
@@ -81,6 +82,8 @@ const NAV: readonly NavItem[] = [
   { href: "/work-orders/crews", label: "Crews", icon: UsersRoundIcon, module: "work-orders", anyPermission: WORK_PERMISSIONS },
   { href: "/map", label: "Network map", icon: MapPinnedIcon, module: "gis", permission: "gis:read" },
   { href: "/map/reconcile", label: "Pending changes", icon: GitMergeIcon, module: "gis", permission: "gis:post" },
+  // Reports are a kernel screen (X-01): the API lists only those the member may run.
+  { href: "/reports", label: "Reports", icon: BarChart3Icon, permission: "reports:read" },
   { href: "/settings/organization", label: "Organization", icon: SettingsIcon },
   { href: "/settings/areas", label: "Areas and routes", icon: MapIcon },
   { href: "/settings/accounts", label: "Accounts settings", icon: FileTextIcon, module: "accounts", permission: "settings:manage" },
