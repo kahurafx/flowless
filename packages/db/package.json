@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./auth-schema": "./src/schema/auth.ts",
     "./schema/accounts": "./src/schema/accounts.ts",
+    "./schema/billing": "./src/schema/billing.ts",
     "./schema/gis": "./src/schema/gis.ts",
     "./schema/tariffs": "./src/schema/tariffs.ts",
     "./schema/work-orders": "./src/schema/work-orders.ts",

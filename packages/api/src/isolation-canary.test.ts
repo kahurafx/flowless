@@ -102,7 +102,7 @@ let bIdentifiers: Set<string>;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
 /** Schemas holding tenant tables: the kernel and every module schema. */
-const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts", "tariffs"];
+const TENANT_SCHEMAS = ["kernel", "gis", "work_orders", "accounts", "tariffs", "billing"];
 
 async function tenantTables(): Promise<{ schema: string; table: string }[]> {
   const rows = await t.admin.execute<{ table_schema: string; table_name: string }>(sql`
@@ -198,6 +198,7 @@ async function seedB(): Promise<Canary> {
   const gis = await seedNetwork(asB, { dmaAreaId: dmaArea.id, routeId: route.id, userId: clerkB.userId, crewId: team.id });
   const accounts = await seedAccounts(asB, { schemeId: scheme.id, zoneId: zone.id, dmaId: dmaArea.id, routeId: route.id, connectionId: gis.connection.id });
   const tariffs = await seedTariffs(asB);
+  await seedBillingRows();
   const [notification] = await asB.notifications.list();
   return {
     scheme: scheme.id,
@@ -213,6 +214,30 @@ async function seedB(): Promise<Canary> {
     tariffs,
     ...seeded,
   };
+}
+
+/**
+ * Tenant B's sub-ledger rows (Phase 4 P4-2). The Billing module has no procedures yet, so the
+ * rows are written directly (as the owner role); the canary then proves A never sees or
+ * changes them. Replace with API calls when `modules/billing` lands.
+ */
+async function seedBillingRows(): Promise<void> {
+  const org = tenants.b.id;
+  const doc = randomUUID();
+  const txId = randomUUID();
+  const account = randomUUID();
+  await t.admin.transaction(async (tx) => {
+    await tx.execute(sql`insert into billing.document (id, organization_id, kind, invoice_type_id, number, number_sequence, account_id, currency, total, line_count, issued_on, idempotency_key)
+      values (${doc}, ${org}, 'invoice', ${randomUUID()}, ${`${MARK}-INV-1`}, 1, ${account}, 'KES', 645, 2, '2026-10-31', ${`${MARK}-doc`})`);
+    await tx.execute(sql`insert into billing.document_line (organization_id, document_id, position, line_type, description, amount, service_from, service_to, tariff_version_id)
+      values (${org}, ${doc}, 0, 'consumption', ${`${MARK} water`}, 495, '2026-10-01', '2026-10-31', ${randomUUID()})`);
+    await tx.execute(sql`insert into billing.document_line (organization_id, document_id, position, line_type, description, amount, charge_item_amount_id)
+      values (${org}, ${doc}, 1, 'standing', ${`${MARK} standing`}, 150, ${randomUUID()})`);
+    await tx.execute(sql`insert into billing.ledger_transaction (id, organization_id, entry_type, currency, entry_count, effective_on, document_id, idempotency_key)
+      values (${txId}, ${org}, 'charge', 'KES', 2, '2026-10-31', ${doc}, ${`${MARK}-tx`})`);
+    await tx.execute(sql`insert into billing.ledger_entry (organization_id, transaction_id, line_no, currency, side, amount, ledger_account, account_id)
+      values (${org}, ${txId}, 0, 'KES', 'debit', 645, 'receivable', ${account}), (${org}, ${txId}, 1, 'KES', 'credit', 645, 'revenue', ${account})`);
+  });
 }
 
 /**
@@ -777,8 +802,8 @@ describe("isolation canary", () => {
     const empty = Object.entries(await snapshotB()).filter(([, rows]) => rows.length === 0).map(([table]) => table);
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
-    // Every gis, work_orders, accounts (including the command log and the checklist) and tariffs table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(45);
+    // Every gis, work_orders, accounts (including the command log and the checklist) , tariffs and billing table is covered ("the canary covers every table").
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(49);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {

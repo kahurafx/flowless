@@ -246,6 +246,20 @@
       "when": 1794200969869,
       "tag": "0034_accounts_data_quality",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794274807160,
+      "tag": "0035_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794274815289,
+      "tag": "0036_billing_access",
+      "breakpoints": true
     }
   ]
 }
