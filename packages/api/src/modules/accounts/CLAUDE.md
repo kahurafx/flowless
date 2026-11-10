@@ -109,3 +109,6 @@ Tests: `test/data-quality.test.ts` (integration), `data-quality.test.ts` (pure) 
 
 ## Published for Billing (P4-4, `billing-reads.ts`)
 `accountStatusOf`, `chargesApplyingTo(tx, accountId)` (status and the C-04 table in one read; null for an unknown account), `accountVisibleTo(tx, viewer, accountId)` and `visibleAccountIds(tx, viewer)` (K-03 for another module's lists), and the system steps `recordApplicationInvoiced` / `recordApplicationPaid`. Billing fills the `payment_threshold` gate source (a gate with a source cannot be ticked by hand), the termination check and the balance transfer.
+
+## Published for Billing (P5-5, `billing-reads.ts`, `index.ts`)
+`servicePointsOf(tx, accountId)` (the account service points still in use) and `runStatusCommand(env, viewer, request)` (the status command of `commands.ts`, so Billing drives `disconnect_service` and `reconnect_service` as the actor with the disconnection id as command id).

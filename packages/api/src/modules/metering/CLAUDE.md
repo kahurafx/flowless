@@ -53,3 +53,6 @@ Dial values are whole numbers (bigint); decimal dials are not modelled. An accou
 - `active_metered_no_meter` finds only service points that had a customer meter; it cannot find an account that should be metered and never was.
 - The relocation reaction reads final/initial readings only when the relocation text is a whole number; other text is ignored.
 - No web or mobile screens for attempts, snapshots or handovers yet.
+
+## Published for Billing (P5-5, `final-reading.ts`)
+`currentMeterOf(tx, servicePointId)` (the installed customer meter) and `recordFinalReading(env, { id, meterId, value, readAt, rolloverConfirmed })` (a `final` reading through `recordReading`, so validation, exception and event are the same); `readingById` is published too. Billing consumes `reading_recorded` (CLOSED_PERIOD flag, `replacesReadingId`) and `reading_status_changed` (voided) for its correction-needed exceptions.
