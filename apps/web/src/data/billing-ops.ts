@@ -1,4 +1,5 @@
 import { orNull } from "./accounts";
+import { getHierarchy } from "./hierarchy";
 import { getApi, getSession } from "./session";
 
 /**
@@ -41,3 +42,22 @@ export async function getAccountOperations(account: { id: string; servicePointId
   };
 }
 export type AccountOperations = NonNullable<Awaited<ReturnType<typeof getAccountOperations>>>;
+
+/**
+ * The choices for the tariff simulation (T-06): routes and categories. Null when Billing is not
+ * licensed or readable, or the member can neither read nor manage tariffs (the procedure's rule).
+ */
+export async function getSimulationOptions() {
+  const { organization, access } = await getSession();
+  const has = (p: string) => access.permissions.some((x) => x === p);
+  if (!organization.entitlements.includes("billing") || !has("billing:read") || !(has("tariffs:read") || has("tariffs:manage"))) return null;
+  const { api } = await getApi();
+  const [hierarchy, categories] = await Promise.all([getHierarchy(), has("tariffs:read") ? api.tariffs.categories.list({}) : Promise.resolve([])]);
+  return {
+    routes: hierarchy.routes.filter((r) => !r.archivedAt).map((r) => ({ value: r.id, label: r.name })),
+    categories: categories.map((c) => ({ value: c.id, label: c.name })),
+    currency: organization.settings.currency,
+    locale: organization.settings.locale,
+  };
+}
+export type SimulationOptions = NonNullable<Awaited<ReturnType<typeof getSimulationOptions>>>;

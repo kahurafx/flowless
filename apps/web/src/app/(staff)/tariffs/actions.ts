@@ -1,8 +1,11 @@
 "use server";
 
 import type { ChargeRecurrence, ChargeType, FlatBasis, TariffType } from "@flowless/shared-types";
+import { accountLabels } from "@/data/account-labels";
+import { orNull } from "@/data/accounts";
 import { runAction } from "@/data/run-action";
-import { getSession } from "@/data/session";
+import { getApi, getSession } from "@/data/session";
+import { parseAccountNumbers, selectionProblem } from "@/lib/simulation-view";
 import { lateFeeFromDraft, linesFromDrafts, updateFromForm, type InvoiceTypeForm, type LateFeeDraft, type LineDraft } from "@/lib/invoice-type-form";
 import { parseAmount } from "@/lib/money-input";
 import { parseDraft, type ContentDraft } from "@/lib/tariff-content";
@@ -53,6 +56,39 @@ export async function addVersionAction(input: { tariffId: string; type: TariffTy
       })
       .then((v) => ({ versionNo: v.versionNo, effectiveFrom: v.effectiveFrom })),
   );
+}
+
+/**
+ * T-06: prices recent billed consumption under the draft and under the tariff in force. Nothing is
+ * written. The accounts are named by number and found through Accounts (scope applies); the API
+ * needs `billing:read` and `tariffs:read` or `tariffs:manage`.
+ */
+export async function simulateTariffAction(input: { type: TariffType; flatBasis: FlatBasis; draft: ContentDraft; routeId: string; categoryId: string; accountNumbers: string; spans: number }) {
+  if (input.type === "flat_rate") return refused("A flat-rate tariff does not price consumption, so it cannot be simulated");
+  const checked = parseDraft(input.draft, { type: input.type, flatBasis: "none" }, await currencyOf());
+  if (!checked.ok) return refused(checked.problems.join(". "));
+  const problem = selectionProblem(input);
+  if (problem) return refused(problem);
+  const { api } = await getApi();
+  const numbers = parseAccountNumbers(input.accountNumbers);
+  const found = await Promise.all(numbers.map(async (number) => [number, await orNull(api.accounts.get({ number }))] as const));
+  const missing = found.filter(([, a]) => !a).map(([n]) => n);
+  if (missing.length > 0) return refused(`No account ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? " and more" : ""}, or outside the areas you can see`);
+  const accountIds = found.flatMap(([, a]) => (a ? [a.id] : []));
+  const result = await runAction(
+    (a) =>
+      a.billing.simulation.run({
+        draft: { type: input.type, content: checked.content },
+        ...(accountIds.length ? { accountIds } : {}),
+        ...(input.routeId ? { routeId: input.routeId } : {}),
+        ...(input.categoryId ? { categoryId: input.categoryId } : {}),
+        spansPerAccount: Math.min(24, Math.max(1, input.spans)),
+      }),
+    { refresh: false },
+  );
+  if (result.error !== null) return result;
+  const labels = await accountLabels(result.data.topMovers.map((m) => m.accountId));
+  return { error: null, data: { ...result.data, labels: Object.fromEntries(labels) } } as const;
 }
 
 export const updateTariffAction = async (input: { id: string; name?: string; active?: boolean }) =>

@@ -7,6 +7,7 @@ import { ContentTable } from "@/components/tariffs/content-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getSimulationOptions } from "@/data/billing-ops";
 import { getTariffPage } from "@/data/tariffs";
 import { plainDate } from "@/lib/effective-date";
 import { formatWhen } from "@/lib/dates";
@@ -35,7 +36,7 @@ const statusTone: Record<VersionStatus, "success" | "info" | "outline" | "second
 
 async function Tariff({ params }: { params: PageProps<"/tariffs/[id]">["params"] }) {
   const { id } = await params;
-  const page = await getTariffPage(id);
+  const [page, simulation] = await Promise.all([getTariffPage(id), getSimulationOptions()]);
   const { tariff, currency, locale, timeZone } = page;
   const flatBasis = tariff.flatBasis as FlatBasis;
   const timeline = versionTimeline(page.versions, page.next.today);
@@ -91,7 +92,7 @@ async function Tariff({ params }: { params: PageProps<"/tariffs/[id]">["params"]
         )}
 
         {page.canManage && (
-          <NewVersion tariffId={tariff.id} type={tariff.type} flatBasis={flatBasis} seed={page.seedDraft} next={page.next} existing={page.existingDates} currency={currency} locale={locale} />
+          <NewVersion tariffId={tariff.id} type={tariff.type} flatBasis={flatBasis} seed={page.seedDraft} next={page.next} existing={page.existingDates} currency={currency} locale={locale} simulation={simulation} />
         )}
 
         <section aria-labelledby="history" className="rounded-xl border bg-card p-4">

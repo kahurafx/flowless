@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { FieldSelect } from "@/components/field-select";
+import { SimulateDialog } from "@/components/tariffs/simulate-dialog";
+import type { SimulationOptions } from "@/data/billing-ops";
 import { ContentEditor } from "@/components/tariffs/content-editor";
 import { EffectiveDateField } from "@/components/tariffs/effective-date-field";
 import { Button } from "@/components/ui/button";
@@ -15,7 +17,7 @@ import { emptyDraft, parseDraft, type ContentDraft } from "@/lib/tariff-content"
 import { flatBasisLabel, tariffTypeHint, tariffTypeLabel } from "@/lib/tariff-labels";
 import { createTariffAction } from "../actions";
 
-export function NewTariffForm({ next, currency, locale }: { next: NextEffective; currency: string; locale: string }) {
+export function NewTariffForm({ next, currency, locale, simulation }: { next: NextEffective; currency: string; locale: string; simulation: SimulationOptions | null }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [type, setType] = useState<TariffType>("increasing_block");
@@ -88,10 +90,11 @@ export function NewTariffForm({ next, currency, locale }: { next: NextEffective;
           {error}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!canSave || pending}>
           {pending ? "Creating…" : "Create tariff"}
         </Button>
+        {simulation && <SimulateDialog type={type} flatBasis={flatBasis} draft={draft} currency={currency} options={simulation} />}
       </div>
     </form>
   );

@@ -4,6 +4,8 @@ import type { FlatBasis, TariffType } from "@flowless/shared-types";
 import { PlusIcon } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { SimulateDialog } from "@/components/tariffs/simulate-dialog";
+import type { SimulationOptions } from "@/data/billing-ops";
 import { ContentEditor } from "@/components/tariffs/content-editor";
 import { EffectiveDateField } from "@/components/tariffs/effective-date-field";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ export function NewVersion({
   existing,
   currency,
   locale,
+  simulation,
 }: {
   tariffId: string;
   type: TariffType;
@@ -32,6 +35,7 @@ export function NewVersion({
   existing: readonly string[];
   currency: string;
   locale: string;
+  simulation: SimulationOptions | null;
 }) {
   const shape = { type, flatBasis };
   const [open, setOpen] = useState(false);
@@ -95,13 +99,14 @@ export function NewVersion({
           {error}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!check.ok || date.kind === "refused" || pending}>
           {pending ? "Saving…" : "Add version"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
           Cancel
         </Button>
+        {simulation && <SimulateDialog type={type} flatBasis={flatBasis} draft={draft} currency={currency} options={simulation} />}
       </div>
     </form>
   );
