@@ -100,7 +100,7 @@ describe("billing schema", () => {
     const rows = await t.admin.execute<{ relname: string; relrowsecurity: boolean }>(
       sql`select c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'billing' and c.relkind = 'r'`,
     );
-    expect(rows.map((r) => r.relname).sort()).toEqual(["document", "document_line", "ledger_entry", "ledger_transaction"]);
+    expect(rows.map((r) => r.relname).sort()).toEqual(["cycle", "cycle_account", "cycle_event", "cycle_outcome", "cycle_review", "document", "document_line", "ledger_entry", "ledger_transaction"]);
     expect(rows.filter((r) => !r.relrowsecurity)).toEqual([]);
   });
 

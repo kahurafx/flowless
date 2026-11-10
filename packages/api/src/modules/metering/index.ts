@@ -22,7 +22,7 @@ export { blocks, expectedPerDay, validateReading, type ValidationInput, type Val
 // Outcomes and dispositions (M-06), visits and the derived miss counters (M-09), the eligibility snapshot (M-08), bulk schedules (M-12), handovers.
 export { attemptsFor, dispositionFor, outcomeMapping, type AttemptView } from "./outcomes";
 export { consecutiveEstimates, consecutiveMisses } from "./policy";
-export { eligibilityOf, readingTasks, snapshotById, snapshotFor, type ReadingTask, type SnapshotRow, type SnapshotView } from "./eligibility";
+export { eligibilityOf, readingTasks, snapshotById, snapshotFor, takeSnapshot, type ReadingTask, type SnapshotRow, type SnapshotView } from "./eligibility";
 export { bulkSchedule, type BulkDue } from "./bulk";
 export { listHandovers, type HandoverView } from "./handover";
 export { activeMeteredNoMeter, closeAndOpenOnRelocation, initialReadingSource, registerPorts } from "./ports";

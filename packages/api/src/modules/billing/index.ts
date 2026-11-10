@@ -1,6 +1,7 @@
 import type { KernelRegistrar } from "../../kernel/registrar";
 import { adjustmentApproval as adjustmentKind } from "./approvals";
 import { registerPorts } from "./ports";
+import { billingCycleSetting, billingReviewSetting } from "./cycle-settings";
 import { billingPolicySetting as policy } from "./settings";
 
 /*
@@ -12,6 +13,13 @@ import { billingPolicySetting as policy } from "./settings";
 export { billingRouter } from "./router";
 export { adjustmentApproval, ADJUSTMENT_APPROVAL_KIND } from "./approvals";
 export { billingPolicySchema, billingPolicySetting, type BillingPolicy } from "./settings";
+export { billingCycleSchema, billingCycleSetting, billingReviewSchema, billingReviewSetting } from "./cycle-settings";
+export { cycleClosed, cycleOpened, cycleOutcomeRecorded, cycleStateChanged } from "./cycle-events";
+export { completenessOf, type Completeness } from "./completeness";
+export { nextState, planClose, planMove } from "./cycle-machine";
+export { reviewBucket, sampleSelection } from "./cycle-review";
+// B-15: the period a closed cycle locks, for a module that must refuse or flag a posting into it.
+export { assertPeriodOpen, lockingCycle, monthsCovered } from "./period-lock";
 export { billHeld, documentIssued, documentReversed } from "./events";
 
 // Derived reads for other modules (Collections, Payments, the portal): always from ledger entries, with the caller's transaction.
@@ -23,6 +31,8 @@ export { balanceTransfer, closedPeriodSource, connectionPosition, paymentThresho
 /** Adds Billing's setting and approval kind to the kernel's registries; called in `wiring.ts`. */
 export function registerKernel(kernel: KernelRegistrar) {
   kernel.setting(policy);
+  kernel.setting(billingCycleSetting);
+  kernel.setting(billingReviewSetting);
   kernel.approval(adjustmentKind);
   // Accounts' termination check, payment gate and balance transfer (each `requires: ["billing"]`) and Tariffs' closed-period source.
   registerPorts();

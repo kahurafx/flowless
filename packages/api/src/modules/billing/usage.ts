@@ -16,6 +16,7 @@ import { billHeld, documentIssued } from "./events";
 import { engineDocsFrom, engineTariffs, linesFromEngineDoc, monthStart, type PricedMonth, type StoredDocument } from "./mapping";
 import { documentByKey, lockAccount, postDraft, linesOf, type Dimensions, type Draft } from "./post";
 import { documentFacts, toDocumentDto, toLineDto } from "./present";
+import { assertPeriodOpen } from "./period-lock";
 import { billingPolicySetting } from "./settings";
 import { plain } from "../../kernel/text";
 
@@ -268,6 +269,8 @@ export async function issueUsage(env: UserActionEnv, input: UsageInput): Promise
     }
     return { outcome: "issued", replayed: true, document: await presentPosted(env.tx, earlier) };
   }
+  // B-15: a closed cycle locks its period; corrections are documents (B-14).
+  await assertPeriodOpen(env.tx, input.accountId, input.period);
   const prepared = await prepareUsage(env, input);
   if (prepared.kind === "held") {
     return { outcome: "held", code: prepared.code, message: prepared.message, exceptionId: await holdBill(env, input.accountId, prepared) };

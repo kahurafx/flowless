@@ -1,5 +1,7 @@
 # Billing module (`packages/api/src/modules/billing`)
 
+Phase 5 P5-3 (billing cycles: B-01 to B-04, B-15, B-16) is described in its own section at the end; the rest is Phase 4.
+
 Phase 4 P4-3 and P4-4: B-05, B-06, B-08 to B-12, B-18, C-04, C-06, C-08, C-11, T-03, T-04, NF-22. Billing maps the pure `@flowless/billing-engine` onto the `billing` schema (append-only documents and double-entry ledger, see `packages/db/CLAUDE.md`). It reads other modules only through their `index.ts` (Tariffs' `categoryPricing`, `tariffVersionInForce`, `chargeItemAmountInForce`, `allocateInvoiceNumber`) and never touches their tables.
 
 ## Procedures
@@ -35,3 +37,25 @@ All registered in `ports.ts`; the three Accounts ports carry `requires: ["billin
 
 ## Tests
 `test/test-support.ts` (`setupBillingEnv`: A with Accounts, Tariffs, Billing; B same; C without Billing; reference tariff effective 2020), `test/billing.test.ts`, `test/mapping.test.ts`, `test/ports.test.ts` (P4-4: every port, final bill, scope, module-off paths); the isolation canary and module matrix cover every procedure.
+
+## Billing cycles (P5-3: B-01 to B-04, B-15, B-16)
+Files: `cycles.ts` (open, advance, close, outcomes, reads, review), `cycle-machine.ts` (pure state table), `completeness.ts` (pure B-04 check), `cycle-review.ts` (pure buckets and sample), `period-lock.ts`, `cycle-settings.ts`, `cycle-events.ts`. Schema (migrations `0042`, `0043`): `cycle`, `cycle_event`, `cycle_account`, `cycle_outcome`, `cycle_review`; see `packages/db/CLAUDE.md`.
+
+### Procedures (`billing.cycles.*`)
+`open` (billing:run), `list`, `get`, `accounts` (paged, filter `outcome` incl. `none`, `expected`; scoped viewers see only visible accounts), `completeness`, `review.queue` (read); `advance`, `close`, `recordOutcome`, `review.bulkApprove`, `review.decide` (billing:run). All commands take client-minted ids and replay. `open` is idempotent by id and by route + period (a different id for the same route and period is CONFLICT).
+
+### Rules in force
+- One cycle per route and period (`period` YYYY-MM, `cycle_date` defaults to the period's last day, `frequency` monthly/bimonthly/quarterly from the `billing.cycle` setting or the input, `trigger` copied from the setting). State order: open, reading_window, validation, estimation, calculation, review, issue, deliver, completeness, closed. `advance` goes one step; skipping forward and going back (never to open) need a `reason`; `closed` is reached only by `close`, from `completeness`, and never left. The database enforces the same table (`guard_cycle_event` chains events by `seq`/`from_state`; `guard_cycle` lets `cycle.state` change only to the newest event's `to_state`). Entering `calculation` enqueues nothing yet (P5-4).
+- B-03: on open the cycle takes Metering's snapshot (`takeSnapshot` for the route and cycle date, returns the existing one if the reading tasks already took it, so both use the same `snapshot_id`) and stores one `cycle_account` per account (expected when any of its service points is eligible; the snapshot reason is kept). Metering unlicensed: **fallback**, not refusal. Billing does not depend on Metering (`MODULE_DEPENDENCIES`), so the accounts come from Accounts' `routeServicePointFacts` through the pure `eligibilityOf(fact, hasMeter = true)`: live service point, consumption billed under C-04, and every such account is taken as eligible because there is no meter register to ask. `snapshot_id` is null and `cycles.get` says `eligibilitySource: accounts_fallback`.
+- B-04: an outcome is one insert-only `cycle_outcome` row (`billed`/`billed_estimate` cite a document of that account and keep its total; `exception` and `excluded` need a reason; `exception` raises an `UNBILLED_ACCOUNT` queue item owned by the actor, dedupe `cycle:<cycle>:<account>`, linked by `exception_id`; a later non-exception outcome resolves it). The newest row per account is current. Only expected accounts take outcomes. `close` is PRECONDITION_FAILED while any expected account has no outcome, with counts and up to ten examples in the message (`completeness` returns the same data); the database function `billing.cycle_unexplained` refuses the close event too.
+- B-15: a closed cycle locks its period for the accounts it covered (the months of its frequency ending at `period`). `issueUsage` (after its idempotent replay) calls `assertPeriodOpen`, PRECONDITION_FAILED with a pointer to credit/debit notes and void + re-bill (B-14); notes, voids, re-bills and final bills are not blocked. The database refuses new accounts, outcomes or reviews in a closed cycle. `closedPeriodSource` (Tariffs, T-03) now returns the later of the latest billed `period_to` and the last day of the latest closed cycle's period. Corrections into a locked period (the document flow) are P5-5.
+- B-01: settings `billing.cycle` (`trigger` batch | on_reading, `frequency`) are read at open; the jobs that act on `trigger` are P5-4.
+- B-16 (minimal): setting `billing.review` (`bulkApproveBelow`, `individualAbove` as digit strings of minor units, `sampleRate`, `sampleMinimum`). A billed outcome is `clean` (not flagged and at or under the bulk threshold), `attention` (flagged or over it) or `high` (over `individualAbove`; deciding needs `billing:approve`). `review.bulkApprove` (review state only) approves every clean bill not yet decided except a deterministic sample (`sampleSelection`, seeded by the cycle id) that stays pending for `review.decide` (basis `sample`); `review.queue` is the exception-based list (high first). Leaving `review` forward is refused while any bill lacks an approval (a hold counts as not approved). Decisions are `cycle_review` rows tied to the outcome id, so a new outcome needs a new decision.
+- Events: `billing.cycle_opened`, `.cycle_state_changed`, `.cycle_closed`, `.cycle_outcome_recorded`. Audit: `billing.cycle_open`, `.cycle_move`, `.cycle_close`, `.cycle_outcome`, `.cycle_bulk_approve`, `.cycle_review`.
+
+### Gaps
+- Cycle procedures are not route-scoped (K-03): a limited member with `billing:run` can open/advance any route's cycle; account lists are filtered.
+- Nothing creates outcomes automatically: P5-4's jobs call `recordOutcome` (or the exported pieces) per account; `flagged` is set by the caller.
+- A frequency of bimonthly/quarterly only widens the lock; there is no schedule generating cycles from it.
+- Only `issueUsage` honours the lock; Accounts-driven documents (deposits, transfers) are not cycle bills.
+- Approval is by permission and thresholds, not a K-05 request.

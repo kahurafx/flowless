@@ -34,7 +34,7 @@ interface Canary {
   /** Tenant B's category, tariff, charge items and invoice type, built through the Tariffs API (Phase 3 F2). */
   tariffs: TariffsCanary;
   /** Tenant B's invoice and its account (Phase 4 P4-3). */
-  billing: { document: string; account: string };
+  billing: { document: string; account: string; cycle: string };
   /** Tenant B's meters, installation and readings, through the Metering API (Phase 5 P5-1a). */
   metering: { meter: string; spare: string; servicePoint: string; installation: string; reading: string; flagged: string; attempt: string; snapshot: string; route: string; handover: string };
 }
@@ -245,11 +245,13 @@ async function seedMetering(asB: ReturnType<typeof callerFor>, servicePointId: s
  * rows are written directly (as the owner role); the canary then proves A never sees or
  * changes them. Replace with API calls when `modules/billing` lands.
  */
-async function seedBillingRows(): Promise<{ document: string; account: string }> {
+async function seedBillingRows(): Promise<{ document: string; account: string; cycle: string }> {
   const org = tenants.b.id;
   const doc = randomUUID();
   const txId = randomUUID();
   const account = randomUUID();
+  const cycle = randomUUID();
+  const outcome = randomUUID();
   await t.admin.transaction(async (tx) => {
     await tx.execute(sql`insert into billing.document (id, organization_id, kind, invoice_type_id, number, number_sequence, account_id, currency, total, line_count, issued_on, idempotency_key)
       values (${doc}, ${org}, 'invoice', ${randomUUID()}, ${`${MARK}-INV-1`}, 1, ${account}, 'KES', 645, 2, '2026-10-31', ${`${MARK}-doc`})`);
@@ -261,8 +263,14 @@ async function seedBillingRows(): Promise<{ document: string; account: string }>
       values (${txId}, ${org}, 'charge', 'KES', 2, '2026-10-31', ${doc}, ${`${MARK}-tx`})`);
     await tx.execute(sql`insert into billing.ledger_entry (organization_id, transaction_id, line_no, currency, side, amount, ledger_account, account_id)
       values (${org}, ${txId}, 0, 'KES', 'debit', 645, 'receivable', ${account}), (${org}, ${txId}, 1, 'KES', 'credit', 645, 'revenue', ${account})`);
+    // A billing cycle (Phase 5 P5-3) with its log, one account, an outcome and a review.
+    await tx.execute(sql`insert into billing.cycle (id, organization_id, period, cycle_date, route_id) values (${cycle}, ${org}, '2026-10', '2026-10-31', ${randomUUID()})`);
+    await tx.execute(sql`insert into billing.cycle_event (organization_id, cycle_id, seq, from_state, to_state, kind) values (${org}, ${cycle}, 1, null, 'open', 'open')`);
+    await tx.execute(sql`insert into billing.cycle_account (organization_id, cycle_id, account_id, expected, reason) values (${org}, ${cycle}, ${account}, true, 'eligible')`);
+    await tx.execute(sql`insert into billing.cycle_outcome (id, organization_id, cycle_id, account_id, outcome, document_id, amount) values (${outcome}, ${org}, ${cycle}, ${account}, 'billed', ${doc}, 645)`);
+    await tx.execute(sql`insert into billing.cycle_review (organization_id, cycle_id, account_id, outcome_id, decision, basis) values (${org}, ${cycle}, ${account}, ${outcome}, 'approve', 'bulk')`);
   });
-  return { document: doc, account };
+  return { document: doc, account, cycle };
 }
 
 /**
@@ -815,6 +823,17 @@ const CALLS: Record<string, (b: Canary) => unknown[]> = {
   "billing.debitNotes.issue": (b) => [
     { approvalId: b.approval, accountId: b.billing.account, invoiceTypeId: b.tariffs.invoiceType, relatedDocumentId: b.billing.document, lines: [{ description: "x", amount: 100n }], note: "x" },
   ],
+  "billing.cycles.open": (b) => [{ routeId: b.metering.route, period: "2026-10" }, { id: b.billing.cycle, routeId: b.metering.route, period: "2026-10" }],
+  "billing.cycles.list": (b) => [{}, { routeId: b.metering.route }, { period: "2026-10" }],
+  "billing.cycles.get": (b) => [{ cycleId: b.billing.cycle }],
+  "billing.cycles.advance": (b) => [{ cycleId: b.billing.cycle, to: "reading_window" }],
+  "billing.cycles.close": (b) => [{ cycleId: b.billing.cycle }],
+  "billing.cycles.accounts": (b) => [{ cycleId: b.billing.cycle }],
+  "billing.cycles.completeness": (b) => [{ cycleId: b.billing.cycle }],
+  "billing.cycles.recordOutcome": (b) => [{ cycleId: b.billing.cycle, accountId: b.billing.account, outcome: "excluded", reason: "A excludes B's account" }],
+  "billing.cycles.review.queue": (b) => [{ cycleId: b.billing.cycle }],
+  "billing.cycles.review.bulkApprove": (b) => [{ cycleId: b.billing.cycle }],
+  "billing.cycles.review.decide": (b) => [{ cycleId: b.billing.cycle, accountId: b.billing.account, decision: "approve" }],
   "billing.documents.get": (b) => [{ id: b.billing.document }],
   "billing.documents.list": (b) => [{}, { accountId: b.billing.account }, { kind: "invoice", limit: 5 }],
   "billing.documents.void": (b) => [{ idempotencyKey: "canary-a-void-1", documentId: b.billing.document, reason: "A voids B's invoice" }],
@@ -890,7 +909,7 @@ describe("isolation canary", () => {
     // Tables only the worker or Flowless fill, or that B's seed has no reason to touch.
     expect(empty.filter((table) => !["kernel.approval_decision", "kernel.consumer_receipt"].includes(table))).toEqual([]);
     // Every gis, work_orders, accounts (including the command log and the checklist) , tariffs and billing table is covered ("the canary covers every table").
-    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(59);
+    expect(Object.keys(await snapshotB()).filter((table) => !table.startsWith("kernel.")).length).toBe(64);
   });
 
   it("returns no tenant B identifier from any endpoint, and changes nothing of B's", async () => {
@@ -936,6 +955,7 @@ describe("isolation canary", () => {
       "tariffs.chargeItems.list",
       "tariffs.invoiceTypes.list",
       "billing.documents.list",
+      "billing.cycles.list",
       "metering.meters.list",
       "metering.readings.list",
       "metering.attempts.list",
@@ -950,7 +970,7 @@ describe("isolation canary", () => {
     }
     expect(seen).toContain(MARK);
     expect(seen).toContain(b.accounts.customer);
-    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document, b.metering.meter, b.metering.reading, b.metering.attempt, b.metering.snapshot, b.metering.handover].filter((id) => !seen.has(id))).toEqual([]);
+    expect([b.scheme, b.exception, b.notification, b.grant, b.workOrder, b.crew, b.gis.valve.id, b.gis.dma.id, b.gis.conditionLog, b.accounts.customer, b.accounts.account, b.accounts.child, b.accounts.servicePoint, b.accounts.application, b.accounts.relocation, b.tariffs.tariff, b.tariffs.category, b.tariffs.chargeItem, b.tariffs.invoiceType, b.billing.document, b.billing.cycle, b.metering.meter, b.metering.reading, b.metering.attempt, b.metering.snapshot, b.metering.handover].filter((id) => !seen.has(id))).toEqual([]);
     expect(bIdentifiers.size).toBeGreaterThan(10);
   });
 

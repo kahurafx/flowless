@@ -118,7 +118,12 @@ export const closedPeriodSource: ClosedPeriodSource = async (tx) => {
     select max(d.period_to)::text as through from billing.document d
      where d.kind <> 'reversal' and d.period_to is not null
        and not exists (select 1 from billing.document r where r.organization_id = d.organization_id and r.reverses_document_id = d.id)`);
-  const through = rows[0]?.through;
+  // B-15: a closed cycle also closes its period, even for an account with no document in it.
+  const cycles = await tx.execute<{ through: string | null }>(sql`
+    select (to_date(max(period) || '-01', 'YYYY-MM-DD') + interval '1 month' - interval '1 day')::date::text as through
+      from billing.cycle where state = 'closed'`);
+  const days = [rows[0]?.through, cycles[0]?.through].filter((d): d is string => !!d).sort();
+  const through = days[days.length - 1];
   return through ? new Date(`${through}T00:00:00Z`) : null;
 };
 
