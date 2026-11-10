@@ -3,8 +3,13 @@ import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { procedureEnv } from "../../kernel/action-env";
-import { accountVisibleTo, visibleAccountIds, type Viewer } from "../accounts";
+import { accountVisibleTo, servicePointOf, visibleAccountIds, type Viewer } from "../accounts";
 import { router } from "../../trpc";
+import { bulkDueInputSchema, bulkSchedule } from "./bulk";
+import { listSnapshots, readingTasks, snapshotById, snapshotFor, snapshotsInputSchema, takeSnapshot, takeSnapshotInputSchema, type SnapshotView } from "./eligibility";
+import { handoversInputSchema, linkClosingInputSchema, linkClosingReading, listHandovers } from "./handover";
+import { attemptInputSchema, attemptsFor, attemptsInputSchema, outcomeMapping, recordAttempt } from "./outcomes";
+import { consecutiveEstimates, consecutiveMisses } from "./policy";
 import { installationsInputSchema, installInputSchema, installMeter, listInstallations, removeInputSchema, removeMeter, replaceInputSchema, replaceMeter } from "./installations";
 import { meteringProcedures as p } from "./procedures";
 import { latestActualReading, queryReadings, readingById } from "./reads";
@@ -27,6 +32,13 @@ import type { Transaction as Tx } from "@flowless/db";
 async function assertVisible(tx: Tx, viewer: Viewer, accountId: string | null): Promise<void> {
   if (viewer.scope.kind === "all") return;
   if (!accountId || !(await accountVisibleTo(tx, viewer, accountId))) throw new TRPCError({ code: "NOT_FOUND", message: "Reading not found" });
+}
+
+/** K-03: a limited viewer sees only the snapshot rows of accounts they can see. */
+async function visibleSnapshot(tx: Tx, viewer: Viewer, snapshot: SnapshotView): Promise<SnapshotView> {
+  if (viewer.scope.kind === "all") return snapshot;
+  const visible = new Set(await visibleAccountIds(tx, viewer));
+  return { ...snapshot, rows: snapshot.rows.filter((r) => visible.has(r.accountId)) };
 }
 
 /**
@@ -129,5 +141,70 @@ export const meteringRouter = router({
         if (found) await assertVisible(ctx.tx, ctx.viewer, found.accountId);
         return found;
       }),
+  }),
+  /** M-06, M-09: visits to read a service point, with the outcome the reader found. */
+  attempts: router({
+    record: p.capture.input(attemptInputSchema).mutation(async ({ ctx, input }) => {
+      const result = await recordAttempt(procedureEnv(ctx), input);
+      await assertVisible(ctx.tx, ctx.viewer, result.attempt.accountId);
+      return result;
+    }),
+    list: p.read.input(attemptsInputSchema.default({ limit: 50 })).query(async ({ ctx, input }) => {
+      if (input.accountId) await assertVisible(ctx.tx, ctx.viewer, input.accountId);
+      return attemptsFor(ctx.tx, ctx.viewer.scope.kind === "all" ? input : { ...input, accountIds: await visibleAccountIds(ctx.tx, ctx.viewer) });
+    }),
+  }),
+
+  outcomes: router({
+    /** What each outcome means for billing in this organization (`metering.outcomes` over the engine's defaults). */
+    mapping: p.read.query(({ ctx }) => outcomeMapping(ctx.tx)),
+  }),
+
+  misses: router({
+    /** The derived counters of a service point: visits without a reading, and estimates in a row. */
+    get: p.read.input(z.object({ servicePointId: z.uuid() })).query(async ({ ctx, input }) => {
+      const sp = await servicePointOf(ctx.tx, input.servicePointId);
+      if (!sp) throw new TRPCError({ code: "NOT_FOUND", message: "Service point not found" });
+      await assertVisible(ctx.tx, ctx.viewer, sp.accountId);
+      return { servicePointId: input.servicePointId, consecutiveMisses: await consecutiveMisses(ctx.tx, input.servicePointId), consecutiveEstimates: await consecutiveEstimates(ctx.tx, input.servicePointId) };
+    }),
+  }),
+
+  /** M-08: the eligibility snapshot per route and cycle date, and the reading tasks derived from it. */
+  snapshots: router({
+    take: p.register.input(takeSnapshotInputSchema).mutation(async ({ ctx, input }) => {
+      const result = await takeSnapshot(procedureEnv(ctx), input);
+      return { ...result, snapshot: await visibleSnapshot(ctx.tx, ctx.viewer, result.snapshot) };
+    }),
+    list: p.read.input(snapshotsInputSchema.default({ limit: 20 })).query(({ ctx, input }) => listSnapshots(ctx.tx, input)),
+    get: p.read.input(z.union([z.object({ snapshotId: z.uuid() }), z.object({ routeId: z.uuid(), cycleDate: z.iso.date() })])).query(async ({ ctx, input }) => {
+      const found = "snapshotId" in input ? await snapshotById(ctx.tx, input.snapshotId) : await snapshotFor(ctx.tx, input.routeId, input.cycleDate);
+      if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Snapshot not found" });
+      return visibleSnapshot(ctx.tx, ctx.viewer, found);
+    }),
+    tasks: p.read.input(z.object({ snapshotId: z.uuid() })).query(async ({ ctx, input }) => {
+      const found = await snapshotById(ctx.tx, input.snapshotId);
+      if (!found) throw new TRPCError({ code: "NOT_FOUND", message: "Snapshot not found" });
+      const visible = ctx.viewer.scope.kind === "all" ? undefined : new Set(await visibleAccountIds(ctx.tx, ctx.viewer));
+      return readingTasks(ctx.tx, found, visible);
+    }),
+  }),
+
+  /** C-08, C-10: closing readings owed when an account changes hands or holder. */
+  handovers: router({
+    list: p.read.input(handoversInputSchema.default({ limit: 50 })).query(async ({ ctx, input }) =>
+      listHandovers(ctx.tx, ctx.viewer.scope.kind === "all" ? input : { ...input, accountIds: await visibleAccountIds(ctx.tx, ctx.viewer) }),
+    ),
+    linkClosing: p.approve.input(linkClosingInputSchema).mutation(async ({ ctx, input }) => {
+      const result = await linkClosingReading(procedureEnv(ctx), input);
+      const linked = await readingById(ctx.tx, result.readingId);
+      await assertVisible(ctx.tx, ctx.viewer, linked?.accountId ?? null);
+      return result;
+    }),
+  }),
+
+  /** M-12: bulk and master meters due for reading by their DMA's schedule. */
+  bulk: router({
+    schedule: p.meters.input(bulkDueInputSchema.default({})).query(({ ctx, input }) => bulkSchedule(ctx.tx, input.asOf)),
   }),
 });

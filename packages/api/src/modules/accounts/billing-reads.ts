@@ -1,7 +1,7 @@
 import type { Transaction } from "@flowless/db";
 import { account, servicePoint } from "@flowless/db/schema/accounts";
 import type { CommercialStatus, ServiceState } from "@flowless/shared-types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { ActionEnv } from "../../kernel/action-env";
 import { readSetting } from "../../kernel/config-store";
 import { accountVisible, type Viewer } from "./access";
@@ -60,6 +60,57 @@ export async function servicePointOf(tx: Transaction, servicePointId: string): P
   return row
     ? { servicePointId: row.id, accountId: row.accountId, areaId: row.dma ?? row.zone ?? row.scheme ?? null, routeId: row.routeId, connectionStatus: row.status }
     : null;
+}
+
+/** One live-or-not service point on a route with its account's state and whether consumption is billed there (M-08). */
+export interface RouteServicePointFact {
+  servicePointId: string;
+  accountId: string;
+  accountNumber: string;
+  routeId: string;
+  connectionStatus: string;
+  commercialStatus: CommercialStatus;
+  serviceStatus: ServiceState;
+  /** C-04: does the organization bill consumption for an account in this state? */
+  billsConsumption: boolean;
+  /** Walking sequence on the route (S): Accounts holds none yet, so always null. */
+  walkingSequence: number | null;
+}
+
+/** Every service point on a route, for Metering's eligibility snapshot (M-08); account number order. Accounts decides what bills (C-04), Metering never reads its tables. */
+export async function routeServicePointFacts(tx: Transaction, routeId: string): Promise<RouteServicePointFact[]> {
+  const rules = (await readSetting(tx, statusRulesSetting)).value;
+  const rows = await tx
+    .select({
+      sp: servicePoint.id,
+      accountId: account.id,
+      number: account.number,
+      connectionStatus: servicePoint.connectionStatus,
+      commercial: account.commercialStatus,
+      service: account.serviceStatus,
+    })
+    .from(servicePoint)
+    .innerJoin(account, and(eq(account.organizationId, servicePoint.organizationId), eq(account.id, servicePoint.accountId)))
+    .where(eq(servicePoint.routeId, routeId))
+    .orderBy(account.number, servicePoint.id);
+  return rows.map((r) => ({
+    servicePointId: r.sp,
+    accountId: r.accountId,
+    accountNumber: r.number,
+    routeId,
+    connectionStatus: r.connectionStatus,
+    commercialStatus: r.commercial,
+    serviceStatus: r.service,
+    billsConsumption: chargesApplying(rules, r.commercial, r.service).billsConsumption,
+    walkingSequence: null,
+  }));
+}
+
+/** Which account owns each service point, and whether the point is still in use (not decommissioned); unknown ids are left out. */
+export async function servicePointOwners(tx: Transaction, ids: readonly string[]): Promise<{ servicePointId: string; accountId: string; live: boolean }[]> {
+  if (!ids.length) return [];
+  const rows = await tx.select({ id: servicePoint.id, accountId: servicePoint.accountId, status: servicePoint.connectionStatus }).from(servicePoint).where(inArray(servicePoint.id, [...ids]));
+  return rows.map((r) => ({ servicePointId: r.id, accountId: r.accountId, live: r.status !== "DECOMMISSIONED" }));
 }
 
 /** Can the viewer see this account (K-03)? An account that does not exist is not visible to a limited viewer. */

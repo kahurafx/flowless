@@ -11,6 +11,7 @@ import { raiseException, resolveByDedupeKey } from "../../kernel/exception-store
 import { regionalSetting } from "../../kernel/regional";
 import { servicePointOf } from "../accounts";
 import { closedThrough } from "../tariffs";
+import { applyReadingPolicy } from "./policy";
 import { readingRecorded, readingStatusChanged } from "./events";
 import { queryReadings, readingById, type ReadingView } from "./reads";
 import { meteringValidationSetting } from "./settings";
@@ -233,7 +234,9 @@ export async function recordReading(env: ActionEnv, input: Omit<RecordInput, "so
     inClosedPeriod: closed,
     replacesReadingId: row.replacesReadingId,
   });
-  return { reading: (await readingById(env.tx, row.id))!, replayed: false };
+  const view = (await readingById(env.tx, row.id))!;
+  await applyReadingPolicy(env, view, { servicePointId: row.servicePointId, accountId: row.accountId, areaId: sp?.areaId ?? null, routeId: sp?.routeId ?? null });
+  return { reading: view, replayed: false };
 }
 
 /** M-03: an estimate is stored as a reading of its own type, never a baseline. */

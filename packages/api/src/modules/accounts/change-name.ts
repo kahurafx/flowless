@@ -83,7 +83,7 @@ async function applyChangeName(env: UserActionEnv, viewer: Viewer, acct: Account
     commandId,
   });
   const closingReadingRef = req.closingReadingRef?.trim() || handover.closingReadingRef;
-  const pending = handover.state === "pending_metering" && !closingReadingRef;
+  const pending = !closingReadingRef && (handover.state === "pending_metering" || handover.closingReadingPending);
   const payload = {
     fromCustomerId: acct.customerId,
     toCustomerId,

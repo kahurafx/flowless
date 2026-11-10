@@ -96,8 +96,8 @@ export interface ReadingHandoverRequest {
   effectiveDate: string;
   commandId: string;
 }
-/** Metering registers it; it may return the reference of the closing reading it recorded. */
-export type ReadingHandover = (tx: Transaction, organizationId: string, request: ReadingHandoverRequest) => Promise<{ closingReadingRef?: string | null } | void>;
+/** Metering registers it; it may return the reference of the closing reading it found, and `closingReadingPending: true` when it still owes one (it tracks that itself). */
+export type ReadingHandover = (tx: Transaction, organizationId: string, request: ReadingHandoverRequest) => Promise<{ closingReadingRef?: string | null; closingReadingPending?: boolean } | void>;
 
 const balanceTransfer = definePort<BalanceTransfer>();
 const readingHandover = definePort<ReadingHandover>();
@@ -125,11 +125,11 @@ export async function handOverReadings(
   tx: Transaction,
   organizationId: string,
   request: ReadingHandoverRequest,
-): Promise<{ state: "done" | "pending_metering"; closingReadingRef: string | null }> {
+): Promise<{ state: "done" | "pending_metering"; closingReadingRef: string | null; closingReadingPending: boolean }> {
   const handler = await readingHandover.resolve(tx);
-  if (!handler) return { state: "pending_metering", closingReadingRef: null };
+  if (!handler) return { state: "pending_metering", closingReadingRef: null, closingReadingPending: false };
   const result = await handler(tx, organizationId, request);
-  return { state: "done", closingReadingRef: (result && result.closingReadingRef) || null };
+  return { state: "done", closingReadingRef: (result && result.closingReadingRef) || null, closingReadingPending: Boolean(result && result.closingReadingPending) };
 }
 
 /*

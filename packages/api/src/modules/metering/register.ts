@@ -1,10 +1,11 @@
 import type { Transaction } from "@flowless/db";
 import { installation, meter, meterEvent } from "@flowless/db/schema/metering";
-import { canMoveMeter, MAX_DIAL_DIGITS, METER_STATUSES, MIN_DIAL_DIGITS, type MeterStatus } from "@flowless/shared-types";
+import { canMoveMeter, MAX_DIAL_DIGITS, METER_KINDS, METER_STATUSES, MIN_DIAL_DIGITS, type MeterStatus } from "@flowless/shared-types";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, gt, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { UserActionEnv } from "../../kernel/action-env";
+import { areasById } from "../../kernel/areas";
 import { isUniqueViolation } from "../../kernel/pg-errors";
 import { likeEscape } from "../../kernel/text";
 import { meterStatusChanged } from "./events";
@@ -25,6 +26,10 @@ export const registerInputSchema = z.object({
   /** Where the meter enters the register. */
   status: z.enum(["procured", "in_stock"]).default("in_stock"),
   note: z.string().trim().max(1000).default(""),
+  /** M-12: a customer meter (default), or a bulk meter on a DMA / master meter on a scheme. */
+  kind: z.enum(METER_KINDS).default("customer"),
+  /** M-12: the DMA a bulk meter measures (a kernel area id); refused for a customer meter. */
+  dmaId: z.uuid().optional(),
 });
 
 export const statusInputSchema = z.object({
@@ -36,12 +41,14 @@ export const statusInputSchema = z.object({
 });
 
 export function toMeterDto(m: MeterRow) {
-  return { id: m.id, serial: m.serial, model: m.model, dialDigits: m.dialDigits, status: m.status, note: m.note, createdAt: m.createdAt };
+  return { id: m.id, serial: m.serial, model: m.model, dialDigits: m.dialDigits, status: m.status, kind: m.kind, dmaId: m.dmaId, note: m.note, createdAt: m.createdAt };
 }
 export type MeterDto = ReturnType<typeof toMeterDto>;
 
 export async function registerMeter(env: UserActionEnv, input: z.infer<typeof registerInputSchema>) {
-  const fingerprint = fingerprintOf({ serial: input.serial.toLowerCase(), model: input.model, dialDigits: input.dialDigits, status: input.status });
+  const fingerprint = fingerprintOf({ serial: input.serial.toLowerCase(), model: input.model, dialDigits: input.dialDigits, status: input.status, kind: input.kind, dmaId: input.dmaId });
+  if (input.kind === "customer" && input.dmaId) throw new TRPCError({ code: "BAD_REQUEST", message: "Only a bulk or master meter measures a DMA" });
+  if (input.dmaId && !(await areasById(env.tx, [input.dmaId])).has(input.dmaId)) throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
   if (input.id) {
     const [earlier] = await env.tx.select().from(meter).where(eq(meter.id, input.id));
     if (earlier) {
@@ -54,7 +61,7 @@ export async function registerMeter(env: UserActionEnv, input: z.infer<typeof re
   try {
     [row] = await env.tx
       .insert(meter)
-      .values({ ...(input.id ? { id: input.id } : {}), organizationId: env.organizationId, serial: input.serial, model: input.model, dialDigits: input.dialDigits, status: input.status, note: input.note, createdByUserId: env.actor.userId })
+      .values({ ...(input.id ? { id: input.id } : {}), organizationId: env.organizationId, serial: input.serial, model: input.model, dialDigits: input.dialDigits, status: input.status, kind: input.kind, dmaId: input.dmaId ?? null, note: input.note, createdByUserId: env.actor.userId })
       .returning() as [MeterRow];
   } catch (error) {
     if (isUniqueViolation(error)) throw new TRPCError({ code: "CONFLICT", message: `A meter with serial ${input.serial} is already in the register` });
@@ -94,6 +101,7 @@ export async function findMeter(tx: Transaction, meterId: string): Promise<Meter
 
 export const listInputSchema = z.object({
   status: z.enum(METER_STATUSES).optional(),
+  kind: z.enum(METER_KINDS).optional(),
   search: z.string().trim().max(64).optional(),
   after: z.string().max(64).optional(),
   limit: z.number().int().min(1).max(200).default(50),
@@ -103,6 +111,7 @@ export const listInputSchema = z.object({
 export async function listMeters(tx: Transaction, input: z.infer<typeof listInputSchema>) {
   const where = and(
     input.status ? eq(meter.status, input.status as MeterStatus) : undefined,
+    input.kind ? eq(meter.kind, input.kind) : undefined,
     input.search ? ilike(meter.serial, `%${likeEscape(input.search)}%`) : undefined,
     input.after ? gt(sql`lower(${meter.serial})`, input.after.toLowerCase()) : undefined,
   );

@@ -1,5 +1,7 @@
 import type { KernelRegistrar } from "../../kernel/registrar";
 import { readingFileSubject } from "./files";
+import { meteringBulkSetting, meteringMissesSetting, meteringOutcomesSetting, meteringZeroSetting } from "./policy-settings";
+import { closeAndOpenOnRelocation, registerPorts } from "./ports";
 import { meteringValidationSetting } from "./settings";
 
 /*
@@ -17,8 +19,24 @@ export { latestActualReading, readingsFor, type ReadingsFor, type ReadingView } 
 // Pure rules, for tests and for clients that want to explain a flag.
 export { blocks, expectedPerDay, validateReading, type ValidationInput, type ValidationResult } from "./validate";
 
+// Outcomes and dispositions (M-06), visits and the derived miss counters (M-09), the eligibility snapshot (M-08), bulk schedules (M-12), handovers.
+export { attemptsFor, dispositionFor, outcomeMapping, type AttemptView } from "./outcomes";
+export { consecutiveEstimates, consecutiveMisses } from "./policy";
+export { eligibilityOf, readingTasks, snapshotById, snapshotFor, type ReadingTask, type SnapshotRow, type SnapshotView } from "./eligibility";
+export { bulkSchedule, type BulkDue } from "./bulk";
+export { listHandovers, type HandoverView } from "./handover";
+export { activeMeteredNoMeter, closeAndOpenOnRelocation, initialReadingSource, registerPorts } from "./ports";
+export { meteringBulkSchema, meteringMissesSchema, meteringOutcomesSchema, meteringZeroSchema } from "./policy-settings";
+export { eligibilitySnapshotTaken, estimateCapReached, missThresholdReached, readingAttempted, readingHandoverOpened, selfReadPromptDue, zeroConsumptionStreak } from "./events-policy";
+
 /** Adds Metering's setting and file subject to the kernel's registries; called in `wiring.ts`. */
 export function registerKernel(kernel: KernelRegistrar) {
   kernel.setting(meteringValidationSetting);
+  kernel.setting(meteringOutcomesSetting);
+  kernel.setting(meteringMissesSetting);
+  kernel.setting(meteringZeroSetting);
+  kernel.setting(meteringBulkSetting);
   kernel.fileSubject(readingFileSubject);
+  kernel.consumer(closeAndOpenOnRelocation);
+  registerPorts();
 }

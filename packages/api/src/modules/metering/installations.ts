@@ -4,7 +4,7 @@ import { canMoveMeter, READING_QUALITIES, type MeterStatus } from "@flowless/sha
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { UserActionEnv } from "../../kernel/action-env";
+import type { ActionEnv } from "../../kernel/action-env";
 import { servicePointOf } from "../accounts";
 import { meterInstalled, meterRemoved, meterReplaced } from "./events";
 import { readingById, type ReadingView } from "./reads";
@@ -77,12 +77,12 @@ async function openInstallation(tx: Transaction, meterId: string) {
   return row;
 }
 
-async function boundary(env: UserActionEnv, meterId: string, at: Date, installationId: string, purpose: "initial" | "final", r: BoundaryReading): Promise<ReadingView> {
+async function boundary(env: ActionEnv, meterId: string, at: Date, installationId: string, purpose: "initial" | "final", r: BoundaryReading): Promise<ReadingView> {
   const { source, ...rest } = r;
   return (await recordReading(env, { ...rest, meterId, readAt: at }, { source, purpose, installationId })).reading;
 }
 
-async function openAt(env: UserActionEnv, m: MeterRow, servicePointId: string, at: Date, extra: Record<string, unknown> = {}) {
+async function openAt(env: ActionEnv, m: MeterRow, servicePointId: string, at: Date, extra: Record<string, unknown> = {}) {
   const sp = await servicePointOf(env.tx, servicePointId);
   if (!sp) throw new TRPCError({ code: "NOT_FOUND", message: "Service point not found" });
   const [taken] = await env.tx.select({ id: installation.id }).from(installation).where(and(eq(installation.servicePointId, servicePointId), sql`${installation.removedAt} is null`));
@@ -96,7 +96,7 @@ async function openAt(env: UserActionEnv, m: MeterRow, servicePointId: string, a
   return { inst: inst!, sp, extra };
 }
 
-export async function installMeter(env: UserActionEnv, input: z.infer<typeof installInputSchema>) {
+export async function installMeter(env: ActionEnv, input: z.infer<typeof installInputSchema>) {
   const fingerprint = fingerprintOf({ meterId: input.meterId, servicePointId: input.servicePointId, installedAt: input.installedAt, initial: input.initialReading?.value });
   const earlier = await earlierStep(env, input.id, { meterId: input.meterId, kind: "install", fingerprint });
   const m = await lockMeter(env.tx, input.meterId);
@@ -130,7 +130,7 @@ async function replayInstall(tx: Transaction, payload: { installationId: string;
 }
 
 /** Closes the meter's open installation. */
-async function closeInstallation(env: UserActionEnv, m: MeterRow, removedAt: Date) {
+async function closeInstallation(env: ActionEnv, m: MeterRow, removedAt: Date) {
   const inst = await openInstallation(env.tx, m.id);
   if (!inst || m.status !== "installed") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "That meter is not installed" });
   if (removedAt < inst.installedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "A meter cannot be removed before it was installed" });
@@ -138,11 +138,11 @@ async function closeInstallation(env: UserActionEnv, m: MeterRow, removedAt: Dat
   return inst;
 }
 
-async function endInstallation(env: UserActionEnv, instId: string, removedAt: Date, reason: string) {
+async function endInstallation(env: ActionEnv, instId: string, removedAt: Date, reason: string) {
   await env.tx.update(installation).set({ removedAt, removedByUserId: env.actor.userId, removalReason: reason }).where(eq(installation.id, instId));
 }
 
-export async function removeMeter(env: UserActionEnv, input: z.infer<typeof removeInputSchema>) {
+export async function removeMeter(env: ActionEnv, input: z.infer<typeof removeInputSchema>) {
   const fingerprint = fingerprintOf({ meterId: input.meterId, removedAt: input.removedAt, to: input.to, reason: input.reason, final: input.finalReading?.value });
   const earlier = await earlierStep(env, input.id, { meterId: input.meterId, kind: "remove", fingerprint });
   const m = await lockMeter(env.tx, input.meterId);
@@ -170,7 +170,7 @@ export async function removeMeter(env: UserActionEnv, input: z.infer<typeof remo
 }
 
 /** M-07: swap a meter on its service point, capturing the old final and the new initial reading. */
-export async function replaceMeter(env: UserActionEnv, input: z.infer<typeof replaceInputSchema>) {
+export async function replaceMeter(env: ActionEnv, input: z.infer<typeof replaceInputSchema>) {
   if (input.oldMeterId === input.newMeterId) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a different meter to replace it with" });
   const fingerprint = fingerprintOf({ old: input.oldMeterId, new: input.newMeterId, at: input.replacedAt, reason: input.reason, final: input.finalReading.value, initial: input.initialReading.value });
   const earlier = await earlierStep(env, input.id, { meterId: input.oldMeterId, kind: "replace", fingerprint });

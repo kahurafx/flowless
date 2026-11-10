@@ -23,6 +23,8 @@ export {
   servicePointCreated,
   serviceStatusChanged,
 } from "./events";
+// Relocation (C-09): Metering closes and opens meters when it is completed.
+export { servicePointRelocated } from "./events-changes";
 export {
   checkDigitOf,
   childAccountNumber,
@@ -35,7 +37,7 @@ export {
 } from "./numbering";
 
 // Billing's reads and system steps (P4-4): status, charges applying now, scope visibility, application invoice and payment references.
-export { accountStatusOf, accountVisibleTo, chargesApplyingTo, recordApplicationInvoiced, recordApplicationPaid, servicePointOf, visibleAccountIds, type AccountStatusView, type ServicePointView } from "./billing-reads";
+export { accountStatusOf, accountVisibleTo, chargesApplyingTo, recordApplicationInvoiced, recordApplicationPaid, routeServicePointFacts, servicePointOf, servicePointOwners, visibleAccountIds, type AccountStatusView, type RouteServicePointFact, type ServicePointView } from "./billing-reads";
 export type { Viewer } from "./access";
 
 // Charges by status (C-04): Billing asks what applies to an account in its status.
