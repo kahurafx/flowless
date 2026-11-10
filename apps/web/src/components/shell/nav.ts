@@ -7,6 +7,11 @@ import {
   FileTextIcon,
   GaugeIcon,
   CalendarClockIcon,
+  FootprintsIcon,
+  RouteIcon,
+  RulerIcon,
+  ScanLineIcon,
+  ArrowLeftRightIcon,
   SlidersHorizontalIcon,
   LayersIcon,
   ReceiptTextIcon,
@@ -62,6 +67,12 @@ const NAV: readonly NavItem[] = [
   { href: "/tariffs/invoice-types", label: "Invoice types", icon: ReceiptTextIcon, module: "tariffs", permission: "tariffs:read" },
   // The Billing group (Phase 5): cycles first; metering and operations follow.
   { href: "/billing/cycles", label: "Billing cycles", icon: CalendarClockIcon, module: "billing", permission: "billing:read" },
+  // The Metering group (Phase 5): the meter register, readings with their review, visits, rounds and handovers.
+  { href: "/metering/meters", label: "Meters", icon: RulerIcon, module: "metering", permission: "meters:read" },
+  { href: "/metering/readings", label: "Readings", icon: ScanLineIcon, module: "metering", permission: "readings:read" },
+  { href: "/metering/visits", label: "Visits", icon: FootprintsIcon, module: "metering", permission: "readings:read" },
+  { href: "/metering/rounds", label: "Reading rounds", icon: RouteIcon, module: "metering", permission: "readings:read" },
+  { href: "/metering/handovers", label: "Reading handovers", icon: ArrowLeftRightIcon, module: "metering", permission: "readings:read" },
   // Work Orders shows at level basic or full: the Work Orders module or GIS (W-01).
   { href: "/work-orders", label: "Work orders", icon: ClipboardListIcon, anyModule: ["work-orders", "gis"], anyPermission: WORK_PERMISSIONS },
   { href: "/work-orders/reviews", label: "Job reviews", icon: ClipboardCheckIcon, anyModule: ["work-orders", "gis"], permission: "work_orders:review" },
